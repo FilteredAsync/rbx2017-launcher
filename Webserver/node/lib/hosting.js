@@ -222,6 +222,14 @@ function startCall(placeId, port, domain, scriptTimeout, cloudEdit = false) {
   return `start(${args.join(', ')})`;
 }
 
+// FriendService: gameserver.lua only creates it inside "if access ~= nil",
+// and start() gets no access key here, so it never existed. Without it RCC
+// never asks who is friends with whom (users/filter-friends and
+// user/multiget-friend-requests on api.<domain>, answered by
+// lib/launcherapi.js), and the player list shows no friend icons and offers
+// friend requests to friends.
+const FRIEND_SERVICE = 'pcall(function() game:GetService("FriendService") end)\r\n';
+
 // game.CreatorId and CreatorType for a library place (places.creatorOf): its
 // Studio owner, or the imported game's original Roblox creator, so scripts
 // that check the creator (admin commands, "is this the real game") see the
@@ -268,7 +276,7 @@ async function startGameJob(placeId, port, domain, scriptTimeout, log, soapPort 
     source = source.split(stock).join(`game:SetServerSaveUrl(${JSON.stringify(cloudEdit.saveUrl)})`);
   }
   // No characters on a Team Create server, so no avatar code.
-  const script = `${source}\r\n${creatorCall(placeId)}${startCall(placeId, port, domain, scriptTimeout, Boolean(cloudEdit))}\r\n${cloudEdit ? '' : appearanceHook()}\r\n`;
+  const script = `${source}\r\n${creatorCall(placeId)}${cloudEdit ? '' : FRIEND_SERVICE}${startCall(placeId, port, domain, scriptTimeout, Boolean(cloudEdit))}\r\n${cloudEdit ? '' : appearanceHook()}\r\n`;
   soap('Execute', executeEnvelope('GameServer', script), 0, soapPort).then((result) => {
     if (result.status < 200 || result.status >= 300) log(`RCC answered the game job with HTTP ${result.status}`);
   }, (error) => log(`game job connection ended: ${error.code || error.message}`));

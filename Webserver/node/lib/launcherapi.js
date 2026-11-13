@@ -470,8 +470,10 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
       const q = ctx.queryLower;
       const reply = (value) => sendJson(ctx, 200, value);
       if (kind === 'statuses') {
-        // The game client's player list and player menu (their CoreScripts
-        // ask here; RCC's own friend lookups never reach this server).
+        // Only edited CoreScripts ask this, and the 2017 client never runs
+        // CoreScripts from its content folder (it uses the ones built into
+        // the program). Friend icons come from RCC's FriendService instead
+        // (filter-friends below), which hosting.js makes sure exists.
         const me = Number(q.userid);
         const statuses = {};
         if (me > 0) for (const id of idList(q.otheruserids)) statuses[id] = friends.status(me, id);
