@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('launcher', {
   onStatusChanged: (callback) => ipcRenderer.on('status-changed', () => callback()),
   downloadFiles: (centralUrl) => ipcRenderer.invoke('files:download', centralUrl),
   installUpdate: () => ipcRenderer.invoke('update:install'),
+  checkForUpdates: () => ipcRenderer.invoke('update:check'),
   joinWithCode: (options) => ipcRenderer.invoke('join:code', options),
   onJoinProgress: (callback) => ipcRenderer.on('join-progress', (event, info) => callback(info)),
   onUpdateStatus: (callback) => ipcRenderer.on('update-status', (event, status) => callback(status)),

@@ -371,7 +371,12 @@ function showSettings(name) {
   document.querySelectorAll('.set-panel').forEach((panel) => panel.classList.toggle('hidden', panel.id !== `set-${name}`));
   if (name === 'setup') refreshChecks();
   if (name === 'host') loadHostThumbnail();
-  if (name === 'about') renderAbout();
+  if (name === 'about') {
+    renderAbout();
+    // Opening About checks again (at most once a minute).
+    const update = latestUpdate || (state && state.update) || {};
+    if (update.state !== 'off' && Date.now() - lastUpdateCheck > 60000) checkForUpdates();
+  }
 }
 document.querySelectorAll('.set-link').forEach((link) => link.addEventListener('click', () => showSettings(link.dataset.panel)));
 
@@ -1315,19 +1320,40 @@ $('open-logs').addEventListener('click', () => api.openFolder('logs'));
 
 // --- about and updates ---------------------------------------------------------------------
 
+let latestUpdate = null; // the newest update status from the main process
+let lastUpdateCheck = 0;
+
 function renderAbout() {
   if (!state) return;
   $('about-version').textContent = `Version ${state.version}${state.filesVersion ? ` · game files ${state.filesVersion}` : ''}`;
-  const update = state.update || {};
+  const update = latestUpdate || state.update || {};
+  const checked = lastUpdateCheck ? ` (checked at ${new Date(lastUpdateCheck).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })})` : '';
   const texts = {
-    current: 'This is the newest version.',
+    checking: 'Checking for updates…',
+    current: `This is the newest version${checked}.`,
     downloading: `Downloading version ${update.version || ''}… ${update.percent || 0}%`,
-    ready: `Version ${update.version} is ready: use "Restart to update" at the top.`,
+    ready: `Version ${update.version} is ready: restart the launcher to use it.`,
     error: `Could not check for updates: ${update.message || ''}`,
     off: 'Updates are off for this copy (run from source or the server package).',
   };
   $('about-update').textContent = texts[update.state] || '';
+  $('about-check').classList.toggle('hidden', update.state === 'off' || update.state === 'ready');
+  $('about-check').disabled = update.state === 'checking' || update.state === 'downloading';
+  $('about-restart').classList.toggle('hidden', update.state !== 'ready');
 }
+
+async function checkForUpdates() {
+  lastUpdateCheck = Date.now();
+  try {
+    latestUpdate = await api.checkForUpdates();
+  } catch (error) {
+    latestUpdate = { state: 'error', message: message(error) };
+  }
+  renderAbout();
+}
+
+$('about-check').addEventListener('click', checkForUpdates);
+$('about-restart').addEventListener('click', () => $('update-pill').click());
 
 // Launcher updates (from the newest GitHub release).
 function showUpdate(status) {
@@ -1337,7 +1363,12 @@ function showUpdate(status) {
   if (status && status.state === 'downloading') pill.textContent = `Downloading update ${status.version || ''}… ${status.percent || 0}%`;
   if (status && status.state === 'ready') pill.textContent = `Restart to update to ${status.version}`;
 }
-api.onUpdateStatus(showUpdate);
+api.onUpdateStatus((status) => {
+  latestUpdate = status;
+  if (status && status.state === 'current' && !lastUpdateCheck) lastUpdateCheck = Date.now();
+  showUpdate(status);
+  if (settingsPanel === 'about') renderAbout();
+});
 $('update-pill').addEventListener('click', async () => {
   if (!$('update-pill').classList.contains('ready')) return;
   try {

@@ -569,6 +569,11 @@ function registerIpc() {
 
   // Accounts, avatars and the catalog (account.js; all on the server in the
   // launcher's settings).
+  ipcMain.handle('update:check', () => {
+    if (!checkForUpdatesNow) throw new Error('This copy does not update itself (it was not installed with Setup.exe).');
+    checkForUpdatesNow();
+    return updateStatus;
+  });
   ipcMain.handle('server:set', (event, centralUrl) => {
     const url = lib('proxy').normalizeCentralUrl(centralUrl);
     if (url === null) throw new Error('That server address does not look right (use http://host or host:port).');
@@ -723,6 +728,8 @@ app.on('window-all-closed', () => app.quit());
 // closes, or at once with the "Restart to update" button. Builds without
 // app-update.yml (running from source, the server package's launcher) skip this.
 let updateStatus = { state: 'off' };
+// Set by setupUpdates when this copy updates itself; Settings > About calls it.
+let checkForUpdatesNow = null;
 
 function setUpdateStatus(status) {
   updateStatus = status;
@@ -740,6 +747,9 @@ function setupUpdates() {
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
   let version = null;
+  autoUpdater.on('checking-for-update', () => {
+    if (!['downloading', 'ready'].includes(updateStatus.state)) setUpdateStatus({ state: 'checking', version: app.getVersion() });
+  });
   autoUpdater.on('update-available', (info) => { version = info.version; setUpdateStatus({ state: 'downloading', version, percent: 0 }); });
   autoUpdater.on('update-not-available', () => setUpdateStatus({ state: 'current', version: app.getVersion() }));
   autoUpdater.on('download-progress', (progress) => setUpdateStatus({ state: 'downloading', version, percent: Math.round(progress.percent) }));
@@ -752,7 +762,12 @@ function setupUpdates() {
     setImmediate(() => autoUpdater.quitAndInstall(true, true));
     return true;
   });
-  const check = () => autoUpdater.checkForUpdates().catch(() => {});
-  setTimeout(check, 8000);
-  setInterval(check, 6 * 60 * 60 * 1000);
+  // At start, every 30 minutes, and from Settings > About. Not while an
+  // update is already downloading or waiting for a restart.
+  checkForUpdatesNow = () => {
+    if (['checking', 'downloading', 'ready'].includes(updateStatus.state)) return;
+    autoUpdater.checkForUpdates().catch(() => {});
+  };
+  setTimeout(checkForUpdatesNow, 8000);
+  setInterval(checkForUpdatesNow, 30 * 60 * 1000);
 }
