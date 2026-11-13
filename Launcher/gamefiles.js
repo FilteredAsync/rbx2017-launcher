@@ -4,9 +4,11 @@
 // On first run, and when the server has a newer version, the launcher
 // downloads <server>/download/client-files.zip, checks its size and SHA-256,
 // and unpacks it into the install folder; config/client-files.json records
-// the version. No Electron here, so it can be tested with plain Node.
+// the version. kind 'studio' does the same for Roblox Studio
+// (studio-files.zip, unpacked as Studio/). No Electron here, so it can be
+// tested with plain Node.
 //
-//   const files = require('./gamefiles')({ root, normalizeUrl, canPlay, onProgress });
+//   const files = require('./gamefiles')({ root, normalizeUrl, canPlay, onProgress, kind });
 //   files.installed()            -> { version, ... } or null
 //   await files.download(url)    -> { version }
 //   await files.update(url)      -> { installed, available, size } or null
@@ -16,8 +18,14 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-module.exports = function gameFiles({ root, normalizeUrl, canPlay, onProgress = () => {} }) {
-  const stateFile = path.join(root, 'config', 'client-files.json');
+const KINDS = {
+  client: { file: 'client-files', what: 'the game files', missing: 'the client is missing', build: 'tools/build-client-files.py' },
+  studio: { file: 'studio-files', what: 'Studio', missing: 'Studio is missing', build: 'tools/build-client-files.py studio' },
+};
+
+module.exports = function gameFiles({ root, normalizeUrl, canPlay, onProgress = () => {}, kind = 'client' }) {
+  const k = KINDS[kind];
+  const stateFile = path.join(root, 'config', `${k.file}.json`);
   let busy = false;
 
   function installed() {
@@ -31,15 +39,15 @@ module.exports = function gameFiles({ root, normalizeUrl, canPlay, onProgress = 
   async function manifestFrom(url, timeoutMs = 8000) {
     let response;
     try {
-      response = await fetch(`${url}/download/client-files.json`, { signal: AbortSignal.timeout(timeoutMs) });
+      response = await fetch(`${url}/download/${k.file}.json`, { signal: AbortSignal.timeout(timeoutMs) });
     } catch (error) {
       throw new Error(`Could not reach ${url}. Is Tailscale connected, and is the server running?`);
     }
-    if (response.status === 404) throw new Error('That server has no game files to hand out yet (its host runs tools/build-client-files.py).');
+    if (response.status === 404) throw new Error(`That server has no ${kind === 'studio' ? 'Studio' : 'game files'} to hand out yet (its host runs ${k.build}).`);
     if (!response.ok) throw new Error(`The server answered HTTP ${response.status}.`);
     const manifest = await response.json().catch(() => null);
     if (!manifest || !/^[0-9a-f]{64}$/.test(String(manifest.sha256)) || !Number.isFinite(manifest.size)) {
-      throw new Error('The server sent a broken game files list.');
+      throw new Error(`The server sent a broken list for ${k.what}.`);
     }
     return manifest;
   }
@@ -50,25 +58,25 @@ module.exports = function gameFiles({ root, normalizeUrl, canPlay, onProgress = 
       const child = spawn(tar, ['-xf', zip, '-C', destination], { windowsHide: true });
       let errors = '';
       child.stderr.on('data', (chunk) => { errors += chunk; });
-      child.on('error', (error) => reject(new Error(`Could not unpack the game files: ${error.message}`)));
-      child.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`Could not unpack the game files: ${errors.trim().slice(0, 200) || `tar exit code ${code}`}`))));
+      child.on('error', (error) => reject(new Error(`Could not unpack ${k.what}: ${error.message}`)));
+      child.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`Could not unpack ${k.what}: ${errors.trim().slice(0, 200) || `tar exit code ${code}`}`))));
     });
   }
 
   async function download(centralUrl) {
-    if (busy) throw new Error('The game files are already downloading.');
+    if (busy) throw new Error(`${kind === 'studio' ? 'Studio is' : 'The game files are'} already downloading.`);
     const url = normalizeUrl(centralUrl || '');
     if (url === null) throw new Error('Enter the server address first, for example http://100.101.102.103');
     busy = true;
     const folder = path.join(root, 'downloads');
-    const part = path.join(folder, 'client-files.zip.part');
+    const part = path.join(folder, `${k.file}.zip.part`);
     try {
       onProgress({ phase: 'checking' });
       const manifest = await manifestFrom(url);
       fs.mkdirSync(folder, { recursive: true });
       let response;
       try {
-        response = await fetch(`${url}/download/client-files.zip`);
+        response = await fetch(`${url}/download/${k.file}.zip`);
       } catch (error) {
         throw new Error(`The download could not start: ${error.cause && error.cause.code ? error.cause.code : error.message}`);
       }
@@ -101,7 +109,7 @@ module.exports = function gameFiles({ root, normalizeUrl, canPlay, onProgress = 
       }
       onProgress({ phase: 'unpack' });
       await unpack(part, root);
-      if (!canPlay()) throw new Error('The game files were unpacked but the client is missing; ask your host to rebuild them.');
+      if (!canPlay()) throw new Error(`${kind === 'studio' ? 'Studio was' : 'The game files were'} unpacked but ${k.missing}; ask your host to rebuild ${kind === 'studio' ? 'it' : 'them'}.`);
       fs.mkdirSync(path.dirname(stateFile), { recursive: true });
       fs.writeFileSync(stateFile, JSON.stringify({ version: manifest.version, sha256: manifest.sha256, from: url, installedAt: new Date().toISOString() }, null, 2));
       onProgress({ phase: 'done', version: manifest.version });

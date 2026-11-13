@@ -36,7 +36,7 @@ const PAGE_FILES = {
 };
 // An empty place: what a newly published game holds until Studio's upload lands.
 const EMPTY_PLACE = Buffer.from('<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">\n</roblox>\n');
-const MAX_PLACE_BYTES = 200 * 1024 * 1024;
+const MAX_PLACE_BYTES = 512 * 1024 * 1024;
 // The Studio in Studio/ (RobloxStudioBeta.exe 0.299.0.136981, from
 // version-963a1dfb081b4bff): what its Team Create version check expects.
 const STUDIO_VERSION_NAME = 'version-963a1dfb081b4bff';
@@ -52,8 +52,14 @@ module.exports = function studioRoutes({ send, sendUtf8, sendFile, sendJson, jso
   // Studio trusts only its own domain, "localhost." with the dot (anything
   // else fails its "trust check"); WinINet drops the dot from Host, so it
   // goes back on here.
+  // A player's launcher proxy forwards Studio's requests with Host set to
+  // this server; the name Studio used comes along as X-Forwarded-Host.
+  function requestHost(ctx) {
+    return String(ctx.req.headers['x-forwarded-host'] || ctx.req.headers.host || '');
+  }
+
   function baseUrl(ctx) {
-    let host = String(ctx.req.headers.host || 'localhost.').replace(/[^A-Za-z0-9.:\-\[\]]/g, '') || 'localhost.';
+    let host = requestHost(ctx).replace(/[^A-Za-z0-9.:\-\[\]]/g, '') || 'localhost.';
     host = host.replace(/(^|\.)localhost(?=:\d+$|$)/i, '$1localhost.');
     return `http://${host}`;
   }
@@ -62,7 +68,7 @@ module.exports = function studioRoutes({ send, sendUtf8, sendFile, sendJson, jso
   // web view's "localhost." and Studio's other hosts) and not HttpOnly, which
   // Studio could not copy into WinINet, where its own requests look for it.
   function sessionCookie(ctx, token, maxAgeSeconds) {
-    const host = String(ctx.req.headers.host || '').replace(/:\d+$/, '').toLowerCase();
+    const host = requestHost(ctx).replace(/:\d+$/, '').toLowerCase();
     const named = /^[a-z0-9-]+(\.[a-z0-9-]+)*\.?$/.test(host) && !/^[\d.]+$/.test(host);
     const domain = named ? `; Domain=.${host.replace(/^www\./, '')}` : '';
     const expires = new Date(Date.now() + maxAgeSeconds * 1000).toUTCString();

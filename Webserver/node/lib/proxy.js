@@ -1,9 +1,19 @@
 'use strict';
 
-// Local forwarding proxy for multiplayer. The 2017 client and RCC only ever
-// talk to http://localhost./ (and RCC to http://www.localhost./), so on a
-// player's or host's PC this listens on port 80 and forwards every request
-// to the central web server (for example its playit TCP address).
+// Local forwarding proxy for multiplayer. The 2017 client, RCC and Studio only
+// ever talk to localhost. names (http://localhost./, http://www.localhost./,
+// and Studio also https://localhost/), so on a player's or host's PC this
+// listens on port 80 (and 443 for Studio) and forwards every request to the
+// central web server, for example http://100.101.102.103.
+//
+// It passes the name the program used as X-Forwarded-Host (Studio's links
+// and cookies must stay on localhost.), and for Team Create it points Studio
+// at a local UDP relay to the server's Team Create game port (the 2017
+// engine only connects to game servers on 127.0.0.1; see relay.js).
+//
+//   startProxy(centralUrl, log, port, { https: true })  -> { close() }
+//   acquireProxy(centralUrl, log)  -> { release() }  one shared proxy for the
+//       game client and Studio, closed when the last one lets go
 
 const http = require('http');
 const https = require('https');
@@ -54,18 +64,64 @@ function portFree(port, host) {
   });
 }
 
+function listen(server, port, host) {
+  return new Promise((resolve) => {
+    server.once('error', resolve);
+    server.listen({ port, host, ipv6Only: host.includes(':') }, () => resolve(null));
+  });
+}
+
+// Studio asking for its Team Create server.
+function isCloudEditLaunch(url) {
+  return /placelauncher\.ashx/i.test(url) && /[?&]request=cloudedit(?:&|$)/i.test(url);
+}
+
 // Starts the proxy on 127.0.0.1 and [::1] (port 80 unless testing with
-// LEGACY_PROXY_PORT). Resolves to { close() }.
-async function startProxy(centralUrl, log, listenPort) {
+// LEGACY_PROXY_PORT; https on 443, or LEGACY_PROXY_HTTPS_PORT, when asked).
+async function startProxy(centralUrl, log, listenPort, options = {}) {
   const port = listenPort || Number(process.env.LEGACY_PROXY_PORT) || 80;
+  const httpsPort = Number(process.env.LEGACY_PROXY_HTTPS_PORT) || 443;
   const target = new URL(centralUrl);
   const client = target.protocol === 'https:' ? https : http;
   const agent = new client.Agent({ keepAlive: true, maxSockets: 32 });
   const targetPort = target.port === '' ? (target.protocol === 'https:' ? 443 : 80) : Number(target.port);
+  const relays = new Map(); // "ip:port" -> relay, for Team Create
 
-  const handler = (req, res) => {
-    const headers = Object.assign({}, req.headers, { host: target.host });
+  async function relayFor(address) {
+    let entry = relays.get(address);
+    if (!entry) {
+      entry = require('./relay').startRelay(address, log);
+      relays.set(address, entry);
+      entry.catch(() => relays.delete(address));
+    }
+    return entry;
+  }
+
+  // Points the Team Create join details ("settings", and the join script
+  // address) at a local relay. Returns the new body, or null to pass as is.
+  async function rewriteCloudEdit(body) {
+    let data;
+    try { data = JSON.parse(body.toString('utf8')); } catch (error) { return null; }
+    const settings = data && data.settings;
+    if (!data || data.status !== 2 || !settings || !settings.MachineAddress || !settings.ServerPort) return null;
+    const relay = await relayFor(`${settings.MachineAddress}:${settings.ServerPort}`);
+    settings.MachineAddress = '127.0.0.1';
+    settings.ServerPort = relay.port;
+    if (typeof data.joinScriptUrl === 'string') {
+      data.joinScriptUrl = data.joinScriptUrl.replace(/([?&]ip=)[^&]*/i, '$1127.0.0.1').replace(/([?&]port=)\d+/i, `$1${relay.port}`);
+    }
+    if (log) log(`Team Create: relaying 127.0.0.1:${relay.port} to ${relay.target}`);
+    return Buffer.from(JSON.stringify(data), 'utf8');
+  }
+
+  const handlerFor = (secure) => (req, res) => {
+    const headers = Object.assign({}, req.headers, {
+      host: target.host,
+      'x-forwarded-host': req.headers.host || 'localhost.',
+      'x-forwarded-proto': secure ? 'https' : 'http',
+    });
     delete headers.connection;
+    const cloudEdit = isCloudEditLaunch(req.url || '');
     const upstream = client.request({
       protocol: target.protocol,
       hostname: target.hostname,
@@ -75,8 +131,25 @@ async function startProxy(centralUrl, log, listenPort) {
       headers,
       agent,
     }, (response) => {
-      res.writeHead(response.statusCode || 502, response.headers);
-      response.pipe(res);
+      if (!cloudEdit || response.statusCode !== 200) {
+        res.writeHead(response.statusCode || 502, response.headers);
+        response.pipe(res);
+        return;
+      }
+      const chunks = [];
+      response.on('data', (chunk) => chunks.push(chunk));
+      response.on('end', async () => {
+        let body = Buffer.concat(chunks);
+        try {
+          body = (await rewriteCloudEdit(body)) || body;
+        } catch (error) {
+          if (log) log(`Team Create: could not start the relay: ${error.message}`);
+        }
+        const out = Object.assign({}, response.headers, { 'content-length': body.length });
+        delete out['transfer-encoding'];
+        res.writeHead(200, out);
+        res.end(body);
+      });
     });
     upstream.on('error', (error) => {
       if (log) log(`proxy: ${req.method} ${req.url} failed: ${error.code || error.message}`);
@@ -88,11 +161,8 @@ async function startProxy(centralUrl, log, listenPort) {
 
   const servers = [];
   for (const host of ['127.0.0.1', '::1']) {
-    const server = http.createServer(handler);
-    const error = await new Promise((resolve) => {
-      server.once('error', resolve);
-      server.listen({ port, host, ipv6Only: host.includes(':') }, () => resolve(null));
-    });
+    const server = http.createServer(handlerFor(false));
+    const error = await listen(server, port, host);
     if (error) {
       if (host === '127.0.0.1') {
         for (const started of servers) started.close();
@@ -105,12 +175,72 @@ async function startProxy(centralUrl, log, listenPort) {
     }
     servers.push(server);
   }
+
+  // Studio also uses https://localhost/; it accepts any certificate.
+  if (options.https) {
+    let tlsFiles = null;
+    try {
+      tlsFiles = require('./selfcert').load(options.certDir || require('./core').rootPath('config'));
+    } catch (error) {
+      if (log) log(`proxy: no https (could not make a certificate: ${error.message}); Studio will not work`);
+    }
+    if (tlsFiles) {
+      for (const host of ['127.0.0.1', '::1']) {
+        const server = https.createServer({ cert: tlsFiles.cert, key: tlsFiles.key }, handlerFor(true));
+        const error = await listen(server, httpsPort, host);
+        if (error) {
+          if (host === '127.0.0.1' && log) log(`proxy: https port ${httpsPort} is in use, so Studio cannot reach the server (${error.code || error.message})`);
+          continue;
+        }
+        servers.push(server);
+      }
+    }
+  }
+
   return {
     close() {
       for (const server of servers) server.close();
       agent.destroy();
+      for (const entry of relays.values()) entry.then((relay) => relay.close(), () => {});
+      relays.clear();
     },
   };
 }
 
-module.exports = { normalizeCentralUrl, centralIsLocalPort80, isLoopbackHost, portFree, startProxy };
+// --- one shared proxy --------------------------------------------------------------------
+// The game client and Studio can run at the same time and both need port 80.
+
+let shared = null; // { url, ready: Promise<proxy>, holders }
+
+async function acquireProxy(centralUrl, log) {
+  if (shared && shared.url !== centralUrl) {
+    throw new Error(`already connected to ${shared.url}; close the game and Studio first`);
+  }
+  if (!shared) {
+    const entry = { url: centralUrl, holders: 0, ready: startProxy(centralUrl, log, undefined, { https: true }) };
+    shared = entry;
+    entry.ready.catch(() => { if (shared === entry) shared = null; });
+  }
+  const entry = shared;
+  entry.holders++;
+  try {
+    await entry.ready;
+  } catch (error) {
+    entry.holders--;
+    throw error;
+  }
+  let released = false;
+  return {
+    release() {
+      if (released) return;
+      released = true;
+      entry.holders--;
+      if (entry.holders === 0 && shared === entry) {
+        shared = null;
+        entry.ready.then((proxy) => proxy.close(), () => {});
+      }
+    },
+  };
+}
+
+module.exports = { normalizeCentralUrl, centralIsLocalPort80, isLoopbackHost, portFree, startProxy, acquireProxy, isCloudEditLaunch };

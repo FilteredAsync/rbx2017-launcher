@@ -31,4 +31,6 @@ contextBridge.exposeInMainWorld('launcher', {
   onJoinProgress: (callback) => ipcRenderer.on('join-progress', (event, info) => callback(info)),
   onUpdateStatus: (callback) => ipcRenderer.on('update-status', (event, status) => callback(status)),
   onFilesProgress: (callback) => ipcRenderer.on('files-progress', (event, info) => callback(info)),
+  openStudio: (centralUrl) => ipcRenderer.invoke('studio:open', centralUrl),
+  onStudioProgress: (callback) => ipcRenderer.on('studio-progress', (event, info) => callback(info)),
 });

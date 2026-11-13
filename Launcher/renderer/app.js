@@ -561,6 +561,25 @@ $('play-manage').addEventListener('click', async () => {
   }
 });
 $('web-manage').addEventListener('click', () => api.openManage('http://127.0.0.1').catch(() => {}));
+// Roblox Studio: downloaded from the server the first time, then started.
+$('play-studio').addEventListener('click', async () => {
+  const button = $('play-studio');
+  button.disabled = true;
+  setStatus('play-status', 'Starting Studio…');
+  try {
+    await api.openStudio($('play-server').value.trim());
+    setStatus('play-status', 'Studio is open: log in on its start page with your Studio account.', 'good');
+  } catch (error) {
+    setStatus('play-status', message(error), 'error');
+  } finally {
+    button.disabled = false;
+  }
+});
+api.onStudioProgress((info) => {
+  if (info.phase === 'checking') setStatus('play-status', 'Contacting the server…');
+  if (info.phase === 'download') setStatus('play-status', `Downloading Studio… ${Math.round(info.received / 1e6)} of ${Math.round(info.total / 1e6)} MB`);
+  if (info.phase === 'unpack') setStatus('play-status', 'Unpacking Studio…');
+});
 $('play-close').addEventListener('click', () => api.stopClient());
 
 // --- host --------------------------------------------------------------------------------

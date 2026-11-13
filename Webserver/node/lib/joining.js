@@ -51,22 +51,23 @@ async function joinGame({ centralUrl, username, game, log = console.log, dryRun 
   if (!validUsername(username)) throw new Error('the username needs 3-20 letters, digits or _');
   const userId = core.localUserId(username);
 
+  // Shared with Studio (both need port 80); closed when neither runs.
   let localProxy = null;
   if (!proxy.centralIsLocalPort80(centralUrl)) {
-    localProxy = await proxy.startProxy(centralUrl, log);
+    localProxy = await proxy.acquireProxy(centralUrl, log);
     log(`Forwarding the client's web requests to ${centralUrl}.`);
   }
   let gameRelay;
   try {
     gameRelay = await relay.startRelay(game.address, log);
   } catch (error) {
-    if (localProxy) localProxy.close();
+    if (localProxy) localProxy.release();
     throw new Error(`could not reach the game address ${game.address}: ${error.message}`);
   }
   log(`Relaying the game connection to ${gameRelay.target}.`);
   const closeAll = () => {
     gameRelay.close();
-    if (localProxy) localProxy.close();
+    if (localProxy) localProxy.release();
   };
 
   const joinUrl = `http://localhost./game/placelauncher.ashx/?gameId=${encodeURIComponent(game.id)}`

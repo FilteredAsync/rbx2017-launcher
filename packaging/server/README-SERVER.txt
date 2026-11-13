@@ -140,8 +140,14 @@ Team Create (building together):
     restart, or when you press Restart on /manage.
   - It needs this always-on server (startServer.bat), not the launcher's
     Host tab.
-For now Studio works on this PC only; Studio on players' PCs comes with a
-launcher update. Log: Webserver
+Players get Studio from the launcher (1.3.0 and newer): GAMES > Open Studio
+downloads it from this server the first time (downloads\studio-files.zip,
+about 120 MB) and starts it; their launcher forwards Studio's requests and
+Team Create's connection here, so nothing else needs opening. If Studio ever
+changes, build its download again on the PC that has it (python
+tools/build-client-files.py studio) and copy downloads\ here; launchers
+update Studio the next time it is opened.
+Log: Webserver
 ode\logs\studio.log.
 
 Managing games

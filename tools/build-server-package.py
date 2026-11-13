@@ -60,7 +60,10 @@ def main():
     add_tree('Webserver/node', exclude=['Webserver/node/logs', 'Webserver/node/data', 'Webserver/node/node_modules'])
     dirs.add(PREFIX + 'Webserver/node/logs/')
     add_tree('Webserver/node/data', exclude=[
-        'Webserver/node/data/places.json', 'Webserver/node/data/control.json', 'Webserver/node/data/runner-status.json'])
+        'Webserver/node/data/places.json', 'Webserver/node/data/control.json', 'Webserver/node/data/runner-status.json',
+        # Studio accounts and the secret behind Studio's edit tokens belong to
+        # this PC; the server makes its own (people log in there again).
+        'Webserver/node/data/accounts.json', 'Webserver/node/data/studio-secret.txt'])
     add_tree('Webserver/www', exclude=['Webserver/www/v1/dump', 'Webserver/www/Error/captures'])
     add_tree('Webserver/bin/apache/certificats')
     for name in ('server.json', 'assets.json', 'README.txt'):
@@ -85,6 +88,12 @@ def main():
             add_file(os.path.join(ROOT, 'downloads', name), 'downloads/' + name)
     else:
         print('note: no downloads/client-files.zip (run tools/build-client-files.py); players with the small Setup.exe cannot get game files from this server')
+    # Roblox Studio for players' launchers (tools/build-client-files.py studio).
+    if os.path.isfile(os.path.join(ROOT, 'downloads', 'studio-files.zip')):
+        for name in ('studio-files.zip', 'studio-files.json'):
+            add_file(os.path.join(ROOT, 'downloads', name), 'downloads/' + name)
+    else:
+        print('note: no downloads/studio-files.zip (run tools/build-client-files.py studio); players cannot get Studio from this server')
 
     missing = [name for name, src in entries.items() if not os.path.isfile(src)]
     if missing:

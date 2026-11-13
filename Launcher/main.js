@@ -130,8 +130,11 @@ async function webStop() {
 
 // What this install can do. A player install (Setup.exe) has the client
 // only; hosting and running the web server need the server files too.
+const STUDIO_EXE = () => path.join(ROOT, 'Studio', 'RobloxStudioBeta.exe');
+
 function capabilities() {
   return {
+    canStudio: fs.existsSync(STUDIO_EXE()),
     canPlay: fs.existsSync(path.join(ROOT, 'Client', 'RobloxPlayerBeta.exe')),
     canHost: fs.existsSync(path.join(ROOT, 'Server', 'RCCService.exe')) && fs.existsSync(path.join(ROOT, 'Webserver', 'www')),
   };
@@ -167,6 +170,77 @@ async function downloadGameFiles(centralUrl) {
 
 function filesUpdate(centralUrl) {
   return gameFiles().update(centralUrl);
+}
+
+// --- Roblox Studio --------------------------------------------------------------------
+// Downloaded from the server like the game files (Studio/), on first use and
+// when the server has a newer one. On a player's PC Studio reaches the
+// server through the shared local proxy (http and https on localhost, plus
+// Team Create's UDP relay); it stays up while any Studio window is open.
+
+let studioFilesModule = null;
+function studioFiles() {
+  if (!studioFilesModule) {
+    studioFilesModule = require('./gamefiles')({
+      root: ROOT,
+      kind: 'studio',
+      normalizeUrl: (url) => lib('proxy').normalizeCentralUrl(url),
+      canPlay: () => fs.existsSync(STUDIO_EXE()),
+      onProgress: (info) => send('studio-progress', info),
+    });
+  }
+  return studioFilesModule;
+}
+
+// Studio windows from this install (each opened place is its own process).
+function studioRunning() {
+  const pattern = `${path.join(ROOT, 'Studio')}\\*`.replace(/'/g, "''");
+  const command = `@(Get-Process RobloxStudioBeta -ErrorAction SilentlyContinue | Where-Object { $_.Path -like '${pattern}' }).Count`;
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-Command', command], { encoding: 'utf8', windowsHide: true });
+  return Number(String(result.stdout || '').trim()) > 0;
+}
+
+let studioHold = null; // { release, timer }
+async function holdProxyForStudio(url, log) {
+  if (lib('proxy').centralIsLocalPort80(url)) return; // the server's own PC
+  if (studioHold) return;
+  const hold = await lib('proxy').acquireProxy(url, log);
+  let idleChecks = 0;
+  const timer = setInterval(() => {
+    idleChecks = studioRunning() ? 0 : idleChecks + 1;
+    if (idleChecks >= 2) {
+      clearInterval(timer);
+      hold.release();
+      studioHold = null;
+      log('Studio closed; stopped forwarding its requests.');
+    }
+  }, 20000);
+  studioHold = { release: hold.release, timer };
+}
+
+async function openStudio(centralUrl) {
+  const joining = lib('joining');
+  const url = lib('proxy').normalizeCentralUrl(centralUrl || (joining.loadConfig() || {}).centralUrl || '');
+  if (url === null) throw new Error('Enter your server address first (GAMES tab).');
+  const log = logger('play');
+  const files = studioFiles();
+  if (!fs.existsSync(STUDIO_EXE())) {
+    log('Downloading Roblox Studio from the server...');
+    await files.download(url);
+  } else if (!studioRunning()) {
+    const update = await files.update(url);
+    if (update) {
+      log(`Updating Roblox Studio (${update.installed} -> ${update.available})...`);
+      await files.download(url);
+    }
+  }
+  await holdProxyForStudio(url, log);
+  const child = spawn(STUDIO_EXE(), [], { cwd: path.dirname(STUDIO_EXE()), detached: true, stdio: 'ignore' });
+  child.on('error', (error) => log(`Could not start Studio: ${error.message}`));
+  child.unref();
+  log(`Roblox Studio started (server ${url}). Log in on its start page.`);
+  send('status-changed');
+  return true;
 }
 
 // --- setup checks -----------------------------------------------------------------
@@ -354,6 +428,7 @@ async function hostThumbnail({ action, centralUrl, placeId, hostKey }) {
 
 function registerIpc() {
   ipcMain.handle('files:download', (event, centralUrl) => downloadGameFiles(centralUrl));
+  ipcMain.handle('studio:open', (event, centralUrl) => openStudio(centralUrl));
   // Join codes (tailscale.js): set up Tailscale with the host's key, remember the server.
   ipcMain.handle('join:code', async (event, options) => {
     const result = await require('./tailscale').join({

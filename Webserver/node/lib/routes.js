@@ -837,7 +837,7 @@ async function convertUpload(ctx, query) {
   const declared = Number(ctx.req.headers['content-length']);
   const bytes = await ctx.body();
   if (bytes.length === 0) return { error: 'no place file was sent' };
-  if (Number.isFinite(declared) && declared !== bytes.length) return { error: 'the upload was cut short (too large? the limit is 256 MB)' };
+  if (Number.isFinite(declared) && declared !== bytes.length) return { error: 'the upload was cut short (too large? the limit is 512 MB)' };
   let universeId = places.placeKey(query.universeid);
   if (universeId === null && places.placeKey(query.fromplace)) {
     universeId = await placefile.universeForPlace(places.placeKey(query.fromplace));
@@ -925,12 +925,17 @@ async function assetsApi(ctx, match) {
 // Setup.exe downloads the client from here on first run (and offers updates
 // when the version changes). Built by tools/build-client-files.py into
 // RobloxClient/downloads/.
-const DOWNLOADS = { 'client-files.json': 'application/json; charset=utf-8', 'client-files.zip': 'application/zip' };
+const DOWNLOADS = {
+  'client-files.json': 'application/json; charset=utf-8', 'client-files.zip': 'application/zip',
+  'studio-files.json': 'application/json; charset=utf-8', 'studio-files.zip': 'application/zip',
+};
 function downloadsRoute(ctx, match) {
   const name = match[1].toLowerCase();
   const file = core.rootPath('downloads', name);
   if (!core.isFile(file)) {
-    return sendJson(ctx, 404, { error: 'this server has no game files to hand out (run tools/build-client-files.py on it)' });
+    return sendJson(ctx, 404, { error: name.startsWith('studio')
+      ? 'this server has no Studio to hand out (run tools/build-client-files.py studio on the PC that has it)'
+      : 'this server has no game files to hand out (run tools/build-client-files.py on it)' });
   }
   sendFile(ctx, file, { 'Content-Type': DOWNLOADS[name], 'Cache-Control': name.endsWith('.json') ? 'no-cache' : 'public, max-age=3600' });
 }
@@ -981,7 +986,7 @@ const ROUTES = [
   [/^api\/thumbnails\/(\d{1,15})\/?$/i, thumbnailsApi],
   [/^api\/places(?:\/(\d{1,15})(?:\/([a-z]+))?)?\/?$/i, placesApi],
   [/^manage(?:\/([a-z.]*))?\/?$/i, managePage],
-  [/^download\/(client-files\.(?:zip|json))$/i, downloadsRoute],
+  [/^download\/((?:client|studio)-files\.(?:zip|json))$/i, downloadsRoute],
   [/^api\/assets\/(?:missing|(\d{1,15})\/replacement)\/?$/i, assetsApi],
   [new RegExp(`^asset(?:/index\\.php)?/?$`, 'i'), assetEndpoint],
   [/^asset\/bodycolors\.(?:ashx|php)$/i, bodyColors],
