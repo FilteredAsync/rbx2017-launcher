@@ -49,7 +49,7 @@ for other players.
 
 Multiplayer (playit tunnels)
 ----------------------------
-One PC runs the web server (e.g. the asyncsmp server). Any number of PCs on
+One PC runs the web server (e.g. an always-on server). Any number of PCs on
 the same network host games with RCCService; players anywhere join them.
 
   Web server PC
