@@ -8,7 +8,8 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "package": "electron-packager . \"RobloxClient Launcher\" --platform=win32 --arch=x64 --out=dist --overwrite --ignore=^/dist --ignore=^/dist-installer --ignore=^/node_modules",
+    "package": "electron-packager . \"RobloxClient Launcher\" --platform=win32 --arch=x64 --out=dist --overwrite --icon=build/icon.ico --ignore=^/dist --ignore=^/dist-installer --ignore=^/node_modules --ignore=^/build",
+    "icon": "electron build/make-icon.js",
     "dist": "electron-builder --win nsis --x64"
   },
   "devDependencies": {
@@ -59,9 +60,13 @@
       }
     ],
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "build/icon.ico"
     },
     "nsis": {
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,

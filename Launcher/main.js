@@ -453,6 +453,8 @@ function createWindow() {
     minHeight: 600,
     backgroundColor: '#121820',
     title: 'RobloxClient Launcher',
+    // Packaged builds take the icon from the .exe; running from source uses this.
+    ...(fs.existsSync(path.join(__dirname, 'build', 'icon.ico')) ? { icon: path.join(__dirname, 'build', 'icon.ico') } : {}),
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
