@@ -10,7 +10,7 @@
 #   add-hosts-entries.ps1           add or refresh the block
 #   add-hosts-entries.ps1 -Remove   remove the block
 
-param([switch] $Remove)
+param([switch] $Remove, [switch] $NoPause)
 
 $isAdmin = ([Security.Principal.WindowsPrincipal] `
     [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
@@ -73,4 +73,4 @@ try {
     Write-Host "Could not update the hosts file: $($_.Exception.Message)" -ForegroundColor Red
     Write-Host "Security software (e.g. Windows Security) may be blocking changes to it."
 }
-Read-Host "`nPress Enter to close"
+if (-not $NoPause) { Read-Host "`nPress Enter to close" }

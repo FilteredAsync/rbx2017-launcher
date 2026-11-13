@@ -153,6 +153,7 @@ function showScreen(name) {
   document.body.classList.toggle('on-account', name === 'account');
   document.body.classList.toggle('on-avatar', name === 'shell' && view === 'avatar');
   if (name === 'start') focusEl($('start-press'));
+  if (name === 'shell') setTimeout(popNews, 400);
   if (name === 'account') {
     $('acct-server').textContent = serverAddress() ? `Server: ${serverAddress()}` : 'No server set yet';
     focusEl($('acct-name').value ? $('acct-pass') : $('acct-name'));
@@ -1376,6 +1377,125 @@ $('update-pill').addEventListener('click', async () => {
   } catch (error) {
     $('update-pill').textContent = message(error);
   }
+});
+
+// --- notices ---------------------------------------------------------------------------------
+
+let toastTimer = null;
+function showToast(text, ms = 9000) {
+  const node = $('toast');
+  node.textContent = text;
+  node.classList.remove('hidden');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => node.classList.add('hidden'), ms);
+}
+
+// --- announcements ---------------------------------------------------------------------------
+// From the host (their server's /manage page) and from the project. Checked
+// every two minutes; dismissed ones stay hidden on this PC. An important one
+// also pops up the first time it is seen past the start and sign-in screens.
+
+const NEWS_DISMISSED = 'newsDismissed';
+const NEWS_SEEN = 'newsSeen';
+
+function storedIds(key) {
+  try { return new Set(JSON.parse(localStorage.getItem(key) || '[]')); } catch (error) { return new Set(); }
+}
+function storeIds(key, ids) {
+  try { localStorage.setItem(key, JSON.stringify([...ids].slice(-200))); } catch (error) { /* storage unavailable */ }
+}
+
+function newsTime(iso) {
+  const time = Date.parse(iso);
+  if (!Number.isFinite(time)) return '';
+  const minutes = Math.round((Date.now() - time) / 60000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes} min ago`;
+  if (minutes < 48 * 60) return `${Math.round(minutes / 60)} h ago`;
+  return new Date(time).toLocaleDateString();
+}
+
+let newsList = [];
+
+function homeFocus() {
+  focusEl(firstFocusable('#view-home') || document.querySelector('.tab-link.active'));
+}
+
+function renderNews() {
+  const box = $('news');
+  const dismissed = storedIds(NEWS_DISMISSED);
+  const shown = newsList.filter((item) => !dismissed.has(item.id));
+  const hadFocus = box.contains(document.activeElement);
+  box.textContent = '';
+  box.classList.toggle('hidden', shown.length === 0);
+  for (const item of shown) {
+    const row = document.createElement('div');
+    row.className = `news-item${item.level === 'important' ? ' important' : ''}`;
+    const body = document.createElement('div');
+    body.className = 'news-body';
+    if (item.title) {
+      const head = document.createElement('div');
+      head.className = 'news-head';
+      head.textContent = item.title;
+      body.append(head);
+    }
+    const text = document.createElement('div');
+    text.className = 'news-text';
+    text.textContent = item.text;
+    const meta = document.createElement('div');
+    meta.className = 'news-meta';
+    meta.textContent = [item.source === 'project' ? 'From the RobloxClient project' : 'From your server', newsTime(item.postedAt)].filter(Boolean).join(' · ');
+    body.append(text, meta);
+    const dismiss = document.createElement('button');
+    dismiss.className = 'news-dismiss nav-target';
+    dismiss.textContent = 'Dismiss';
+    dismiss.addEventListener('click', () => {
+      const ids = storedIds(NEWS_DISMISSED);
+      ids.add(item.id);
+      storeIds(NEWS_DISMISSED, ids);
+      renderNews();
+    });
+    row.append(body, dismiss);
+    box.append(row);
+  }
+  if (hadFocus && !box.contains(document.activeElement) && $('view-home').classList.contains('active')) homeFocus();
+}
+
+async function loadNews() {
+  let result;
+  try {
+    result = await api.announcements();
+  } catch (error) {
+    return;
+  }
+  // Server not reached: keep showing its last ones rather than clearing them.
+  const fromServer = result.serverReached ? [] : newsList.filter((item) => item.source === 'server');
+  newsList = [...result.announcements, ...fromServer];
+  renderNews();
+  popNews();
+}
+
+function popNews() {
+  if (screen !== 'shell') return;
+  const seen = storedIds(NEWS_SEEN);
+  const fresh = newsList.filter((item) => !seen.has(item.id));
+  if (fresh.length === 0) return;
+  fresh.forEach((item) => seen.add(item.id));
+  storeIds(NEWS_SEEN, seen);
+  const dismissed = storedIds(NEWS_DISMISSED);
+  const loud = fresh.find((item) => item.level === 'important' && !dismissed.has(item.id));
+  if (loud) showToast(`${loud.title ? `${loud.title}: ` : ''}${loud.text}`, 15000);
+}
+
+setTimeout(loadNews, 2500);
+setInterval(loadNews, 2 * 60 * 1000);
+
+// The host moved the server to another PC; the main process switched over.
+api.onServerMoved(async (info) => {
+  $('play-server').value = info.to;
+  showToast(`Your server moved to ${info.to}. The launcher switched to it; you're still signed in.`, 12000);
+  await refreshState();
+  findGames(true);
 });
 
 // --- start ----------------------------------------------------------------------------------

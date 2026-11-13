@@ -87,6 +87,14 @@ table.missing td { padding: 7px 8px; border-bottom: 1px solid rgba(120, 170, 210
 table.missing td.who { color: var(--muted); font-size: 12px; }
 table.missing td.actions { text-align: right; white-space: nowrap; }
 table.missing .ok { color: var(--good); margin-right: 8px; }
+label.inline select { text-transform: none; letter-spacing: 0; }
+.news { display: grid; gap: 10px; margin-top: 16px; }
+.news-item { border: 1px solid var(--line); border-left: 3px solid var(--accent); padding: 10px 12px; display: flex; gap: 12px; align-items: flex-start; }
+.news-item.important { border-left-color: var(--warn); }
+.news-item .body { flex: 1; min-width: 0; }
+.news-item .head { font-weight: 600; }
+.news-item .text { white-space: pre-wrap; word-break: break-word; margin-top: 2px; }
+.news-item .meta { color: var(--muted); font-size: 12px; margin-top: 4px; }
 @media (max-width: 700px) { table.missing th:nth-child(3), table.missing td:nth-child(3) { display: none; } }
 @media (max-width: 700px) {
   .grid { grid-template-columns: 1fr; }

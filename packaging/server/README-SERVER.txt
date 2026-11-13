@@ -169,8 +169,7 @@ Team Create's connection here, so nothing else needs opening. If Studio ever
 changes, build its download again on the PC that has it (python
 tools/build-client-files.py studio) and copy downloads\ here; launchers
 update Studio the next time it is opened.
-Log: Webserver
-ode\logs\studio.log.
+Log: Webserver\node\logs\studio.log.
 
 Managing games
 --------------
@@ -199,6 +198,40 @@ game's saves and the thumbnails.
 Server-wide settings (daily restart time, memory limit, games at once,
 port range): config\dedicated.json, explained in config\README.txt.
 
+Announcements: /manage, "Announcements", posts a notice to every player's
+launcher (1.5.2 and newer). It shows on their Home screen within two minutes
+and stays until it expires (6 hours to a week, or until you remove it) or
+the player dismisses it; one marked important also pops up. They are kept in
+Webserver\node\data\announcements.json.
+
 Optional: config\roblox-api-key.txt with your own Roblox Open Cloud API key
 lets the web server download some assets Roblox otherwise refuses (see
 config\README.txt). Use your own key; never copy someone else's.
+
+
+Moving this server to another PC
+--------------------------------
+Everything moves: games and their saves, accounts and their sign-ins,
+avatars, friends, announcements, the host key and settings. Players' launchers
+(1.5.2 and newer) follow by themselves and stay signed in.
+1. On the old PC, stop the server (type stop in the startServer window), so
+   the saves are complete.
+2. On the PC with the project: python tools/build-server-installer.py makes
+   share\RobloxServer-Setup-<date>.exe. It holds every account and the keys:
+   hand it only to whoever runs the new server, never publish it.
+3. On the new PC: install Tailscale and sign in, then run the installer. It
+   copies the server to C:\RobloxServer, sets up the hosts entries and the
+   Tailscale firewall rules, can keep the PC awake and start the server with
+   Windows, and lists what is left to do (setup-notes.txt), including the
+   new Tailscale address. Run setup-server.ps1 -CheckOnly there to check port
+   80 and Tailscale again later.
+4. Give the players access to the new PC in Tailscale (share it, or adjust
+   the ACLs), and check that one of them can open http://<new address>/manage.
+5. On the old PC, put the new address in config\moved.json:
+     {"to": "http://100.x.y.z"}
+   and keep only its web server running (startWeb.bat in a full project
+   folder; here, turn every game offline on /manage and keep
+   startServer.bat running). Launchers check it at start and every 10
+   minutes, switch once the new server answers, and say so.
+   Leave it running until everyone has switched; older launchers still need
+   the new address typed in Settings.

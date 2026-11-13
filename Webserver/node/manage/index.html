@@ -67,6 +67,37 @@
       <pre class="notes" id="join-output" hidden></pre>
     </section>
 
+    <section class="panel">
+      <div class="list-head">
+        <h2>Announcements</h2>
+        <span class="hint" id="news-state"></span>
+      </div>
+      <p class="lead">Shown in every player's launcher (1.5.2 and newer) within a few minutes, until it expires or you remove it. Players can dismiss one; an important one also pops up when it arrives.</p>
+      <form id="news-form" class="grid" autocomplete="off">
+        <label class="wide">Title (optional)
+          <input id="news-title" maxlength="80" placeholder="e.g. Server maintenance tonight">
+        </label>
+        <label class="wide">Announcement
+          <textarea id="news-text" maxlength="1000" rows="3" required></textarea>
+        </label>
+        <label class="inline">Show it for
+          <select id="news-expires">
+            <option value="0">Until I remove it</option>
+            <option value="6">6 hours</option>
+            <option value="24">1 day</option>
+            <option value="72" selected>3 days</option>
+            <option value="168">1 week</option>
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" id="news-important"> Important (pops up)</label>
+        <div class="row wide">
+          <button type="submit">Post</button>
+          <span class="status" id="news-status"></span>
+        </div>
+      </form>
+      <div id="news-list" class="news"></div>
+    </section>
+
     <section>
       <div class="list-head">
         <h2>Games</h2>

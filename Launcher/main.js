@@ -233,6 +233,83 @@ function syncMenuMusic(centralUrl) {
   return musicSync;
 }
 
+// --- moved servers --------------------------------------------------------------------
+// When the host moves the server to another PC, the old one answers
+// /api/launcher/moved with the new address (config/moved.json there). The
+// launcher switches to it once the new server answers, and stays signed in:
+// accounts and their sessions move with the server.
+let movedCheck = null;
+
+async function followMovedServer() {
+  const joining = lib('joining');
+  const proxy = lib('proxy');
+  const url = proxy.normalizeCentralUrl((joining.loadConfig() || {}).centralUrl || '');
+  if (url === null) return false;
+  let movedTo = null;
+  try {
+    const response = await fetch(`${url}/api/launcher/moved`, { signal: AbortSignal.timeout(6000) });
+    if (!response.ok) return false;
+    movedTo = (await response.json()).movedTo;
+  } catch (error) {
+    return false;
+  }
+  const target = typeof movedTo === 'string' ? proxy.normalizeCentralUrl(movedTo) : null;
+  if (!target || target === url) return false;
+  try {
+    const check = await fetch(`${target}/api/games`, { signal: AbortSignal.timeout(8000) });
+    if (!check.ok) return false;
+  } catch (error) {
+    return false; // not reachable (yet): try again later
+  }
+  joining.saveConfig(Object.assign({}, joining.loadConfig() || {}, { centralUrl: target }));
+  account.carrySession(url, target);
+  syncMenuMusic(target);
+  send('server-moved', { from: url, to: target });
+  send('status-changed');
+  return true;
+}
+
+function checkMovedServer() {
+  if (!movedCheck) {
+    movedCheck = followMovedServer().catch(() => false).finally(() => { movedCheck = null; });
+  }
+  return movedCheck;
+}
+
+// --- announcements --------------------------------------------------------------------
+// Notices for players: the host's, from their server (posted on its /manage
+// page), and the project's, from announcements.json in the GitHub repository,
+// which still reach players while their server is down.
+const PROJECT_NEWS_URL = 'https://raw.githubusercontent.com/FilteredAsync/rbx2017-launcher/main/announcements.json';
+
+function cleanNews(list, source) {
+  if (!Array.isArray(list)) return [];
+  const now = Date.now();
+  return list.filter((item) => item && typeof item.id === 'string' && typeof item.text === 'string' && item.text.trim())
+    .filter((item) => !item.expiresAt || !(Date.parse(item.expiresAt) <= now))
+    .slice(0, 20)
+    .map((item) => ({
+      id: `${source}:${item.id.slice(0, 40)}`,
+      source,
+      title: String(item.title || '').slice(0, 80),
+      text: item.text.slice(0, 1000),
+      level: item.level === 'important' ? 'important' : 'info',
+      postedAt: typeof item.postedAt === 'string' ? item.postedAt : null,
+    }));
+}
+
+async function listAnnouncements() {
+  const [server, project] = await Promise.all([
+    account.announcements().then((data) => cleanNews(data.announcements, 'server'), () => null),
+    fetch(PROJECT_NEWS_URL, { signal: AbortSignal.timeout(8000), cache: 'no-store' })
+      .then((response) => (response.ok ? response.json() : {}))
+      .then((data) => cleanNews(data && data.announcements, 'project'), () => []),
+  ]);
+  const all = [...project, ...(server || [])];
+  all.sort((a, b) => String(b.postedAt || '').localeCompare(String(a.postedAt || '')));
+  return { announcements: all, serverReached: server !== null };
+}
+
 // --- Roblox Studio --------------------------------------------------------------------
 // Downloaded from the server like the game files (Studio/), on first use and
 // when the server has a newer one. On a player's PC Studio reaches the
@@ -602,6 +679,8 @@ function registerIpc() {
   ipcMain.handle('catalog:bundle', (event, id) => account.bundle(undefined, id));
   ipcMain.handle('catalog:item', (event, id) => account.item(undefined, id));
   ipcMain.handle('players:list', () => account.players());
+  ipcMain.handle('server:moved-check', () => checkMovedServer());
+  ipcMain.handle('announcements:list', () => listAnnouncements());
   ipcMain.handle('friends:list', () => account.friends());
   ipcMain.handle('friends:action', (event, { verb, body }) => account.friendAction(undefined, verb, body || {}));
 
@@ -717,6 +796,8 @@ app.whenReady().then(() => {
   createWindow();
   setupUpdates();
   setTimeout(() => syncMenuMusic(), 3000);
+  setTimeout(checkMovedServer, 4000);
+  setInterval(checkMovedServer, 10 * 60 * 1000);
 });
 
 app.on('window-all-closed', () => app.quit());

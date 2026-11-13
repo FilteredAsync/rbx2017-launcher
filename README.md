@@ -107,6 +107,22 @@ saves in `Webserver/node/data` and `packaging/server/` (its README and
 default settings), leaving out keys and personal settings. Setup on the
 server PC is in `packaging/server/README-SERVER.txt`.
 
+To move a running server to another PC with everything it has (games,
+saves, accounts, avatars, friends, keys), `python tools/build-server-installer.py`
+makes `share/RobloxServer-Setup-<date>.exe`, an installer that also sets
+Windows up for the server (`packaging/server/setup-server.ps1`). It contains
+the accounts and keys, so it is never published. Players' launchers follow
+the move through `config/moved.json` on the old server ("Moving this server to
+another PC" in README-SERVER.txt). The host posts announcements to every
+launcher from the server's `/manage` page; `announcements.json` in this
+repository's main branch, if present, reaches every launcher too, even while
+a server is down:
+
+```json
+{ "announcements": [{ "id": "2026-11-move", "title": "Server moving", "text": "...",
+  "level": "important", "postedAt": "2026-11-13T18:00:00Z", "expiresAt": "2026-11-20T00:00:00Z" }] }
+```
+
 ## Development
 
 - Launcher: `cd Launcher && npm install && npm start`

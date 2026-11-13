@@ -13,6 +13,7 @@ const assets = require('./assets');
 const avatar = require('./avatar');
 const avatarStore = require('./avatarstore');
 const accounts = require('./accounts');
+const announcements = require('./announcements');
 const datastore = require('./datastore');
 const games = require('./games');
 const gamethumbs = require('./gamethumbs');
@@ -1012,6 +1013,26 @@ function menuMusicRoute(ctx) {
   sendFile(ctx, file, { 'Content-Type': 'audio/mpeg', ETag: etag, 'Cache-Control': 'no-cache' });
 }
 
+// Announcements to every launcher (lib/announcements.js), for /manage.
+//   GET    /api/announcements                 the current ones
+//   POST   /api/announcements                 JSON {title, text, level, expiresHours}; X-Host-Key
+//   DELETE /api/announcements/<id>            X-Host-Key
+async function announcementsApi(ctx, match) {
+  if ((ctx.method === 'GET' || ctx.method === 'HEAD') && !match[1]) return sendJson(ctx, 200, { announcements: announcements.list() });
+  if (ctx.method !== (match[1] ? 'DELETE' : 'POST')) return sendJson(ctx, 405, { error: match[1] ? 'use DELETE' : 'use GET or POST' });
+  const key = ctx.req.headers['x-host-key'] !== undefined ? String(ctx.req.headers['x-host-key']) : '';
+  if (!games.checkHostKey(key)) return sendJson(ctx, 403, { error: 'wrong or missing host key (config/host-key.txt on the server)' });
+  if (match[1]) {
+    return announcements.remove(match[1].toLowerCase()) ? sendJson(ctx, 200, { ok: true }) : sendJson(ctx, 404, { error: 'no such announcement' });
+  }
+  const body = await jsonBody(ctx);
+  try {
+    return sendJson(ctx, 200, { announcement: announcements.post(body || {}) });
+  } catch (error) {
+    return sendJson(ctx, 400, { error: error.message });
+  }
+}
+
 // The management page (Webserver/node/manage/).
 const MANAGE_FILES = { '': ['index.html', 'text/html; charset=utf-8'], 'manage.js': ['manage.js', 'text/javascript; charset=utf-8'], 'manage.css': ['manage.css', 'text/css; charset=utf-8'] };
 function managePage(ctx, match) {
@@ -1064,6 +1085,7 @@ const ROUTES = [
   [/^download\/menu-music\.mp3$/i, menuMusicRoute],
   [/^download\/(roblox-logo(?:-tagline)?\.png)$/i, launcherLogoRoute],
   [/^api\/assets\/(?:missing|(\d{1,15})\/replacement)\/?$/i, assetsApi],
+  [/^api\/announcements(?:\/([0-9a-f]{12}))?\/?$/i, announcementsApi],
   [new RegExp(`^asset(?:/index\\.php)?/?$`, 'i'), assetEndpoint],
   [/^asset\/bodycolors\.(?:ashx|php)$/i, bodyColors],
   [new RegExp(`^v1\\.1/avatar-fetch${opt}$`, 'i'), avatarFetch],

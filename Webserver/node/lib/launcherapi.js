@@ -36,6 +36,7 @@ const avatar = require('./avatar');
 const avatarStore = require('./avatarstore');
 const games = require('./games');
 const friends = require('./friends');
+const announcements = require('./announcements');
 const wearables = require('./wearables');
 
 const TICKET_MS = 5 * 60 * 1000;
@@ -460,6 +461,14 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
     return (ctx, match) => {
       const q = ctx.queryLower;
       const reply = (value) => sendJson(ctx, 200, value);
+      if (kind === 'statuses') {
+        // The game client's player list and player menu (their CoreScripts
+        // ask here; RCC's own friend lookups never reach this server).
+        const me = Number(q.userid);
+        const statuses = {};
+        if (me > 0) for (const id of idList(q.otheruserids)) statuses[id] = friends.status(me, id);
+        return reply({ success: true, statuses });
+      }
       if (kind === 'filter-friends') {
         const mine = new Set(friends.friendIds(Number(q.userid)));
         return reply(idList(q.otheruserids).filter((id) => mine.has(id)).map((id) => ({ Id: id })));
@@ -537,6 +546,17 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
       if (who) await friendsRoute(ctx, who, friendsMatch[1] || null);
       return;
     }
+    if (action === 'announcements' && method === 'GET') {
+      // The host's notices (lib/announcements.js), for every launcher.
+      return sendJson(ctx, 200, { announcements: announcements.list() });
+    }
+    if (action === 'moved' && method === 'GET') {
+      // The server moved to another PC (config/moved.json, {"to": "http://100.x.y.z"}):
+      // launchers 1.5.2 and newer switch to that address by themselves.
+      const moved = core.readJsonFile(core.rootPath('config', 'moved.json'));
+      const to = moved && typeof moved.to === 'string' && /^https?:\/\/[^\s\/]+$/i.test(moved.to.replace(/\/+$/, '')) ? moved.to.replace(/\/+$/, '') : null;
+      return sendJson(ctx, 200, { movedTo: to });
+    }
     if (action === 'players' && method === 'GET') {
       return sendJson(ctx, 200, { players: onlinePlayers() });
     }
@@ -611,6 +631,7 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
       [/^user\/decline-friend-request\/?$/i, gameFriendRoute('decline')],
       [/^user\/unfriend\/?$/i, gameFriendRoute('unfriend')],
       [/^user\/get-friendship-count\/?$/i, gameFriendRoute('count')],
+      [/^user\/friend-statuses\/?$/i, gameFriendRoute('statuses')],
       [/^friends\/filter-requests\/?$/i, gameFriendRoute('filter-requests')],
       [/^users\/filter-friends\/?$/i, gameFriendRoute('filter-friends')],
       [/^user\/multiget-friend-requests\/?$/i, gameFriendRoute('multiget-requests')],

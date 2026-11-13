@@ -31,6 +31,8 @@ contextBridge.exposeInMainWorld('launcher', {
   item: (id) => ipcRenderer.invoke('catalog:item', id),
   onlinePlayers: () => ipcRenderer.invoke('players:list'),
   friends: () => ipcRenderer.invoke('friends:list'),
+  onServerMoved: (callback) => ipcRenderer.on('server-moved', (event, info) => callback(info)),
+  announcements: () => ipcRenderer.invoke('announcements:list'),
   friendAction: (verb, body) => ipcRenderer.invoke('friends:action', { verb, body }),
   gameThumbnail: (options) => ipcRenderer.invoke('games:thumbnail', options),
   openManage: (centralUrl) => ipcRenderer.invoke('open:manage', centralUrl),

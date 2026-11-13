@@ -85,6 +85,15 @@ module.exports = function accountModule({ ROOT, lib }) {
     return data;
   }
 
+  // The server moved to another address: the same account works there.
+  function carrySession(from, to) {
+    const sessions = loadSessions();
+    if (sessions[from] && !sessions[to]) {
+      sessions[to] = sessions[from];
+      saveSessions(sessions);
+    }
+  }
+
   function withSession(centralUrl) {
     const url = serverUrl(centralUrl);
     const entry = session(url);
@@ -243,6 +252,7 @@ module.exports = function accountModule({ ROOT, lib }) {
 
   return {
     serverUrl,
+    carrySession,
     signIn,
     signOut,
     current,
@@ -264,6 +274,7 @@ module.exports = function accountModule({ ROOT, lib }) {
     bundle: (centralUrl, id) => open(centralUrl, 'GET', `bundle/${encodeURIComponent(String(id))}`, { timeoutMs: 60000 }),
     item: (centralUrl, id) => open(centralUrl, 'GET', `item/${encodeURIComponent(String(id))}`, { timeoutMs: 60000 }),
     players: (centralUrl) => open(centralUrl, 'GET', 'players', { timeoutMs: 8000 }),
+    announcements: (centralUrl) => open(centralUrl, 'GET', 'announcements', { timeoutMs: 8000 }),
     friends: (centralUrl) => authed(centralUrl, 'GET', 'friends', { timeoutMs: 8000 }),
     friendAction: (centralUrl, verb, body) => {
       if (!['request', 'accept', 'decline', 'cancel', 'remove'].includes(verb)) throw new Error('unknown friends action');

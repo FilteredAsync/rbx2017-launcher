@@ -6,7 +6,7 @@
 # For a PC nobody signs in to, turn on automatic sign-in for this account
 # (netplwiz), or the server only starts once someone signs in.
 
-param([switch] $Remove)
+param([switch] $Remove, [switch] $NoPause)
 
 $startup = [Environment]::GetFolderPath("Startup")
 $shortcut = Join-Path $startup "Roblox always-on server.lnk"
@@ -31,4 +31,4 @@ if ($Remove) {
     Write-Host "Done: the always-on server starts (minimized) when $env:USERNAME signs in."
     Write-Host "Shortcut: $shortcut"
 }
-Read-Host "`nPress Enter to close"
+if (-not $NoPause) { Read-Host "`nPress Enter to close" }

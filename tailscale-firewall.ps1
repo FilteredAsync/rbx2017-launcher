@@ -8,7 +8,7 @@
 #   tailscale-firewall.ps1           add or refresh the rules
 #   tailscale-firewall.ps1 -Remove   remove them
 
-param([switch] $Remove)
+param([switch] $Remove, [switch] $NoPause)
 
 $isAdmin = ([Security.Principal.WindowsPrincipal] `
     [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
@@ -67,4 +67,4 @@ catch {
     Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
 }
 
-Read-Host "`nPress Enter to close"
+if (-not $NoPause) { Read-Host "`nPress Enter to close" }

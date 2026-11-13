@@ -252,6 +252,13 @@ autostartServer.bat starts it whenever this Windows account signs in
 (autostartServer.bat -Remove undoes that). While it runs, the launcher's Host
 tab will not host on the same PC.
 
+config\moved.json (only on a server that moved to another PC):
+  {"to": "http://100.x.y.z"}
+  Launchers 1.5.2 and newer that still use this server switch to that address
+  once it answers (they check at start and every 10 minutes), keeping their
+  sign-in. Never copy it to the new server. See "Moving this server to
+  another PC" in README-SERVER.txt.
+
 Server-wide settings, config\dedicated.json (every field optional):
   {
       "webServer": true,           run the web server on this PC

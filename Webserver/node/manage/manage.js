@@ -548,7 +548,70 @@ They are logged out. Logging in with that name again makes a new account with wh
 
 $('key-form').addEventListener('submit', () => setTimeout(loadAccounts, 0));
 
+// --- Announcements -------------------------------------------------------------------------
+
+async function loadNews() {
+  try {
+    const response = await fetch('/api/announcements', { cache: 'no-store' });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+    renderNews(result.announcements || []);
+  } catch (error) {
+    $('news-state').textContent = error.message;
+  }
+}
+
+function renderNews(list) {
+  const box = $('news-list');
+  box.textContent = '';
+  $('news-state').textContent = list.length ? `${list.length} showing` : 'None showing';
+  for (const item of list) {
+    const row = el('div', `news-item${item.level === 'important' ? ' important' : ''}`);
+    const body = el('div', 'body');
+    if (item.title) body.append(el('div', 'head', item.title));
+    body.append(el('div', 'text', item.text));
+    const meta = [`Posted ${when(item.postedAt)}`, item.expiresAt ? `until ${when(item.expiresAt)}` : 'until removed'];
+    if (item.level === 'important') meta.push('important');
+    body.append(el('div', 'meta', meta.join(' · ')));
+    row.append(body, button('Remove', 'danger', async () => {
+      if (!confirm('Remove this announcement from every launcher?')) return;
+      const status = $('news-status');
+      try {
+        setStatus(status, 'Removing…');
+        await change('DELETE', `/api/announcements/${encodeURIComponent(item.id)}`);
+        setStatus(status, 'Removed.', 'good');
+        await loadNews();
+      } catch (error) {
+        setStatus(status, error.message, 'error');
+      }
+    }));
+    box.append(row);
+  }
+}
+
+$('news-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const status = $('news-status');
+  try {
+    setStatus(status, 'Posting…');
+    await change('POST', '/api/announcements', JSON.stringify({
+      title: $('news-title').value,
+      text: $('news-text').value,
+      level: $('news-important').checked ? 'important' : 'info',
+      expiresHours: Number($('news-expires').value),
+    }));
+    $('news-title').value = '';
+    $('news-text').value = '';
+    $('news-important').checked = false;
+    setStatus(status, 'Posted. Launchers show it within a few minutes.', 'good');
+    await loadNews();
+  } catch (error) {
+    setStatus(status, error.message, 'error');
+  }
+});
+
 refresh();
+loadNews();
 loadMissing();
 loadAccounts();
 setInterval(() => { if (!busy) loadAccounts(); }, 15000);
