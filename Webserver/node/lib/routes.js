@@ -135,6 +135,24 @@ function cachedContentType(metadataPath) {
   return metadata && typeof metadata.contentType === 'string' ? metadata.contentType : 'application/octet-stream';
 }
 
+// An asset cache file's ETag (size and time). Launchers keep assets on the
+// player's PC (lib/proxycache.js) and ask with If-None-Match whether theirs
+// is still current, which a 304 answers without sending the asset again.
+function fileEtag(file) {
+  try {
+    const stat = fs.statSync(file);
+    return `"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`;
+  } catch (error) {
+    return null;
+  }
+}
+
+function notModified(ctx, etag, headers) {
+  if (!etag || ctx.req.headers['if-none-match'] !== etag) return false;
+  send(ctx, 304, headers, '');
+  return true;
+}
+
 function readHead(file, size) {
   let handle;
   try {
@@ -242,7 +260,7 @@ async function assetEndpoint(ctx) {
   const cachePath = path.join(cacheDirectory, `${fileKey}.bin`);
   const metadataPath = `${cachePath}.json`;
   const missingPath = `${cachePath}.missing`;
-  const cachedHeaders = (state, type) => ({ 'Content-Type': type, 'Cache-Control': 'public, max-age=86400', 'X-Legacy-Asset-Cache': state });
+  const cachedHeaders = (state, type, etag) => Object.assign({ 'Content-Type': type, 'Cache-Control': 'public, max-age=86400', 'X-Legacy-Asset-Cache': state }, etag ? { ETag: etag } : {});
 
   let size = 0;
   try { size = fs.statSync(cachePath).size; } catch (error) { size = 0; }
@@ -259,10 +277,12 @@ async function assetEndpoint(ctx) {
       }
       if (changes.some((change) => change !== 'mesh-unconverted')) {
         core.writeFileAtomic(cachePath, bytes);
-        return send(ctx, 200, cachedHeaders('HIT-REPAIRED', cachedContentType(metadataPath)), bytes);
+        return send(ctx, 200, cachedHeaders('HIT-REPAIRED', cachedContentType(metadataPath), fileEtag(cachePath)), bytes);
       }
     }
-    return sendFile(ctx, cachePath, cachedHeaders('HIT', cachedContentType(metadataPath)));
+    const headers = cachedHeaders('HIT', cachedContentType(metadataPath), fileEtag(cachePath));
+    if (notModified(ctx, headers.ETag, headers)) return;
+    return sendFile(ctx, cachePath, headers);
   }
 
   // Remembered failures: private/gone for a day, others for an hour; new
@@ -288,7 +308,7 @@ async function assetEndpoint(ctx) {
   }
   const outcome = await pending;
   if (!outcome.ok) return fail(ctx, outcome.status, outcome.message);
-  return send(ctx, 200, cachedHeaders('MISS', outcome.contentType), outcome.bytes);
+  return send(ctx, 200, cachedHeaders('MISS', outcome.contentType, fileEtag(cachePath)), outcome.bytes);
 }
 
 // A body part asset reduced to its R6 CharacterMesh as an XML model. Older

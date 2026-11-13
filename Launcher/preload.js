@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('launcher', {
   join: (options) => ipcRenderer.invoke('play:join', options),
   onPlayProgress: (callback) => ipcRenderer.on('play-progress', (event, info) => callback(info)),
   privateServers: (placeId) => ipcRenderer.invoke('private:list', placeId),
+  assetCache: () => ipcRenderer.invoke('assets:cache'),
+  clearAssetCache: () => ipcRenderer.invoke('assets:clear'),
   createPrivateServer: (options) => ipcRenderer.invoke('private:create', options),
   redeemPrivateCode: (code) => ipcRenderer.invoke('private:redeem', code),
   privateServerAction: (options) => ipcRenderer.invoke('private:action', options),

@@ -687,6 +687,17 @@ function registerIpc() {
     return true;
   });
 
+  // Game assets kept on this PC by the local proxy (lib/proxycache.js).
+  ipcMain.handle('assets:cache', () => {
+    const proxy = lib('proxy');
+    return Object.assign(lib('proxycache').usage(proxy.assetCacheRoot()), { limitBytes: proxy.assetCacheLimit() });
+  });
+  ipcMain.handle('assets:clear', () => {
+    if (playSession || lib('proxy').proxyActive()) throw new Error('Close the game and Studio first.');
+    lib('proxycache').clear(lib('proxy').assetCacheRoot());
+    return true;
+  });
+
   // Private servers (the game's details).
   ipcMain.handle('private:list', (event, placeId) => account.privateServers(account.serverUrl(), placeId));
   ipcMain.handle('private:create', (event, options) => account.createPrivateServer(account.serverUrl(), options || {}));

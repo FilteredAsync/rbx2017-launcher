@@ -10,10 +10,13 @@
 // and cookies must stay on localhost.), and for Team Create it points Studio
 // at a local UDP relay to the server's Team Create game port (the 2017
 // engine only connects to game servers on 127.0.0.1; see relay.js).
+// The game client's and Studio's assets are kept on this PC (proxycache.js),
+// so games load faster after the first visit.
 //
-//   startProxy(centralUrl, log, port, { https: true })  -> { close() }
+//   startProxy(centralUrl, log, port, { https: true, cacheDir, cacheMaxBytes })  -> { close() }
 //   acquireProxy(centralUrl, log)  -> { release() }  one shared proxy for the
 //       game client and Studio, closed when the last one lets go
+//   assetCacheRoot() / assetCacheLimit()   where assets are kept, and how much
 
 const http = require('http');
 const https = require('https');
@@ -86,6 +89,34 @@ async function startProxy(centralUrl, log, listenPort, options = {}) {
   const agent = new client.Agent({ keepAlive: true, maxSockets: 32 });
   const targetPort = target.port === '' ? (target.protocol === 'https:' ? 443 : 80) : Number(target.port);
   const relays = new Map(); // "ip:port" -> relay, for Team Create
+  let cache = null;
+  if (options.cacheDir) {
+    try {
+      cache = require('./proxycache').createAssetCache(options.cacheDir, { maxBytes: options.cacheMaxBytes, log });
+    } catch (error) {
+      if (log) log(`Asset cache off: ${error.message}`);
+    }
+  }
+
+  // The whole answer, for the asset cache.
+  function fetchWhole(req, headers, extra) {
+    return new Promise((resolve, reject) => {
+      const outgoing = Object.assign({}, headers, extra, { 'accept-encoding': 'identity' });
+      if (!extra['if-none-match']) delete outgoing['if-none-match'];
+      delete outgoing['if-modified-since'];
+      const upstream = client.request({
+        protocol: target.protocol, hostname: target.hostname, port: targetPort, method: 'GET', path: req.url, headers: outgoing, agent,
+      }, (response) => {
+        const chunks = [];
+        response.on('data', (chunk) => chunks.push(chunk));
+        response.on('end', () => resolve({ status: response.statusCode || 502, headers: response.headers, body: Buffer.concat(chunks) }));
+        response.on('error', reject);
+      });
+      upstream.setTimeout(120000, () => upstream.destroy(new Error('timed out')));
+      upstream.on('error', reject);
+      upstream.end();
+    });
+  }
 
   async function relayFor(address) {
     let entry = relays.get(address);
@@ -121,6 +152,15 @@ async function startProxy(centralUrl, log, listenPort, options = {}) {
       'x-forwarded-proto': secure ? 'https' : 'http',
     });
     delete headers.connection;
+    if (cache && cache.handles(req)) {
+      cache.serve(req, res, (extra) => fetchWhole(req, headers, extra)).catch((error) => {
+        if (log) log(`proxy: ${req.method} ${req.url} failed: ${error.code || error.message}`);
+        if (!res.headersSent) res.writeHead(502, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end(`Could not reach the web server at ${centralUrl}: ${error.code || error.message}`);
+      });
+      req.resume();
+      return;
+    }
     const cloudEdit = isCloudEditLaunch(req.url || '');
     const upstream = client.request({
       protocol: target.protocol,
@@ -212,12 +252,33 @@ async function startProxy(centralUrl, log, listenPort, options = {}) {
 
 let shared = null; // { url, ready: Promise<proxy>, holders }
 
+// RobloxClient/cache/server-assets: one folder per server.
+function assetCacheRoot() {
+  return require('./core').rootPath('cache', 'server-assets');
+}
+
+// "assetCacheMB" in config/client.json (default 2048; 0 turns it off).
+function assetCacheLimit() {
+  const config = require('./core').readJsonFile(require('./core').rootPath('config', 'client.json')) || {};
+  const mb = config.assetCacheMB === undefined ? 2048 : Number(config.assetCacheMB);
+  return Number.isFinite(mb) && mb > 0 ? Math.round(mb * 1048576) : 0;
+}
+
+// True while the shared proxy (and so the asset cache) is in use.
+function proxyActive() {
+  return shared !== null;
+}
+
 async function acquireProxy(centralUrl, log) {
   if (shared && shared.url !== centralUrl) {
     throw new Error(`already connected to ${shared.url}; close the game and Studio first`);
   }
   if (!shared) {
-    const entry = { url: centralUrl, holders: 0, ready: startProxy(centralUrl, log, undefined, { https: true }) };
+    const limit = assetCacheLimit();
+    const cacheOptions = limit > 0
+      ? { cacheDir: require('path').join(assetCacheRoot(), require('./proxycache').folderFor(centralUrl)), cacheMaxBytes: limit }
+      : {};
+    const entry = { url: centralUrl, holders: 0, ready: startProxy(centralUrl, log, undefined, Object.assign({ https: true }, cacheOptions)) };
     shared = entry;
     entry.ready.catch(() => { if (shared === entry) shared = null; });
   }
@@ -243,4 +304,7 @@ async function acquireProxy(centralUrl, log) {
   };
 }
 
-module.exports = { normalizeCentralUrl, centralIsLocalPort80, isLoopbackHost, portFree, startProxy, acquireProxy, isCloudEditLaunch };
+module.exports = {
+  normalizeCentralUrl, centralIsLocalPort80, isLoopbackHost, portFree, startProxy, acquireProxy, isCloudEditLaunch,
+  assetCacheRoot, assetCacheLimit, proxyActive,
+};

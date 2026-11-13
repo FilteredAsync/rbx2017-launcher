@@ -79,6 +79,12 @@ the same network host games with RCCService; players anywhere join them.
     the username, so the same name always gets the same ID and avatar.
     While the client runs, a proxy on this PC's port 80 forwards its web
     requests to the web server, so stop any local web server first.
+    The proxy keeps the game assets it fetches (meshes, textures, sounds) in
+    cache\server-assets\<server>\, so games load faster the next time; it
+    checks with the server once a day that a kept asset is still current.
+    "assetCacheMB" in config\client.json sets its size (default 2048, the
+    least used go first; 0 turns it off). The launcher shows and clears it
+    under Settings > Network.
     The 2017 client binds its game socket to 127.0.0.1, so it can only reach
     a game server on 127.0.0.1. playGame.bat therefore also runs a small UDP
     relay on 127.0.0.1 ("Relaying the game connection to ...") that forwards

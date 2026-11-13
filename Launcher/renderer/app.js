@@ -396,6 +396,7 @@ function showSettings(name) {
   document.querySelectorAll('.set-panel').forEach((panel) => panel.classList.toggle('hidden', panel.id !== `set-${name}`));
   if (name === 'setup') refreshChecks();
   if (name === 'host') loadHostThumbnail();
+  if (name === 'network') showAssetCache();
   if (name === 'about') {
     renderAbout();
     // Opening About checks again (at most once a minute).
@@ -1599,6 +1600,36 @@ const ACTION_LABELS = {
 };
 
 // --- game files (installs from the small Setup.exe) ----------------------------------
+
+// --- game assets kept on this PC (lib/proxycache.js) ---
+
+function megabytes(bytes) {
+  return bytes >= 1073741824 ? `${(bytes / 1073741824).toFixed(1)} GB` : `${Math.max(bytes ? 1 : 0, Math.round(bytes / 1048576))} MB`;
+}
+
+async function showAssetCache(note, kind) {
+  try {
+    const info = await api.assetCache();
+    const text = info.limitBytes === 0
+      ? 'Turned off ("assetCacheMB": 0 in config\\client.json).'
+      : `${info.files} asset${info.files === 1 ? '' : 's'}, ${megabytes(info.bytes)} (up to ${megabytes(info.limitBytes)}; the least used go first).`;
+    setStatus('asset-cache-size', note ? `${note} ${text}` : text, kind);
+    $('asset-cache-clear').disabled = info.files === 0;
+  } catch (error) {
+    setStatus('asset-cache-size', message(error), 'error');
+  }
+}
+
+$('asset-cache-clear').addEventListener('click', async () => {
+  $('asset-cache-clear').disabled = true;
+  try {
+    await api.clearAssetCache();
+    showAssetCache('Cleared.', 'good');
+  } catch (error) {
+    setStatus('asset-cache-size', message(error), 'error');
+    $('asset-cache-clear').disabled = false;
+  }
+});
 
 function showFilesPanel(focus) {
   const panel = $('files-panel');
