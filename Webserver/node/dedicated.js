@@ -11,6 +11,9 @@
 //     (past 115% of the limit, after saving the players).
 //   - Every game restarts once a day at restartDaily, players saved first.
 //   - The web server is started again if it stops.
+//   - Server updates (lib/updates.js): it looks for a newer one on GitHub every
+//     few hours and installs waiting ones when nobody is playing, or when
+//     asked on the management page (apply-update.js swaps the files).
 // Server-wide settings: config/dedicated.json (all optional). Each game gets
 // a UDP port from gamePortFirst (53640) onwards, one per running game, up to
 // gamePortCount (tailscaleFirewall.bat opens that range).
@@ -26,6 +29,7 @@ const accounts = require('./lib/accounts');
 const core = require('./lib/core');
 const hosting = require('./lib/hosting');
 const places = require('./lib/places');
+const updates = require('./lib/updates');
 
 const CONFIG_FILE = core.rootPath('config', 'dedicated.json');
 const LOG_FILE = path.join(__dirname, 'logs', 'dedicated.log');
@@ -44,6 +48,8 @@ const DEFAULTS = {
   maxGames: 4,
   gamePortFirst: 53640,
   gamePortCount: 20,
+  autoUpdate: true,
+  updateCheckHours: 3,
 };
 
 const MESSAGES = {
@@ -53,6 +59,7 @@ const MESSAGES = {
   updated: 'This game was updated. Your progress was saved - rejoin in a minute.',
   off: 'This game was turned off. Your progress was saved.',
   shutdown: 'The server is shutting down. Your progress was saved.',
+  update: 'The server is updating. Your progress was saved - rejoin in a minute.',
 };
 
 // --- logging and small helpers ---------------------------------------------------
@@ -511,6 +518,18 @@ async function main() {
   log('server', `always-on server starting: ${Object.keys(library.places).length} places in the library, ${online} online`
     + ` (up to ${config.maxGames} at once)${config.restartDaily ? `, daily restart at ${config.restartDaily}` : ''}, memory limit ${config.memoryLimitMB || 'off'} MB`);
 
+  const version = updates.installed();
+  log('server', `server version: ${version.publicLabel || 'not recorded'}${version.privateLabel ? `, private files ${version.privateLabel}` : ''}`);
+  // The update that started this server (apply-update.js writes its result
+  // once this reports in): say how it went.
+  const startedAt = Date.now();
+  setTimeout(() => {
+    const result = updates.lastResult();
+    if (result && Date.parse(result.at) >= startedAt) {
+      log('update', result.ok ? `installed ${result.updates}` : `update failed: ${result.error}`);
+    }
+  }, 30 * 1000).unref();
+
   const web = config.webServer ? new WebServer() : null;
   if (web) {
     await web.keepStarting();
@@ -522,6 +541,13 @@ async function main() {
   const retiring = new Set();
   let problems = [];
   let shuttingDown = false;
+  // Updates: what the last GitHub check found (lib/updates.js).
+  const updateState = { lastCheck: null, lastError: null, available: null, checking: false };
+  const serverRequests = []; // update checks, installs and restarts from /manage
+  let updateTimer = null;
+  let firstCheck = null;
+  let idleTimer = null;
+  let serverTimer = null;
 
   // --- status for the management page ---
   let statusTimer = null;
@@ -530,7 +556,10 @@ async function main() {
     for (const [id, slot] of slots) games[id] = slot.report();
     const cloudEdit = {};
     for (const [id, slot] of cloud) cloudEdit[id] = slot.report();
-    places.writeRunnerStatus({ pid: process.pid, maxGames: config.maxGames, games, cloudEdit, problems });
+    places.writeRunnerStatus({
+      pid: process.pid, maxGames: config.maxGames, games, cloudEdit, problems,
+      updates: Object.assign({ autoUpdate: config.autoUpdate !== false }, updateState),
+    });
   };
   const statusSoon = () => {
     if (statusTimer) return;
@@ -639,6 +668,10 @@ async function main() {
       for (const request of places.readRequests()) {
         if (handled.has(request.id)) continue;
         handled.add(request.id);
+        if (['update-check', 'update-install', 'server-restart'].includes(request.action)) {
+          serverRequests.push(request.action);
+          continue;
+        }
         if (request.action === 'cloudedit') {
           const id = String(request.placeId);
           if (entries[id] && entries[id].teamCreate && !cloud.has(id)) startCloudEdit(id, entries);
@@ -678,6 +711,10 @@ async function main() {
     if (!config.restartDaily) return;
     const at = nextDaily(config.restartDaily);
     dailyTimer = setTimeout(async () => {
+      if (updates.listStaged().some((item) => !item.failed)) {
+        installUpdates('daily restart');
+        return;
+      }
       log('server', 'daily restart');
       for (const slot of [...slots.values()]) await slot.restart('daily restart', MESSAGES.daily).catch(() => {});
       scheduleDaily();
@@ -685,11 +722,14 @@ async function main() {
   };
   scheduleDaily();
 
-  const shutdown = async (fast) => {
+  // fast: the window is closing. after: runs once everything has stopped,
+  // before this exits (an update or a restart starts the next server).
+  const shutdown = async (fast, after = null, message = MESSAGES.shutdown) => {
     if (shuttingDown) return;
     shuttingDown = true;
-    for (const timer of [reconcileTimer, sampleTimer, checks, report]) clearInterval(timer);
+    for (const timer of [reconcileTimer, sampleTimer, checks, report, updateTimer, idleTimer, serverTimer]) clearInterval(timer);
     clearTimeout(dailyTimer);
+    clearTimeout(firstCheck);
     if (fast) {
       // The window is closing: Windows allows a few seconds only.
       for (const slot of slots.values()) slot.killNow();
@@ -697,7 +737,7 @@ async function main() {
     } else {
       log('server', 'stopping: saving players and Team Create places, then stopping the games and the web server');
       await Promise.all([
-        ...[...slots.values()].map((slot) => slot.shutdown(MESSAGES.shutdown).catch(() => {})),
+        ...[...slots.values()].map((slot) => slot.shutdown(message).catch(() => {})),
         ...[...cloud.values()].map((slot) => slot.shutdown('the server is stopping').catch(() => {})),
       ]);
     }
@@ -708,8 +748,112 @@ async function main() {
     if (web) web.stop();
     try { if ((core.readText(hosting.DEDICATED_PID) || '').trim() === String(process.pid)) fs.unlinkSync(hosting.DEDICATED_PID); } catch (error) { /* gone */ }
     log('server', 'stopped');
+    if (after) {
+      try {
+        await after();
+      } catch (error) {
+        log('server', `${error.message}; starting the server again as it was`);
+        relaunch();
+      }
+    }
     process.exit(0);
   };
+
+  // --- updates and whole-server restarts (lib/updates.js, apply-update.js) ---
+  // Starts startServer.bat through Explorer, as a double-click does (its
+  // window then takes Ctrl+C, and it never runs as administrator).
+  const relaunch = () => {
+    const explorer = path.join(process.env.WINDIR || 'C:\\Windows', 'explorer.exe');
+    spawn(explorer, [core.rootPath('startServer.bat')], { detached: true, stdio: 'ignore' }).unref();
+  };
+
+  // The startServer window this runs in, which the installer waits for.
+  const windowPid = () => {
+    const found = spawnSync('powershell.exe', ['-NoProfile', '-Command', `(Get-CimInstance Win32_Process -Filter "ProcessId=${process.ppid}").CommandLine`], { encoding: 'utf8', windowsHide: true });
+    return /startServer\.bat/i.test(String(found.stdout || '')) ? process.ppid : null;
+  };
+
+  const installUpdates = (reason) => {
+    if (shuttingDown) return;
+    const ready = updates.listStaged().filter((item) => !item.failed);
+    if (ready.length === 0) {
+      log('update', 'no update is waiting to install');
+      return;
+    }
+    log('update', `installing ${ready.map((item) => `the ${item.kind} update ${item.label}`).join(' and ')} (${reason}): saving players, then stopping`);
+    const parentWindow = windowPid();
+    shutdown(false, async () => {
+      fs.mkdirSync(updates.DIR, { recursive: true });
+      const applier = path.join(updates.DIR, 'apply-update.js');
+      fs.copyFileSync(path.join(__dirname, 'apply-update.js'), applier);
+      const job = path.join(updates.DIR, 'apply.json');
+      fs.writeFileSync(job, `${JSON.stringify({ root: core.rootPath(), runnerPid: process.pid, windowPid: parentWindow, staged: ready.map((item) => item.dir), reason }, null, 2)}\n`);
+      spawn(process.execPath, [applier, job], { cwd: updates.DIR, env: process.env, detached: true, windowsHide: true, stdio: 'ignore' }).unref();
+      log('update', 'the update installer takes over; the server starts again in about a minute (updates\\update.log)');
+    }, MESSAGES.update);
+  };
+
+  const restartServer = (reason) => {
+    if (shuttingDown) return;
+    log('server', `restarting the whole server (${reason})`);
+    shutdown(false, async () => relaunch(), MESSAGES.manual);
+  };
+
+  const checkUpdates = async (manual) => {
+    if (updateState.checking || shuttingDown) return;
+    updateState.checking = true;
+    statusSoon();
+    try {
+      const best = await updates.latestPublished();
+      const current = updates.installed();
+      const waiting = updates.listStaged().find((item) => item.kind === 'public');
+      updateState.lastCheck = new Date().toISOString();
+      updateState.lastError = null;
+      updateState.available = best && best.build > current.public ? { build: best.build, label: updates.buildLabel(best.build), release: best.release } : null;
+      if (best && best.build > current.public && !(waiting && waiting.build >= best.build)) {
+        log('update', `downloading server update ${best.release} (${Math.max(1, Math.round(best.size / 1048576))} MB)`);
+        const info = updates.stage(await updates.download(best.url), `GitHub release ${best.release}`);
+        log('update', `server update ${info.label} is ready: it installs ${config.autoUpdate !== false ? 'once nobody is playing' : 'when Install is pressed on /manage'}`);
+      } else if (manual) {
+        log('update', !best ? 'no server updates are published yet' : best.build <= current.public ? 'the server is up to date' : 'the newest update is already waiting to install');
+      }
+    } catch (error) {
+      if (manual || updateState.lastError !== error.message) log('update', `could not check for updates: ${error.message}`);
+      updateState.lastError = error.message;
+      updateState.lastCheck = new Date().toISOString();
+    } finally {
+      updateState.checking = false;
+      statusSoon();
+    }
+  };
+
+  // A waiting update installs once nobody has played or built for 3 minutes.
+  let idleChecks = 0;
+  const autoInstall = () => {
+    if (shuttingDown || config.autoUpdate === false) return;
+    if (!updates.listStaged().some((item) => !item.failed)) {
+      idleChecks = 0;
+      return;
+    }
+    const playing = [...slots.values()].reduce((sum, slot) => sum + (Array.isArray(slot.players) ? slot.players.length : 0), 0) + cloud.size;
+    idleChecks = playing === 0 ? idleChecks + 1 : 0;
+    if (idleChecks >= 3) installUpdates('nobody is playing');
+  };
+
+  const hours = config.updateCheckHours === 0 ? 0 : (Number(config.updateCheckHours) || DEFAULTS.updateCheckHours);
+  if (hours > 0) {
+    firstCheck = setTimeout(() => { checkUpdates(false).catch(() => {}); }, 2 * 60 * 1000);
+    updateTimer = setInterval(() => { checkUpdates(false).catch(() => {}); }, hours * 3600000);
+  }
+  idleTimer = setInterval(autoInstall, 60 * 1000);
+  serverTimer = setInterval(() => {
+    while (serverRequests.length > 0 && !shuttingDown) {
+      const action = serverRequests.shift();
+      if (action === 'update-check') checkUpdates(true).catch(() => {});
+      else if (action === 'update-install') installUpdates('requested on the management page');
+      else if (action === 'server-restart') restartServer('requested on the management page');
+    }
+  }, 1000);
   process.on('SIGINT', () => shutdown(false));
   process.on('SIGTERM', () => shutdown(false));
   process.on('SIGBREAK', () => shutdown(true));

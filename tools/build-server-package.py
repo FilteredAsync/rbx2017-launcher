@@ -22,7 +22,7 @@ OUT = os.path.join(ROOT, 'share', 'RobloxServer.zip')
 PREFIX = 'RobloxServer/'
 # Never packaged, wherever they are.
 PERSONAL = {'host-key.txt', 'roblox-api-key.txt', '.roblosecurity', 'client.json', 'host.json',
-            'menu-music.mp3', 'server.pid', 'dedicated.pid'}
+            'menu-music.mp3', 'server.pid', 'dedicated.pid', 'update-signing-key.pem'}
 
 # Moving this server to another PC (tools/build-server-installer.py): these
 # come along too, with the games, accounts and saves.
@@ -112,7 +112,7 @@ def collect(move=False):
     add_file(os.path.join(ROOT, 'cache', 'roblox-users.json'), 'cache/roblox-users.json')
     add_file(os.path.join(ROOT, 'Client', 'apidump.txt'), 'Client/apidump.txt')
     for name in ('patch-rcc-place-auth.ps1', 'patch-rcc-http-urls.ps1', 'add-hosts-entries.ps1', 'addHostsEntries.bat',
-                 'tailscale-firewall.ps1', 'tailscaleFirewall.bat', 'startServer.bat', 'autostart.ps1',
+                 'tailscale-firewall.ps1', 'tailscaleFirewall.bat', 'startServer.bat', 'restartServer.bat', 'restart-server.ps1', 'autostart.ps1',
                  'autostartServer.bat', 'convertPlace.bat', 'Launcher.bat'):
         add_file(os.path.join(ROOT, name), name)
     add_tree('Launcher/dist/RobloxClient Launcher-win32-x64')

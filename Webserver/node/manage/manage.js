@@ -610,8 +610,149 @@ $('news-form').addEventListener('submit', async (event) => {
   }
 });
 
+// --- Server: updates, restarting it, its logs ------------------------------------------------
+
+let serverInfo = null;
+
+async function loadServerPanel() {
+  try {
+    const response = await fetch('/api/server/status', { cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    serverInfo = await response.json();
+    renderServerPanel();
+  } catch (error) {
+    $('srv-state').textContent = `Could not read the server's state: ${error.message}`;
+  }
+}
+
+function renderServerPanel() {
+  const info = serverInfo;
+  const installed = info.installed;
+  const runner = info.runner || {};
+  const checks = runner.updates || null;
+  $('srv-state').textContent = runner.running ? '' : 'The always-on server is not running: updates and restarts wait for it.';
+  $('srv-installed').textContent = installed.publicLabel
+    ? `${installed.publicLabel}${installed.privateLabel ? `; private files ${installed.privateLabel}` : ''}`
+    : `Not recorded (set up before the updater)${installed.privateLabel ? `; private files ${installed.privateLabel}` : ''}`;
+
+  const box = $('srv-updates');
+  box.textContent = '';
+  const waiting = info.staged.filter((item) => !item.failed);
+  const failed = info.staged.filter((item) => item.failed);
+  let line;
+  if (waiting.length > 0) {
+    line = `Ready to install: ${waiting.map((item) => `${item.kind === 'private' ? 'private files' : 'server files'} ${item.label}`).join(', ')}`
+      + (checks && checks.autoUpdate === false ? '' : ' (installs once nobody has played for 3 minutes)');
+  } else if (checks && checks.checking) {
+    line = 'Checking…';
+  } else if (checks && checks.lastError) {
+    line = `Could not check: ${checks.lastError}`;
+  } else if (checks && checks.lastCheck) {
+    line = `Up to date (checked ${when(checks.lastCheck)})`;
+  } else {
+    line = 'Not checked yet (it checks a few minutes after starting, then every few hours)';
+  }
+  box.append(el('div', checks && checks.lastError && waiting.length === 0 ? 'bad' : '', line));
+  for (const item of waiting) {
+    if (item.notes) box.append(el('div', 'hint', item.notes));
+  }
+  for (const item of failed) {
+    box.append(el('div', 'bad', `${item.label} did not work: ${item.failed}`));
+    box.append(button('Discard it', 'danger', async () => {
+      try {
+        await change('POST', `/api/server/update/discard?build=${item.build}`);
+        await loadServerPanel();
+      } catch (error) {
+        setStatus($('srv-status'), error.message, 'error');
+      }
+    }));
+  }
+  $('srv-install').hidden = waiting.length === 0;
+
+  const last = info.lastResult;
+  const lastBox = $('srv-last');
+  lastBox.textContent = '';
+  if (!last) {
+    lastBox.textContent = 'None yet';
+  } else {
+    lastBox.append(el('div', last.ok ? 'good' : 'bad', `${last.ok ? 'Installed' : 'Failed'}: ${last.updates || 'update'}`));
+    lastBox.append(el('div', 'hint', `${when(last.at)}${last.ok ? '' : ` · ${last.error}${last.restored === false ? ' · the server did not come back by itself' : ''}`}`));
+  }
+}
+
+async function serverAction(url, waitingText, doneText) {
+  const status = $('srv-status');
+  try {
+    setStatus(status, waitingText);
+    await change('POST', url);
+    setStatus(status, doneText, 'good');
+    setTimeout(loadServerPanel, 4000);
+    setTimeout(loadServerPanel, 15000);
+  } catch (error) {
+    setStatus(status, error.message, 'error');
+  }
+}
+
+$('srv-check').addEventListener('click', () => serverAction('/api/server/update/check', 'Asking the server to check…', 'Checking: the result shows here within a few seconds.'));
+
+$('srv-install').addEventListener('click', () => {
+  if (!confirm('Install the update now?\n\nPlayers in games are saved and sent a message; the server is back in about a minute. If the new version does not start, the old one is put back.')) return;
+  serverAction('/api/server/update/install', 'Asking the server to install…', 'Installing: the server is back in about a minute (refresh this page then).');
+});
+
+$('srv-restart').addEventListener('click', () => {
+  if (!confirm('Restart the whole server?\n\nPlayers in games are saved and sent a message; the web server and every game start again within about a minute.')) return;
+  serverAction('/api/server/restart', 'Asking the server to restart…', 'Restarting: back in about a minute (refresh this page then).');
+});
+
+$('srv-upload-button').addEventListener('click', () => {
+  if (needKey()) $('srv-upload').click();
+});
+
+$('srv-upload').addEventListener('change', async () => {
+  const file = $('srv-upload').files[0];
+  $('srv-upload').value = '';
+  if (!file) return;
+  const status = $('srv-status');
+  const progress = $('srv-progress');
+  try {
+    progress.hidden = false;
+    progress.value = 0;
+    setStatus(status, `Uploading ${file.name}…`);
+    const result = await uploadFile('/api/server/update/upload', file, (percent) => { progress.value = percent; });
+    setStatus(status, `Checked and ready: ${result.staged.kind === 'private' ? 'private files' : 'server files'} ${result.staged.label} (${result.staged.files} files). Press Install now, or it installs once nobody is playing.`, 'good');
+    await loadServerPanel();
+  } catch (error) {
+    setStatus(status, error.message, 'error');
+  } finally {
+    progress.hidden = true;
+  }
+});
+
+$('srv-log-show').addEventListener('click', async () => {
+  const key = needKey();
+  if (!key) return;
+  const out = $('srv-log');
+  try {
+    const response = await fetch(`/api/server/logs?name=${encodeURIComponent($('srv-log-name').value)}&lines=300`, { headers: { 'X-Host-Key': key }, cache: 'no-store' });
+    const text = await response.text();
+    if (!response.ok) {
+      let message = text;
+      try { message = JSON.parse(text).error; } catch (error) { /* plain text */ }
+      throw new Error(message || `HTTP ${response.status}`);
+    }
+    out.textContent = text;
+    out.hidden = false;
+    out.scrollTop = out.scrollHeight;
+  } catch (error) {
+    setStatus($('srv-status'), error.message, 'error');
+  }
+});
+
 refresh();
 loadNews();
+loadServerPanel();
+setInterval(() => { if (!busy) loadServerPanel(); }, 15000);
 loadMissing();
 loadAccounts();
 setInterval(() => { if (!busy) loadAccounts(); }, 15000);

@@ -278,6 +278,12 @@ function requestCloudEdit(placeId) {
   request('cloudedit', placeId);
 }
 
+// Asks dedicated.js to do something with the whole server: 'update-check',
+// 'update-install' or 'server-restart' (lib/updates.js, the /manage page).
+function requestServer(action) {
+  request(action, '0');
+}
+
 function readRequests() {
   const control = core.readJsonFile(CONTROL);
   return control && Array.isArray(control.requests) ? control.requests : [];
@@ -298,6 +304,6 @@ function writeRunnerStatus(status) {
 
 module.exports = {
   load, exists, ensure, list, get, create, replaceFile, update, setAccess, remove, filePath, placeKey,
-  requestRestart, requestCloudEdit, readRequests, runnerStatus, writeRunnerStatus,
+  requestRestart, requestCloudEdit, requestServer, readRequests, runnerStatus, writeRunnerStatus,
   LIBRARY, CONTROL, STATUS,
 };

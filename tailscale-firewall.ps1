@@ -52,10 +52,12 @@ try {
             -Direction Inbound -Action Allow -Protocol UDP -LocalPort $gamePorts.ToArray() -RemoteAddress $tailnet -Profile Any | Out-Null
         Write-Host "Allowed Tailscale players: TCP 80 (web server) and UDP $($gamePorts -join ', ') (games)."
 
-        # A "Block" rule for node.exe or RCCService.exe (from clicking Cancel
-        # on a Windows Firewall prompt) wins over these rules; point it out.
+        # A "Block" rule for the server's programs (node.exe, or the launcher
+        # that runs the server where Node.js is not installed, and
+        # RCCService.exe), made by clicking Cancel on a Windows Firewall
+        # prompt, wins over these rules; point it out.
         $blocked = Get-NetFirewallApplicationFilter -ErrorAction SilentlyContinue |
-            Where-Object { $_.Program -match '\\(node|RCCService)\.exe$' } |
+            Where-Object { $_.Program -match '\\(node|RCCService|RobloxClient Launcher)\.exe$' } |
             ForEach-Object { $_ | Get-NetFirewallRule } |
             Where-Object { $_.Action -eq 'Block' -and $_.Direction -eq 'Inbound' -and $_.Enabled -eq 'True' }
         foreach ($rule in $blocked) {

@@ -107,6 +107,25 @@ saves in `Webserver/node/data` and `packaging/server/` (its README and
 default settings), leaving out keys and personal settings. Setup on the
 server PC is in `packaging/server/README-SERVER.txt`.
 
+Server updates: always-on servers update their own program files
+(`Webserver/node/lib/updates.js`, `Webserver/node/apply-update.js`), never
+their data. Packages are signed with `config/update-signing-key.pem`, which
+exists only on the developer's PC; keep a backup of it, since servers accept
+only updates signed with it.
+
+```
+node tools/build-server-update.js public                 # the committed server code
+node tools/publish-server-update.js share/RobloxServer-update-<build>.rbxupd
+node tools/build-server-update.js private Server/appearance-hook.lua downloads   # never published
+```
+
+A public update goes out as a GitHub pre-release (`server-<build>`): servers
+find it within a few hours and install it once nobody is playing; launchers
+ignore pre-releases. A private update is uploaded on the server's `/manage`
+page ("Server" > "Install an update file"). `--exe` also makes a
+`RobloxServer-Update-<build>.exe` that installs the same files on the server
+PC without `/manage`, for servers set up before the updater.
+
 To move a running server to another PC with everything it has (games,
 saves, accounts, avatars, friends, keys), `python tools/build-server-installer.py`
 makes `share/RobloxServer-Setup-<date>.exe`, an installer that also sets

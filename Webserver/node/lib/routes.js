@@ -14,6 +14,7 @@ const avatar = require('./avatar');
 const avatarStore = require('./avatarstore');
 const accounts = require('./accounts');
 const announcements = require('./announcements');
+const updates = require('./updates');
 const datastore = require('./datastore');
 const games = require('./games');
 const gamethumbs = require('./gamethumbs');
@@ -1033,6 +1034,93 @@ async function announcementsApi(ctx, match) {
   }
 }
 
+// The always-on server itself (dedicated.js), for /manage: updates
+// (lib/updates.js), restarting the whole server and reading its logs.
+//   GET  /api/server/status                  versions, waiting updates, the last result
+//   POST /api/server/update/check            look for a newer update on GitHub now
+//   POST /api/server/update/install          install the waiting update(s) now
+//   POST /api/server/update/upload           body: an .rbxupd file (checked and set to wait)
+//   POST /api/server/update/discard?build=   drop a waiting (or failed) update
+//   POST /api/server/restart                 restart the whole server (players saved first)
+//   GET  /api/server/logs?name=&lines=       the end of a log: server, web, studio, update
+// All but status need the host key (X-Host-Key).
+const SERVER_LOGS = {
+  server: ['Webserver', 'node', 'logs', 'dedicated.log'],
+  web: ['Webserver', 'node', 'logs', 'server.log'],
+  studio: ['Webserver', 'node', 'logs', 'studio.log'],
+  update: ['updates', 'update.log'],
+};
+
+// The last `lines` lines of a text file (from its last 1 MB), or null when there is none.
+function tailFile(file, lines) {
+  let fd;
+  try { fd = fs.openSync(file, 'r'); } catch (error) { return null; }
+  try {
+    const size = fs.fstatSync(fd).size;
+    const length = Math.min(size, 1048576);
+    const buffer = Buffer.alloc(length);
+    fs.readSync(fd, buffer, 0, length, size - length);
+    const text = buffer.toString('utf8').split(/\r?\n/);
+    if (length < size) text.shift(); // a partial first line
+    while (text.length > 0 && text[text.length - 1] === '') text.pop();
+    return text.slice(-lines).join('\n');
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+async function serverApi(ctx, match) {
+  const action = match[1].toLowerCase();
+  if (action === 'status') {
+    if (ctx.method !== 'GET' && ctx.method !== 'HEAD') return sendJson(ctx, 405, { error: 'use GET' });
+    const runner = places.runnerStatus();
+    return sendJson(ctx, 200, Object.assign(updates.status(), {
+      runner: runner ? { running: !runner.stale, updatedAt: runner.updatedAt, updates: runner.updates || null } : { running: false },
+    }));
+  }
+  const key = ctx.req.headers['x-host-key'] !== undefined ? String(ctx.req.headers['x-host-key']) : '';
+  if (!games.checkHostKey(key)) return sendJson(ctx, 403, { error: 'wrong or missing host key (config/host-key.txt on the server)' });
+  if (action === 'logs') {
+    if (ctx.method !== 'GET') return sendJson(ctx, 405, { error: 'use GET' });
+    const parts = SERVER_LOGS[String(ctx.queryLower.name || 'server').toLowerCase()];
+    if (!parts) return sendJson(ctx, 400, { error: `name is one of ${Object.keys(SERVER_LOGS).join(', ')}` });
+    const lines = Math.min(3000, Math.max(10, Number(ctx.queryLower.lines) || 300));
+    const text = tailFile(core.rootPath(...parts), lines);
+    return send(ctx, 200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }, text === null ? '(this log is empty or does not exist yet)' : text);
+  }
+  if (ctx.method !== 'POST') return sendJson(ctx, 405, { error: 'use POST' });
+  if (action === 'update/check') {
+    places.requestServer('update-check');
+    return sendJson(ctx, 200, { ok: true });
+  }
+  if (action === 'update/install') {
+    if (!updates.listStaged().some((item) => !item.failed)) return sendJson(ctx, 409, { error: 'no update is waiting to install' });
+    places.requestServer('update-install');
+    return sendJson(ctx, 200, { ok: true });
+  }
+  if (action === 'update/discard') {
+    updates.discard(ctx.queryLower.build);
+    return sendJson(ctx, 200, { ok: true });
+  }
+  if (action === 'restart') {
+    places.requestServer('server-restart');
+    return sendJson(ctx, 200, { ok: true });
+  }
+  if (action === 'update/upload') {
+    const declared = Number(ctx.req.headers['content-length']);
+    const bytes = await ctx.body();
+    if (bytes.length === 0) return sendJson(ctx, 400, { error: 'no update file was sent' });
+    if (Number.isFinite(declared) && declared !== bytes.length) return sendJson(ctx, 400, { error: 'the upload was cut short (too large? the limit is 512 MB)' });
+    try {
+      const { dir, ...staged } = updates.stage(bytes, 'uploaded on /manage');
+      return sendJson(ctx, 200, { staged });
+    } catch (error) {
+      return sendJson(ctx, 400, { error: error.message });
+    }
+  }
+  return sendJson(ctx, 404, { error: 'unknown server API call' });
+}
+
 // The management page (Webserver/node/manage/).
 const MANAGE_FILES = { '': ['index.html', 'text/html; charset=utf-8'], 'manage.js': ['manage.js', 'text/javascript; charset=utf-8'], 'manage.css': ['manage.css', 'text/css; charset=utf-8'] };
 function managePage(ctx, match) {
@@ -1086,6 +1174,7 @@ const ROUTES = [
   [/^download\/(roblox-logo(?:-tagline)?\.png)$/i, launcherLogoRoute],
   [/^api\/assets\/(?:missing|(\d{1,15})\/replacement)\/?$/i, assetsApi],
   [/^api\/announcements(?:\/([0-9a-f]{12}))?\/?$/i, announcementsApi],
+  [/^api\/server\/(status|update\/check|update\/install|update\/upload|update\/discard|restart|logs)\/?$/i, serverApi],
   [new RegExp(`^asset(?:/index\\.php)?/?$`, 'i'), assetEndpoint],
   [/^asset\/bodycolors\.(?:ashx|php)$/i, bodyColors],
   [new RegExp(`^v1\\.1/avatar-fetch${opt}$`, 'i'), avatarFetch],

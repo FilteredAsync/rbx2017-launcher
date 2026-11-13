@@ -269,7 +269,10 @@ Server-wide settings, config\dedicated.json (every field optional):
       "failedChecksBeforeRestart": 3,
       "saveWaitSeconds": 10,       time for saves after players are kicked
       "gamePortFirst": 53640,      each online game gets the next free UDP
-      "gamePortCount": 20          port from this range
+      "gamePortCount": 20,         port from this range
+      "autoUpdate": true,          install server updates once nobody plays
+                                   (false: only with Install on /manage)
+      "updateCheckHours": 3        how often to look for one; 0 = never
   }
 tailscaleFirewall.bat opens the whole port range, so new games need no new
 firewall rule. RCC's control (SOAP) ports are 64989, 64990, ... alongside.

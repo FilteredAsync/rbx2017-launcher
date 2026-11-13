@@ -71,6 +71,9 @@ In the startServer window type:
   stop                   save players and stop everything (or press Ctrl+C)
 Closing the window stops everything at once without saving players: use
 "stop" or Ctrl+C instead.
+restartServer.bat restarts the whole server (players are saved first) and
+picks up new server files; restartServer.bat -StopOnly only stops it.
+Double-click it as the account that runs the server, not as administrator.
 Log: Webserver\node\logs\dedicated.log (web requests: access.log).
 
 
@@ -207,6 +210,31 @@ Webserver\node\data\announcements.json.
 Optional: config\roblox-api-key.txt with your own Roblox Open Cloud API key
 lets the web server download some assets Roblox otherwise refuses (see
 config\README.txt). Use your own key; never copy someone else's.
+
+
+Updates
+-------
+The server keeps its own files up to date: a few minutes after it starts,
+and then every 3 hours, it looks for a newer server update in the project's
+GitHub releases, downloads it and installs it once nobody has played or
+built for 3 minutes (or at the daily restart). Installing saves the players,
+stops everything, swaps the files and starts the server again, in about a
+minute. The replaced files are kept in updates\backup\, and if the new
+version does not start, the old one is put back by itself.
+Updates only ever change the server's program files: games, saves,
+accounts, avatars, friends, settings, keys and logs are never touched.
+Only updates signed with the project's key are installed.
+/manage, "Server", shows the version, any waiting update and how the last
+one went, and has buttons to check now, install now, restart the whole
+server, and read the logs. Files that cannot be published (game-server
+scripts, the client download) come as a private update file
+(.rbxupd) from whoever builds the project: "Install an update file" there.
+RobloxServer-Update-<date>.exe does the same without /manage: run it on
+this PC (no administrator needed), and it stops, updates and starts the
+server.
+To install updates only when you press Install, add "autoUpdate": false to
+config\dedicated.json; "updateCheckHours": 0 stops the checks.
+The update log is updates\update.log.
 
 
 Moving this server to another PC

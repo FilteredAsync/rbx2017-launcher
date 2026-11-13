@@ -88,6 +88,13 @@ table.missing td.who { color: var(--muted); font-size: 12px; }
 table.missing td.actions { text-align: right; white-space: nowrap; }
 table.missing .ok { color: var(--good); margin-right: 8px; }
 label.inline select { text-transform: none; letter-spacing: 0; }
+.srv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px 22px; margin-bottom: 16px; }
+.srv-label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px; }
+.srv-grid .bad { color: var(--bad); }
+.srv-grid .good { color: var(--good); }
+.srv-grid button { margin-top: 6px; }
+.srv-logs { margin-top: 14px; }
+.srv-log { max-height: 420px; }
 .news { display: grid; gap: 10px; margin-top: 16px; }
 .news-item { border: 1px solid var(--line); border-left: 3px solid var(--accent); padding: 10px 12px; display: flex; gap: 12px; align-items: flex-start; }
 .news-item.important { border-left-color: var(--warn); }

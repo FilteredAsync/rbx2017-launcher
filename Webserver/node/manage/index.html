@@ -98,6 +98,39 @@
       <div id="news-list" class="news"></div>
     </section>
 
+    <section class="panel">
+      <div class="list-head">
+        <h2>Server</h2>
+        <span class="hint" id="srv-state"></span>
+      </div>
+      <p class="lead">Updates to this server's own files come from the project and install by themselves once nobody has played for a few minutes: players are saved first, the old files are kept, and they are put back if the new version does not start. Games, accounts, saves and settings are never touched. Changes need the host key.</p>
+      <div class="srv-grid">
+        <div><div class="srv-label">Installed</div><div id="srv-installed">…</div></div>
+        <div><div class="srv-label">Updates</div><div id="srv-updates">…</div></div>
+        <div><div class="srv-label">Last update</div><div id="srv-last">…</div></div>
+      </div>
+      <div class="row">
+        <button type="button" id="srv-check">Check for updates</button>
+        <button type="button" id="srv-install" hidden>Install now</button>
+        <button type="button" class="ghost" id="srv-upload-button">Install an update file…</button>
+        <button type="button" class="ghost" id="srv-restart">Restart the whole server</button>
+        <progress id="srv-progress" max="100" value="0" hidden></progress>
+        <span class="status" id="srv-status"></span>
+      </div>
+      <div class="row srv-logs">
+        <label class="inline">Log
+          <select id="srv-log-name">
+            <option value="server">Server (games and restarts)</option>
+            <option value="web">Web server</option>
+            <option value="update">Updates</option>
+            <option value="studio">Studio</option>
+          </select>
+        </label>
+        <button type="button" class="ghost" id="srv-log-show">Show the last 300 lines</button>
+      </div>
+      <pre class="notes srv-log" id="srv-log" hidden></pre>
+    </section>
+
     <section>
       <div class="list-head">
         <h2>Games</h2>
@@ -144,6 +177,7 @@
   <input type="file" id="missing-file" accept=".ogg,.mp3,.wav,.png,.jpg,.jpeg,.rbxm,.rbxmx" hidden>
 
   <input type="file" id="replace-file" accept=".rbxlx,.rbxmx" hidden>
+  <input type="file" id="srv-upload" accept=".rbxupd" hidden>
   <input type="file" id="thumb-file" accept=".png,.jpg,.jpeg,.gif,.webp" hidden>
   <script src="/manage/manage.js"></script>
 </body>
