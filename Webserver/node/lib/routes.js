@@ -1109,6 +1109,9 @@ const SERVER_LOGS = {
   web: ['Webserver', 'node', 'logs', 'server.log'],
   studio: ['Webserver', 'node', 'logs', 'studio.log'],
   update: ['updates', 'update.log'],
+  // Every web request (who asked for what, the answer's status): for tracing
+  // what the game client and RCC ask this server.
+  access: ['Webserver', 'node', 'logs', 'access.log'],
 };
 
 // The last `lines` lines of a text file (from its last 1 MB), or null when there is none.
