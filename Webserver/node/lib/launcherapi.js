@@ -465,9 +465,41 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
     return String(text || '').split(',').map((part) => Number(part.trim())).filter((id) => Number.isInteger(id) && id > 0).slice(0, 200);
   }
 
+  // The parameters of a friend call: from the address, and for a POST (how
+  // RCC's FriendService asks: users/filter-friends) also from the body,
+  // form-encoded or JSON. Keys lowercased; a repeated key (otherUserIds once
+  // per player) becomes a comma list.
+  async function friendParams(ctx) {
+    const q = Object.assign({}, ctx.queryLower);
+    if (ctx.method !== 'POST') return q;
+    let text = '';
+    try { text = (await ctx.body()).toString('utf8').trim(); } catch (error) { return q; }
+    if (!text) return q;
+    if (text[0] === '{') {
+      try {
+        for (const [key, value] of Object.entries(JSON.parse(text))) q[key.toLowerCase()] = Array.isArray(value) ? value.join(',') : String(value);
+      } catch (error) { /* not JSON after all */ }
+      return q;
+    }
+    const seen = new Set();
+    for (const [key, value] of new URLSearchParams(text)) {
+      const k = key.toLowerCase();
+      q[k] = seen.has(k) && q[k] ? `${q[k]},${value}` : value;
+      seen.add(k);
+    }
+    // A body in some other shape: note it in the web log (/manage > Server).
+    if (!q.userid && Date.now() - lastOddFriendBody > 60000) {
+      lastOddFriendBody = Date.now();
+      core.appendLog(core.rootPath('Webserver', 'node', 'logs', 'server.log'),
+        `${core.gmdate()}  friends: unreadable ${ctx.req.url} body from ${ctx.remote}: ${JSON.stringify(text.slice(0, 200))}`, 5 * 1024 * 1024);
+    }
+    return q;
+  }
+  let lastOddFriendBody = 0;
+
   function gameFriendRoute(kind) {
-    return (ctx, match) => {
-      const q = ctx.queryLower;
+    return async (ctx, match) => {
+      const q = await friendParams(ctx);
       const reply = (value) => sendJson(ctx, 200, value);
       if (kind === 'statuses') {
         // Only edited CoreScripts ask this, and the 2017 client never runs
