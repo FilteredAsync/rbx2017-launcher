@@ -10,7 +10,8 @@
     "start": "electron .",
     "package": "electron-packager . \"RobloxClient Launcher\" --platform=win32 --arch=x64 --out=dist --overwrite --icon=build/icon.ico --ignore=^/dist --ignore=^/dist-installer --ignore=^/node_modules --ignore=^/build",
     "icon": "electron build/make-icon.js",
-    "dist": "electron-builder --win nsis --x64"
+    "dist": "electron-builder --win nsis --x64",
+    "dist:full": "electron-builder --win nsis --x64 --config build/full.config.js"
   },
   "devDependencies": {
     "@electron/packager": "20.3.0",
@@ -29,21 +30,11 @@
     "files": [
       "main.js",
       "preload.js",
+      "gamefiles.js",
       "package.json",
       "renderer/**/*"
     ],
     "extraFiles": [
-      {
-        "from": "../Client",
-        "to": "Client",
-        "filter": [
-          "**/*",
-          "!RobloxPlayerBeta_aecandidate.exe",
-          "!RobloxPlayerBeta_tracecandidate.exe",
-          "!rbxsig_private.pem",
-          "!corescripts-original{,/**}"
-        ]
-      },
       {
         "from": "../Webserver/node",
         "to": "Webserver/node",

@@ -884,6 +884,20 @@ async function placesApi(ctx, match) {
   return sendJson(ctx, 404, { error: 'unknown places API call' });
 }
 
+// Game files for the downloader installer: the launcher from the small
+// Setup.exe downloads the client from here on first run (and offers updates
+// when the version changes). Built by tools/build-client-files.py into
+// RobloxClient/downloads/.
+const DOWNLOADS = { 'client-files.json': 'application/json; charset=utf-8', 'client-files.zip': 'application/zip' };
+function downloadsRoute(ctx, match) {
+  const name = match[1].toLowerCase();
+  const file = core.rootPath('downloads', name);
+  if (!core.isFile(file)) {
+    return sendJson(ctx, 404, { error: 'this server has no game files to hand out (run tools/build-client-files.py on it)' });
+  }
+  sendFile(ctx, file, { 'Content-Type': DOWNLOADS[name], 'Cache-Control': name.endsWith('.json') ? 'no-cache' : 'public, max-age=3600' });
+}
+
 // The management page (Webserver/node/manage/).
 const MANAGE_FILES = { '': ['index.html', 'text/html; charset=utf-8'], 'manage.js': ['manage.js', 'text/javascript; charset=utf-8'], 'manage.css': ['manage.css', 'text/css; charset=utf-8'] };
 function managePage(ctx, match) {
@@ -926,6 +940,7 @@ const ROUTES = [
   [/^api\/thumbnails\/(\d{1,15})\/?$/i, thumbnailsApi],
   [/^api\/places(?:\/(\d{1,15})(?:\/([a-z]+))?)?\/?$/i, placesApi],
   [/^manage(?:\/([a-z.]*))?\/?$/i, managePage],
+  [/^download\/(client-files\.(?:zip|json))$/i, downloadsRoute],
   [new RegExp(`^asset(?:/index\\.php)?/?$`, 'i'), assetEndpoint],
   [/^asset\/bodycolors\.(?:ashx|php)$/i, bodyColors],
   [new RegExp(`^v1\\.1/avatar-fetch${opt}$`, 'i'), avatarFetch],

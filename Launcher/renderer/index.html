@@ -148,6 +148,21 @@
 
   <!-- SETUP -->
   <section class="view" id="view-setup">
+    <div class="panel hidden" id="files-panel">
+      <div class="label">Game files</div>
+      <p class="lead" id="files-lead">The game files come from your server (about 85 MB). Connect Tailscale, enter the server address your host gave you, and download them.</p>
+      <div class="grid two">
+        <label>Server address
+          <input id="files-server" placeholder="http://100.101.102.103" spellcheck="false">
+          <span class="hint">Your host's Tailscale address. It is also used to find games.</span>
+        </label>
+      </div>
+      <div class="row">
+        <button class="primary" id="files-download">Download game files</button>
+        <span class="status" id="files-status"></span>
+      </div>
+      <progress class="files-progress hidden" id="files-progress" max="100" value="0"></progress>
+    </div>
     <div class="panel">
       <p class="lead">One-time steps. Actions marked "admin" ask Windows for permission.</p>
       <div class="checks" id="setup-checks"></div>

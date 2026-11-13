@@ -129,6 +129,38 @@ function capabilities() {
   };
 }
 
+// --- game files (downloader installer) ---------------------------------------------
+// Installs from the small Setup.exe download the game client from the server
+// on first run (and when the server has a newer version): see gamefiles.js.
+
+let gameFilesModule = null;
+function gameFiles() {
+  if (!gameFilesModule) {
+    gameFilesModule = require('./gamefiles')({
+      root: ROOT,
+      normalizeUrl: (url) => lib('proxy').normalizeCentralUrl(url),
+      canPlay: () => capabilities().canPlay,
+      onProgress: (info) => send('files-progress', info),
+    });
+  }
+  return gameFilesModule;
+}
+
+function installedFiles() {
+  return gameFiles().installed();
+}
+
+async function downloadGameFiles(centralUrl) {
+  if (playSession) throw new Error('Close the game first.');
+  const result = await gameFiles().download(centralUrl);
+  send('status-changed');
+  return result;
+}
+
+function filesUpdate(centralUrl) {
+  return gameFiles().update(centralUrl);
+}
+
 // --- setup checks -----------------------------------------------------------------
 
 async function checks() {
@@ -139,7 +171,14 @@ async function checks() {
 
   if (!canHost) {
     // Player install: the game files and Tailscale are all it needs.
-    add('files', 'Game files', canPlay, `Installed in: ${ROOT}`);
+    const installed = installedFiles();
+    add('files', 'Game files', canPlay,
+      canPlay ? `Installed in: ${ROOT}${installed ? ` (version ${installed.version})` : ''}` : 'Not downloaded yet: they come from your server.',
+      canPlay ? null : 'download-files');
+    if (canPlay) {
+      const update = await filesUpdate((lib('joining').loadConfig() || {}).centralUrl);
+      if (update) add('files-update', 'Game files update', false, `Version ${update.available} is on the server (you have ${update.installed}, ${Math.round(update.size / 1e6)} MB).`, 'download-files');
+    }
     const tailscaleIp = core.tailscaleIPv4();
     const tailscaleInstalled = fs.existsSync('C:\\Program Files\\Tailscale\\tailscale.exe');
     add('tailscale', 'Tailscale connected', Boolean(tailscaleIp),
@@ -306,6 +345,7 @@ async function hostThumbnail({ action, centralUrl, placeId, hostKey }) {
 // --- IPC ----------------------------------------------------------------------------
 
 function registerIpc() {
+  ipcMain.handle('files:download', (event, centralUrl) => downloadGameFiles(centralUrl));
   ipcMain.handle('games:thumbnail', (event, options) => gameThumbnail(options && options.centralUrl, options && options.placeId, options && options.version));
   // Opens <web server>/manage in the default browser (only that page).
   ipcMain.handle('open:manage', async (event, centralUrl) => {
@@ -329,6 +369,8 @@ function registerIpc() {
       hasLocalHostKey: Boolean(hosting.localHostKey()),
       hasMusic: fs.existsSync(path.join(ROOT, 'config', 'menu-music.mp3')),
       ...capabilities(),
+      needsFiles: !capabilities().canPlay && !capabilities().canHost,
+      filesVersion: (installedFiles() || {}).version || null,
     };
   });
 

@@ -379,7 +379,8 @@ function renderHome() {
   for (let i = 0; i < 3; i++) {
     const entry = played[i];
     if (!entry) {
-      recent.append(i === 0 ? placeholder('Games you join show up here.', '▶', () => showView('games', true)) : placeholder(''));
+      if (i === 0 && state && state.needsFiles) recent.append(placeholder('Download the game files first (Setup).', '↓', () => showView('setup', true)));
+      else recent.append(i === 0 ? placeholder('Games you join show up here.', '▶', () => showView('games', true)) : placeholder(''));
       continue;
     }
     const online = onlineMatch(entry);
@@ -694,7 +695,60 @@ const ACTION_LABELS = {
   hosts: 'Add hosts entries (admin)',
   firewall: 'Open firewall for Tailscale (admin)',
   'tailscale-download': 'Get Tailscale',
+  'download-files': 'Download game files',
 };
+
+// --- game files (installs from the small Setup.exe) ----------------------------------
+
+function showFilesPanel(focus) {
+  const panel = $('files-panel');
+  panel.classList.remove('hidden');
+  if (!$('files-server').value) $('files-server').value = $('play-server').value.trim() || '';
+  if (state && !state.needsFiles) $('files-lead').textContent = 'A newer version of the game files is on your server. Download it to update (your settings stay).';
+  if (focus) focusEl($('files-server').value ? $('files-download') : $('files-server'));
+}
+
+let downloadingFiles = false;
+$('files-download').addEventListener('click', async () => {
+  if (downloadingFiles) return;
+  const address = $('files-server').value.trim();
+  downloadingFiles = true;
+  $('files-download').disabled = true;
+  $('files-progress').classList.remove('hidden');
+  $('files-progress').removeAttribute('value');
+  try {
+    const result = await api.downloadFiles(address);
+    setStatus('files-status', `Ready: game files version ${result.version} installed.`, 'good');
+    $('play-server').value = address;
+    await refreshState();
+    setTimeout(() => {
+      $('files-panel').classList.add('hidden');
+      $('files-progress').classList.add('hidden');
+      refreshChecks();
+      showView('home', true);
+    }, 1800);
+  } catch (error) {
+    setStatus('files-status', message(error), 'error');
+    $('files-progress').classList.add('hidden');
+  } finally {
+    downloadingFiles = false;
+    $('files-download').disabled = false;
+  }
+});
+
+api.onFilesProgress((info) => {
+  const bar = $('files-progress');
+  if (info.phase === 'checking') setStatus('files-status', 'Contacting the server…');
+  if (info.phase === 'download') {
+    bar.max = info.total;
+    bar.value = info.received;
+    setStatus('files-status', `Downloading… ${Math.round(info.received / 1e6)} of ${Math.round(info.total / 1e6)} MB`);
+  }
+  if (info.phase === 'unpack') {
+    bar.removeAttribute('value');
+    setStatus('files-status', 'Unpacking…');
+  }
+});
 
 async function refreshChecks() {
   const list = $('setup-checks');
@@ -710,6 +764,10 @@ async function refreshChecks() {
     if (check.action) {
       const button = el('button', 'ghost small', ACTION_LABELS[check.action] || 'Fix');
       button.addEventListener('click', async () => {
+        if (check.action === 'download-files') {
+          showFilesPanel(true);
+          return;
+        }
         await api.runSetup(check.action);
         button.textContent = 'Started — check again when done';
       });
@@ -773,7 +831,13 @@ updateBackgroundButton();
 refreshState().then(() => {
   renderHome();
   findGames(true);
-  focusEl(firstFocusable('#view-home'));
+  if (state.needsFiles) {
+    // First run after the small Setup.exe: get the game files.
+    showView('setup');
+    showFilesPanel(true);
+  } else {
+    focusEl(firstFocusable('#view-home'));
+  }
 });
 setInterval(refreshState, 5000);
 setInterval(() => { if (view === 'home' || view === 'games') findGames(true); }, 15000);

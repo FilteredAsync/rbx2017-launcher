@@ -22,6 +22,7 @@
 /Launcher/*
 !/Launcher/main.js
 !/Launcher/preload.js
+!/Launcher/gamefiles.js
 !/Launcher/package.json
 !/Launcher/package-lock.json
 !/Launcher/build/

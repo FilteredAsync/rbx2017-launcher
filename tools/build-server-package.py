@@ -76,6 +76,12 @@ def main():
         add_file(os.path.join(ROOT, name), name)
     add_tree('Launcher/dist/RobloxClient Launcher-win32-x64')
     add_file(os.path.join(TEMPLATES, 'README-SERVER.txt'), 'README-SERVER.txt')
+    # The game files the server hands to new players (tools/build-client-files.py).
+    if os.path.isfile(os.path.join(ROOT, 'downloads', 'client-files.zip')):
+        for name in ('client-files.zip', 'client-files.json'):
+            add_file(os.path.join(ROOT, 'downloads', name), 'downloads/' + name)
+    else:
+        print('note: no downloads/client-files.zip (run tools/build-client-files.py); players with the small Setup.exe cannot get game files from this server')
 
     missing = [name for name, src in entries.items() if not os.path.isfile(src)]
     if missing:

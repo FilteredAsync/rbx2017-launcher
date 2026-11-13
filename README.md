@@ -42,28 +42,50 @@ Never commit keys or personal files: `config/host-key.txt`,
 
 ## Players: Setup.exe
 
-Build it on a PC that has the full RobloxClient folder:
+There are two installers. Both install per user (no administrator rights),
+let the player pick a folder, and add a Desktop and Start menu shortcut and
+an entry in Apps & features.
+
+| | `RobloxClient-Setup-<version>.exe` | `RobloxClient-Setup-Full-<version>.exe` |
+| --- | --- | --- |
+| Build | `npm run dist` | `npm run dist:full` |
+| Size | about 120 MB | about 190 MB |
+| Game client | downloaded on first run from your server | inside |
+| Share on | GitHub Releases | privately only (it contains Roblox's client) |
+
+With the small one, the launcher opens on **Setup > Game files** the first
+time: the player enters your server's address and presses **Download game
+files** (about 85 MB, checked against its SHA-256). When the server has newer
+game files, Setup offers them as an update.
+
+The server hands out the game files once you build them (and again whenever
+`Client/` changes):
+
+```
+python tools/build-client-files.py
+```
+
+This writes `downloads/client-files.zip` and `.json`, which the web server
+serves at `/download/client-files.zip` and `tools/build-server-package.py`
+includes in the server package.
+
+Build the installers on a PC that has the full RobloxClient folder:
 
 ```
 cd Launcher
 npm install
-npm run dist
+npm run dist        # small Setup.exe (Launcher/dist-installer/)
+npm run dist:full   # full Setup.exe
 ```
 
-This makes `Launcher/dist-installer/RobloxClient-Setup-<version>.exe`
-(about 190 MB). It contains the 2017 client, so share it privately (never
-on GitHub). Players run it, pick a folder, and get a Desktop and Start menu
-shortcut and an entry in Apps & features. It needs no administrator rights.
-The installer is not code-signed, so Windows SmartScreen may say "Windows
-protected your PC": choose **More info > Run anyway**.
-
-To ship an update, raise `version` in `Launcher/package.json` and build
-again. Installing over an older version keeps each player's settings
-(server address, username) and download cache.
+The installers are not code-signed, so Windows SmartScreen may say "Windows
+protected your PC": choose **More info > Run anyway**. To ship an update,
+raise `version` in `Launcher/package.json` and build again. Installing over
+an older version keeps each player's settings (server address, username),
+cache and downloaded game files.
 
 Players also need [Tailscale](https://tailscale.com/download), signed in to
-your tailnet. In the launcher's GAMES tab they enter the server's address
-(`http://<server Tailscale IP>`) once.
+your tailnet.
 
 ## The always-on server: RobloxServer.zip
 
