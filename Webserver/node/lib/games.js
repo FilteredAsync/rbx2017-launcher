@@ -4,6 +4,9 @@
 // registers its game with the shared host key, then checks in every few
 // seconds; a game that stops checking in drops off the list. The list lives
 // in memory only: hosts simply register again after a web server restart.
+// Each entry is one game server. The always-on server (dedicated.js) gives
+// each of its servers a job ID, kept when it registers again, and says which
+// are private servers (lib/privateservers.js): those are not listed publicly.
 
 const crypto = require('crypto');
 const dns = require('dns').promises;
@@ -75,15 +78,21 @@ function register(fields, remote) {
   if (address === null) return { error: 'address must look like host:port (the playit UDP address of the game)' };
   const placeId = core.decimal(fields.placeId === undefined ? '1818' : String(fields.placeId));
   if (placeId === null || placeId.length > 15) return { error: 'placeId must be a number' };
-  const id = crypto.randomBytes(8).toString('hex');
+  const jobId = /^[0-9a-f]{16,32}$/.test(String(fields.jobId || '')) ? String(fields.jobId) : null;
+  const id = jobId || crypto.randomBytes(8).toString('hex');
+  const privateId = /^[0-9a-f]{12}$/.test(String(fields.privateId || '')) ? String(fields.privateId) : null;
+  const maxPlayers = Math.round(Number(fields.maxPlayers));
   const now = Date.now();
+  const before = games.get(id);
   const game = {
     id,
     name: cleanName(fields.name),
     placeId,
+    privateId,
+    maxPlayers: maxPlayers >= 1 && maxPlayers <= 100 ? maxPlayers : null,
     address,
     registeredFrom: remote,
-    startedAt: now,
+    startedAt: before ? before.startedAt : now,
     lastSeen: now,
   };
   games.set(id, game);
@@ -107,7 +116,12 @@ function get(id) {
   return games.get(id) || null;
 }
 
-function list() {
+function addressText(address) {
+  return `${address.host.includes(':') ? `[${address.host}]` : address.host}:${address.port}`;
+}
+
+// Every server, private ones too (privateId set).
+function listAll() {
   prune();
   return [...games.values()]
     .sort((a, b) => a.startedAt - b.startedAt)
@@ -115,9 +129,19 @@ function list() {
       id: game.id,
       name: game.name,
       placeId: game.placeId,
-      address: `${game.address.host.includes(':') ? `[${game.address.host}]` : game.address.host}:${game.address.port}`,
+      privateId: game.privateId,
+      maxPlayers: game.maxPlayers,
+      address: addressText(game.address),
       upSeconds: Math.round((Date.now() - game.startedAt) / 1000),
     }));
+}
+
+// The public list (/api/games): no private servers.
+function list() {
+  return listAll().filter((game) => !game.privateId).map((game) => {
+    delete game.privateId;
+    return game;
+  });
 }
 
 // The join script needs an IP address: resolve a playit hostname here.
@@ -134,5 +158,5 @@ async function resolve(game) {
 
 module.exports = {
   HEARTBEAT_SECONDS, ensureHostKey, checkHostKey, parseAddress,
-  register, heartbeat, close, get, list, resolve,
+  register, heartbeat, close, get, list, listAll, resolve, addressText,
 };

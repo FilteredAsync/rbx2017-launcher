@@ -37,7 +37,7 @@ const PAGE_FILES = {
 };
 // An empty place: what a newly published game holds until Studio's upload lands.
 const EMPTY_PLACE = Buffer.from('<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">\n</roblox>\n');
-const MAX_PLACE_BYTES = 512 * 1024 * 1024;
+const MAX_PLACE_BYTES = 1024 * 1024 * 1024;
 // The Studio in Studio/ (RobloxStudioBeta.exe 0.299.0.136981, from
 // version-963a1dfb081b4bff): what its Team Create version check expects.
 const STUDIO_VERSION_NAME = 'version-963a1dfb081b4bff';

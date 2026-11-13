@@ -261,7 +261,8 @@ function appearanceHook() {
 // game names another place file.
 // cloudEdit: { saveUrl } for a Team Create server (saveUrl: where RCC posts
 // the place; it carries the place ID and the token the web server checks).
-async function startGameJob(placeId, port, domain, scriptTimeout, log, soapPort = SOAP_PORT, placeFile = 'place.rbxlx', cloudEdit = null) {
+// maxPlayers: RCC turns away players past it.
+async function startGameJob(placeId, port, domain, scriptTimeout, log, soapPort = SOAP_PORT, placeFile = 'place.rbxlx', cloudEdit = null, maxPlayers = null) {
   const open = await soap('OpenJob', '<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ns1="http://localhost./">'
     + '<SOAP-ENV:Body><ns1:OpenJob><ns1:job><ns1:id>GameServer</ns1:id><ns1:expirationInSeconds>360000</ns1:expirationInSeconds>'
     + '<ns1:category>0</ns1:category><ns1:cores>4</ns1:cores></ns1:job><ns1:script><ns1:name>Bootstrap</ns1:name>'
@@ -276,7 +277,11 @@ async function startGameJob(placeId, port, domain, scriptTimeout, log, soapPort 
     source = source.split(stock).join(`game:SetServerSaveUrl(${JSON.stringify(cloudEdit.saveUrl)})`);
   }
   // No characters on a Team Create server, so no avatar code.
-  const script = `${source}\r\n${creatorCall(placeId)}${cloudEdit ? '' : FRIEND_SERVICE}${startCall(placeId, port, domain, scriptTimeout, Boolean(cloudEdit))}\r\n${cloudEdit ? '' : appearanceHook()}\r\n`;
+  // Players.MaxPlayers is read-only to this script; MaxPlayersInternal (set
+  // before and after the place loads, in case the place file has its own) is not.
+  const limit = !cloudEdit && Number(maxPlayers) >= 1
+    ? `pcall(function() game:GetService("Players").MaxPlayersInternal = ${Math.round(Number(maxPlayers))} end)\r\n` : '';
+  const script = `${source}\r\n${creatorCall(placeId)}${cloudEdit ? '' : FRIEND_SERVICE}${limit}${startCall(placeId, port, domain, scriptTimeout, Boolean(cloudEdit))}\r\n${limit}${cloudEdit ? '' : appearanceHook()}\r\n`;
   soap('Execute', executeEnvelope('GameServer', script), 0, soapPort).then((result) => {
     if (result.status < 200 || result.status >= 300) log(`RCC answered the game job with HTTP ${result.status}`);
   }, (error) => log(`game job connection ended: ${error.code || error.message}`));
@@ -414,7 +419,7 @@ async function startHosting(rawConfig, { log = console.log, startRcc = true, ded
       }
       const domain = fixedDomain(config);
       const scriptTimeout = config.scriptTimeout === undefined ? 10 : Number(config.scriptTimeout) || 0;
-      await startGameJob(placeId, gamePort, domain, scriptTimeout, log, soapPort, placeFile, config.cloudEdit || null);
+      await startGameJob(placeId, gamePort, domain, scriptTimeout, log, soapPort, placeFile, config.cloudEdit || null, config.maxPlayers || null);
       log(`game job submitted on UDP port ${gamePort} (RCC web address ${domain === null ? 'not set' : `http://${domain}/`}, script timeout ${scriptTimeout ? `${scriptTimeout} s` : 'off'})`);
     }
   } catch (error) {
@@ -425,6 +430,11 @@ async function startHosting(rawConfig, { log = console.log, startRcc = true, ded
   // 3. List the game (not a Team Create server: only Studio joins those) ----------
   const publicAddress = resolvePublicAddress(config.publicAddress || `${lanAddress()}:${gamePort}`, log);
   const fields = { key: hostKey, name: config.gameName || `${os.hostname()}'s game`, placeId, address: publicAddress };
+  // The always-on server's own job ID (kept when it registers again), private
+  // server and player limit (lib/games.js).
+  if (config.jobId) fields.jobId = config.jobId;
+  if (config.privateId) fields.privateId = config.privateId;
+  if (config.maxPlayers) fields.maxPlayers = config.maxPlayers;
   const listed = !config.cloudEdit;
   let gameId = null;
   let heartbeatSeconds = 15;

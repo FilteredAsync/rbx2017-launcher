@@ -5,7 +5,17 @@
 //   POST login            {name, password, mode: "signin"|"signup"} -> {token, account}
 //   POST logout           (session)
 //   GET  me               (session) -> {account}
-//   POST join             {gameId} (session, or none for a guest) -> {ticket, name, userId, guest}
+//   POST join             (session, or none for a guest) one of
+//                           {placeId}    any public server of the game with room
+//                           {gameId}     that server (its job ID)
+//                           {privateId}  a private server you may join
+//                         -> {ticket, name, userId, guest, game: {id, name, placeId, address}}
+//                         or 202 {starting: true}: a server is starting; ask again in a moment
+//   GET  games            the games: each with its public servers and players
+//   GET  private-servers  (session) ?placeId= the private servers you may join
+//   POST private-servers  (session) {placeId, name} makes one (you own it)
+//   POST private-servers/redeem       (session) {code}: join one by its invite code
+//   POST private-servers/<id>/rename {name} | friends {on} | code | delete | leave   (session)
 //   GET  players          who is in which game
 //   GET  avatar           (session) -> the account's avatar
 //   POST avatar           (session) {bodyColors, assets: [{id}]} -> saves it
@@ -43,6 +53,10 @@ const avatar = require('./avatar');
 const avatarStore = require('./avatarstore');
 const games = require('./games');
 const friends = require('./friends');
+const places = require('./places');
+const privateservers = require('./privateservers');
+const gamethumbs = require('./gamethumbs');
+const creators = require('./creators');
 const outfits = require('./outfits');
 const announcements = require('./announcements');
 const wearables = require('./wearables');
@@ -130,11 +144,19 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
     return { name: `Guest_${number}`, userId: -number, guest: true };
   }
 
-  function newTicket(identity) {
+  // gameId: the server it is for (a private server lets in only its tickets).
+  function newTicket(identity, gameId = null) {
     pruneTickets();
     const ticket = crypto.randomBytes(16).toString('hex');
-    tickets.set(ticket, Object.assign({}, identity, { expires: Date.now() + TICKET_MS }));
+    tickets.set(ticket, Object.assign({}, identity, { gameId, expires: Date.now() + TICKET_MS }));
     return ticket;
+  }
+
+  // True when the ticket was handed out for that server.
+  function ticketAllows(ticket, gameId) {
+    pruneTickets();
+    const entry = /^[0-9a-f]{32}$/.test(String(ticket || '')) ? tickets.get(ticket) : null;
+    return Boolean(entry && entry.gameId && entry.gameId === gameId);
   }
 
   // Who a placelauncher request joins as: the ticket's player, or a new guest.
@@ -171,33 +193,282 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
 
   // --- players ------------------------------------------------------------------------
 
-  // From the always-on server's status (runner-status.json): who is in which
-  // game right now.
+  // The always-on server's last report, or null when it is not running.
+  function runner() {
+    const status = places.runnerStatus();
+    return status && !status.stale ? status : null;
+  }
+
+  // Its game servers by job ID ({ placeId, privateId, state, players, ... }).
+  function runnerServers(status = runner()) {
+    return status && status.servers && typeof status.servers === 'object' ? status.servers : {};
+  }
+
+  // Player names from a status report (older ones held several names in
+  // one, XML-escaped).
+  function namesIn(list) {
+    if (!Array.isArray(list)) return [];
+    return [].concat(...list.map((raw) => String(raw).split(/&#xA;|\n/i).map((text) => text.trim()).filter(Boolean)));
+  }
+
+  function libraryPlaces() {
+    return places.exists() ? places.load().places : {};
+  }
+
+  // Who is in which server right now (gameId: the server's job ID).
   function onlinePlayers() {
-    const status = core.readJsonFile(core.rootPath('Webserver', 'node', 'data', 'runner-status.json'));
-    const byPlace = status && status.games && typeof status.games === 'object' ? status.games : {};
-    const listed = games.list();
+    const library = libraryPlaces();
     const result = [];
-    for (const [placeId, entry] of Object.entries(byPlace)) {
-      if (!entry || !Array.isArray(entry.players)) continue;
-      const game = listed.find((item) => String(item.placeId) === String(placeId));
-      for (const raw of entry.players) {
-        // Older status files hold several names in one, XML-escaped.
-        for (const name of String(raw).split(/&#xA;|\n/i).map((text) => text.trim()).filter(Boolean)) {
-          const known = accounts.byName(name);
-          const guestMatch = /^Guest[ _](\d{1,6})$/.exec(name);
-          result.push({
-            name,
-            userId: known ? known.userId : guestMatch ? -Number(guestMatch[1]) : null,
-            guest: Boolean(guestMatch),
-            placeId: String(placeId),
-            gameId: game ? game.id : null,
-            gameName: game ? game.name : `Place ${placeId}`,
-          });
-        }
+    for (const [jobId, entry] of Object.entries(runnerServers())) {
+      if (!entry) continue;
+      const place = library[entry.placeId];
+      for (const name of namesIn(entry.players)) {
+        const known = accounts.byName(name);
+        const guestMatch = /^Guest[ _](\d{1,6})$/.exec(name);
+        result.push({
+          name,
+          userId: known ? known.userId : guestMatch ? -Number(guestMatch[1]) : null,
+          guest: Boolean(guestMatch),
+          placeId: String(entry.placeId),
+          gameId: jobId,
+          privateServer: Boolean(entry.privateId),
+          gameName: place ? place.name : `Place ${entry.placeId}`,
+        });
       }
     }
     return result.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  // --- choosing a server ----------------------------------------------------------------
+
+  // Players handed a ticket for a server in the last minute, who may not show
+  // in its player list yet: they count towards it being full.
+  const recentJoins = new Map(); // jobId -> Map(name -> time)
+  const RECENT_MS = 60 * 1000;
+
+  function noteJoin(jobId, name) {
+    const list = recentJoins.get(jobId) || new Map();
+    list.set(name, Date.now());
+    recentJoins.set(jobId, list);
+  }
+
+  function fillOf(jobId, server) {
+    const players = namesIn(server && server.players);
+    const list = recentJoins.get(jobId);
+    let coming = 0;
+    if (list) {
+      for (const [name, at] of list) {
+        if (Date.now() - at > RECENT_MS) list.delete(name);
+        else if (!players.includes(name)) coming++;
+      }
+      if (list.size === 0) recentJoins.delete(jobId);
+    }
+    return players.length + coming;
+  }
+
+  function gameFor(game) {
+    return { id: game.id, name: game.name, placeId: String(game.placeId), address: game.address, privateId: game.privateId || null };
+  }
+
+  // Servers of a game (or a private server) that have room, fullest first.
+  function openServers(placeId, privateId) {
+    const servers = runnerServers();
+    const place = libraryPlaces()[placeId];
+    return games.listAll()
+      .filter((game) => String(game.placeId) === String(placeId) && (game.privateId || null) === (privateId || null))
+      .map((game) => {
+        const server = servers[game.id] || null; // null: hosted from another PC
+        const max = game.maxPlayers || (place ? places.maxPlayersOf(place) : 100);
+        return { game, server, count: fillOf(game.id, server), max };
+      })
+      .filter((entry) => (!entry.server || entry.server.state === 'running') && entry.count < entry.max)
+      .sort((a, b) => b.count - a.count);
+  }
+
+  // No server with room: one starting, or ask the always-on server for one.
+  const pendingStarts = new Map(); // "placeId" or "placeId/privateId" -> { requestId, at }
+  const START_WAIT_MS = 120 * 1000;
+
+  function serverComing(placeId, privateId) {
+    const status = runner();
+    if (!status) return { status: 503, error: 'The game server PC is not running its games right now. Try again later.' };
+    const key = privateId ? `${placeId}/${privateId}` : placeId;
+    const pending = pendingStarts.get(key);
+    if (pending && Date.now() - pending.at > START_WAIT_MS) pendingStarts.delete(key);
+    const failed = pending && (status.startFailures || []).find((entry) => entry.id === pending.requestId);
+    if (failed) {
+      pendingStarts.delete(key);
+      return { status: 503, error: failed.error };
+    }
+    const mine = Object.values(runnerServers(status)).filter((server) => String(server.placeId) === String(placeId)
+      && (server.privateId || null) === (privateId || null) && server.state !== 'stopping');
+    if (mine.some((server) => server.state === 'starting' || server.state === 'restarting')) return { starting: true };
+    const broken = mine.find((server) => server.state === 'error');
+    if (broken) return { status: 503, error: `The game's server could not start (${broken.lastError || 'unknown error'}). Try again in a few minutes.` };
+    // Started, but not on the game list yet (it registers as it starts).
+    if (mine.some((server) => server.state === 'running' && !games.get(server.jobId))) return { starting: true };
+    if (!pendingStarts.has(key)) pendingStarts.set(key, { requestId: places.requestStart(placeId, privateId), at: Date.now() });
+    return { starting: true };
+  }
+
+  // -> { game } (a server to join), { starting: true } or { status, error }
+  function chooseServer(body, who) {
+    const library = libraryPlaces();
+    const privateCheck = (privateId) => {
+      const server = privateservers.get(privateId);
+      if (!server) return { status: 404, error: 'That private server no longer exists.' };
+      if (!who) return { status: 401, error: 'Sign in to join private servers.' };
+      if (!privateservers.canJoin(server, who.userId)) return { status: 403, error: 'That is a private server. Ask its owner for an invite code.' };
+      return { server };
+    };
+    if (body.gameId) {
+      const game = games.get(String(body.gameId));
+      if (!game) return { status: 404, error: 'That server is no longer running. Press Play to join another one.' };
+      if (game.privateId) {
+        const check = privateCheck(game.privateId);
+        if (check.error) return check;
+      }
+      const place = library[game.placeId];
+      const max = game.maxPlayers || (place ? places.maxPlayersOf(place) : 100);
+      if (fillOf(game.id, runnerServers()[game.id]) >= max) return { status: 409, error: 'That server is full. Press Play to join another one.' };
+      return { game };
+    }
+    let placeId;
+    let privateId = null;
+    if (body.privateId) {
+      const check = privateCheck(String(body.privateId));
+      if (check.error) return check;
+      placeId = check.server.placeId;
+      privateId = check.server.id;
+    } else {
+      placeId = places.placeKey(body.placeId);
+      if (placeId === null) return { status: 400, error: 'Which game? (placeId)' };
+    }
+    const place = library[placeId];
+    if (place && !place.enabled) return { status: 404, error: 'This game is not online right now.' };
+    const open = openServers(placeId, privateId);
+    if (open.length) {
+      // A start asked for earlier has done its job: the next full server asks again.
+      pendingStarts.delete(privateId ? `${placeId}/${privateId}` : placeId);
+      return { game: open[0].game };
+    }
+    if (!place) {
+      // Not in this server's library: hosted from another PC (hostGame.bat).
+      const any = !privateId && games.list().some((game) => String(game.placeId) === placeId);
+      return any ? { status: 409, error: 'Every server of this game is full right now.' } : { status: 404, error: 'This game is not online right now.' };
+    }
+    return serverComing(placeId, privateId);
+  }
+
+  // --- the game list ------------------------------------------------------------------------
+
+  // Every game players can join: library games that are online (their
+  // servers start when someone joins) and games hosted from other PCs.
+  function gameList() {
+    const library = libraryPlaces();
+    creators.fillMissing();
+    const status = runner();
+    const servers = runnerServers(status);
+    const result = new Map();
+    const entryFor = (placeId, fields) => Object.assign({
+      placeId: String(placeId), name: `Place ${placeId}`, description: '', creator: '', thumbnail: gamethumbs.version(placeId),
+      maxPlayers: null, canStart: false, starting: false, playing: 0, servers: [],
+    }, fields);
+    for (const [placeId, place] of Object.entries(library)) {
+      if (!place.enabled) continue;
+      const creator = places.creatorOf(place);
+      result.set(placeId, entryFor(placeId, {
+        name: place.name, description: place.description || '', creator: creator ? creator.name : '',
+        maxPlayers: places.maxPlayersOf(place), canStart: Boolean(status),
+      }));
+    }
+    for (const game of games.listAll()) {
+      let entry = result.get(String(game.placeId));
+      if (!entry) {
+        if (library[game.placeId]) continue; // turned off: its servers are stopping
+        entry = entryFor(game.placeId, { name: game.name, maxPlayers: game.maxPlayers });
+        result.set(entry.placeId, entry);
+      }
+      const server = servers[game.id] || null;
+      const players = namesIn(server && server.players);
+      entry.playing += players.length;
+      if (game.privateId) continue;
+      entry.servers.push({ id: game.id, players, playing: players.length, maxPlayers: game.maxPlayers || entry.maxPlayers, upSeconds: game.upSeconds });
+    }
+    for (const server of Object.values(servers)) {
+      const entry = result.get(String(server.placeId));
+      if (entry && !server.privateId && (server.state === 'starting' || server.state === 'restarting')) entry.starting = true;
+    }
+    for (const entry of result.values()) entry.servers.sort((a, b) => b.playing - a.playing || b.upSeconds - a.upSeconds);
+    return [...result.values()].sort((a, b) => b.playing - a.playing || a.name.localeCompare(b.name));
+  }
+
+  // --- private servers ----------------------------------------------------------------------
+
+  function privateFor(server, viewer, servers = runnerServers(), library = libraryPlaces()) {
+    const owner = accounts.byUserId(server.ownerId);
+    const mine = Boolean(viewer && viewer.userId === server.ownerId);
+    const running = Object.values(servers).filter((entry) => entry.privateId === server.id);
+    const players = [].concat(...running.map((entry) => namesIn(entry.players)));
+    const place = library[server.placeId];
+    const result = {
+      id: server.id,
+      placeId: server.placeId,
+      gameName: place ? place.name : `Place ${server.placeId}`,
+      gameOnline: Boolean(place && place.enabled),
+      name: server.name,
+      owner: { userId: server.ownerId, name: owner ? owner.name : `User ${server.ownerId}` },
+      mine,
+      friendsCanJoin: server.friends,
+      running: running.some((entry) => entry.state === 'running'),
+      players,
+      playing: players.length,
+    };
+    if (mine) Object.assign(result, { code: server.code, members: server.members.length });
+    return result;
+  }
+
+  async function privateRoute(ctx, who, action, method) {
+    if (action === 'private-servers' && method === 'GET') {
+      const placeId = ctx.queryLower.placeid ? places.placeKey(ctx.queryLower.placeid) : null;
+      const servers = runnerServers();
+      const library = libraryPlaces();
+      return sendJson(ctx, 200, {
+        servers: privateservers.visibleTo(who.userId, placeId).map((server) => privateFor(server, who, servers, library)),
+        max: privateservers.MAX_PER_OWNER,
+      });
+    }
+    if (method !== 'POST') return sendJson(ctx, 405, { error: 'use POST' });
+    const body = await jsonBody(ctx);
+    if (action === 'private-servers') {
+      const placeId = places.placeKey(body.placeId);
+      const place = placeId ? libraryPlaces()[placeId] : null;
+      if (!place || !place.enabled) return sendJson(ctx, 404, { error: 'This game is not online on this server, so it cannot have private servers.' });
+      const result = privateservers.create(who, placeId, body.name || `${who.name}'s server`);
+      if (result.error) return sendJson(ctx, 400, { error: result.error });
+      return sendJson(ctx, 200, { server: privateFor(result.server, who) });
+    }
+    if (action === 'private-servers/redeem') {
+      const result = privateservers.redeem(body.code, who.userId);
+      if (result.error) return sendJson(ctx, 404, { error: result.error });
+      return sendJson(ctx, 200, { server: privateFor(result.server, who) });
+    }
+    const match = /^private-servers\/([0-9a-f]{12})\/(rename|friends|code|delete|leave)$/.exec(action);
+    const server = match ? privateservers.get(match[1]) : null;
+    if (!server) return sendJson(ctx, 404, { error: 'That private server no longer exists.' });
+    const verb = match[2];
+    if (verb === 'leave') {
+      privateservers.leave(server.id, who.userId);
+      return sendJson(ctx, 200, { ok: true });
+    }
+    if (server.ownerId !== who.userId && !(verb === 'delete' && who.admin)) return sendJson(ctx, 403, { error: 'Only its owner can change this private server.' });
+    let result;
+    if (verb === 'rename') result = privateservers.rename(server.id, body.name);
+    else if (verb === 'friends') result = privateservers.setFriends(server.id, body.on);
+    else if (verb === 'code') result = privateservers.resetCode(server.id);
+    else result = privateservers.remove(server.id);
+    if (result.error) return sendJson(ctx, 400, { error: result.error });
+    return sendJson(ctx, 200, result.server ? { server: privateFor(result.server, who) } : { ok: true });
   }
 
   // --- asset details (types and names, cached) ------------------------------------------------
@@ -417,7 +688,7 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
       const account = accounts.byUserId(userId);
       const name = account ? account.name : `User ${userId}`;
       const place = where(userId, name);
-      return { userId, name, online: place ? { gameId: place.gameId, gameName: place.gameName, placeId: place.placeId } : null };
+      return { userId, name, online: place ? { gameId: place.gameId, gameName: place.gameName, placeId: place.placeId, privateServer: place.privateServer } : null };
     };
     const list = friends.friendIds(who.userId).filter((id) => accounts.byUserId(id)).map(person)
       .sort((a, b) => (Number(Boolean(b.online)) - Number(Boolean(a.online))) || a.name.localeCompare(b.name));
@@ -575,12 +846,22 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
     }
     if (action === 'join' && method === 'POST') {
       const body = await jsonBody(ctx);
-      const game = games.get(String(body.gameId || ''));
-      if (!game) return sendJson(ctx, 404, { error: 'That game is no longer online.' });
       const who = account(ctx);
       if (!who && !body.guest) return sendJson(ctx, 401, { error: 'Your sign-in ran out. Sign in again, or play as a guest.' });
+      const chosen = chooseServer(body, who);
+      if (chosen.error) return sendJson(ctx, chosen.status || 400, { error: chosen.error });
+      if (chosen.starting) return sendJson(ctx, 202, { starting: true, message: 'Starting a server…', retryMs: 2000 });
       const identity = who ? { name: who.name, userId: who.userId, guest: false } : guestIdentity();
-      return sendJson(ctx, 200, Object.assign({ ticket: newTicket(identity) }, identity));
+      noteJoin(chosen.game.id, identity.name);
+      return sendJson(ctx, 200, Object.assign({ ticket: newTicket(identity, chosen.game.id), game: gameFor(chosen.game) }, identity));
+    }
+    if (action === 'games' && method === 'GET') {
+      return sendJson(ctx, 200, { games: gameList() });
+    }
+    if (action === 'private-servers' || action.startsWith('private-servers/')) {
+      const who = needAccount(ctx);
+      if (who) await privateRoute(ctx, who, action, method);
+      return;
     }
     const friendsMatch = /^friends(?:\/(request|accept|decline|cancel|remove))?$/.exec(action);
     if (friendsMatch && (friendsMatch[1] ? method === 'POST' : method === 'GET')) {
@@ -679,7 +960,7 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
       name: person.name,
       admin: Boolean(person.admin),
       self,
-      online: where ? { gameId: where.gameId, gameName: where.gameName, placeId: where.placeId } : null,
+      online: where ? { gameId: where.gameId, gameName: where.gameName, placeId: where.placeId, privateServer: where.privateServer } : null,
       friendStatus: viewer && !self ? friends.status(viewer.userId, person.userId) : null,
     };
   }
@@ -779,6 +1060,7 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
       [/^users\/(\d{1,15})\/friends\/?$/i, gameFriendRoute('friend-list')],
     ],
     joinIdentity,
+    ticketAllows,
     joinSignature,
     checkJoinSignature,
     guestIdentity,

@@ -1,10 +1,16 @@
 'use strict';
 
-// Always-on server: runs the web server and every game that is "online" in
-// the place library (Webserver/node/data/places.json, managed at
-// http://<this PC>/manage), and keeps them running.
-//   - Turning a game on or off on the management page starts or stops it
-//     (players are saved first); uploading a new version restarts it.
+// Always-on server: runs the web server and the game servers of the games
+// that are "online" in the place library (Webserver/node/data/places.json,
+// managed at http://<this PC>/manage), and keeps them running.
+//   - Servers start on demand: when a player joins a game whose servers are
+//     all full (or that has none), the web server asks for a new one
+//     ("start" in data/control.json). A server nobody has played on for
+//     idleStopMinutes stops again. A game with "keep running" always has one.
+//   - Each server has its own job ID; private servers (lib/privateservers.js)
+//     are servers of their own, started the same way.
+//   - Turning a game off on the management page stops its servers (players
+//     are saved first); uploading a new version restarts them.
 //   - A game whose RCC stops by itself is started again; one that stops
 //     answering for a few minutes is restarted.
 //   - A game using more than memoryLimitMB restarts when nobody is playing
@@ -14,13 +20,15 @@
 //   - Server updates (lib/updates.js): it looks for a newer one on GitHub every
 //     few hours and installs waiting ones when nobody is playing, or when
 //     asked on the management page (apply-update.js swaps the files).
-// Server-wide settings: config/dedicated.json (all optional). Each game gets
-// a UDP port from gamePortFirst (53640) onwards, one per running game, up to
-// gamePortCount (tailscaleFirewall.bat opens that range).
+// Server-wide settings: config/dedicated.json (all optional). Each server gets
+// a UDP port from gamePortFirst (53640) onwards, one per running server, up to
+// gamePortCount (tailscaleFirewall.bat opens that range); maxGames servers at
+// most run at once.
 // startServer.bat runs this; autostartServer.bat starts it at sign-in.
 // Type "status", "restart", "restart <place ID>" or "stop" in its window.
 
 const { spawn, spawnSync } = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
 const net = require('net');
 const path = require('path');
@@ -29,6 +37,7 @@ const accounts = require('./lib/accounts');
 const core = require('./lib/core');
 const hosting = require('./lib/hosting');
 const places = require('./lib/places');
+const privateservers = require('./lib/privateservers');
 const updates = require('./lib/updates');
 
 const CONFIG_FILE = core.rootPath('config', 'dedicated.json');
@@ -46,6 +55,7 @@ const DEFAULTS = {
   memoryLimitMB: 3000,
   saveWaitSeconds: 10,
   maxGames: 4,
+  idleStopMinutes: 5,
   gamePortFirst: 53640,
   gamePortCount: 20,
   autoUpdate: true,
@@ -60,6 +70,8 @@ const MESSAGES = {
   off: 'This game was turned off. Your progress was saved.',
   shutdown: 'The server is shutting down. Your progress was saved.',
   update: 'The server is updating. Your progress was saved - rejoin in a minute.',
+  stopped: 'An admin closed this server. Your progress was saved.',
+  privateGone: 'This private server was deleted. Your progress was saved.',
 };
 
 // --- logging and small helpers ---------------------------------------------------
@@ -104,6 +116,7 @@ function loadConfig() {
   config.maxGames = Math.max(1, Number(config.maxGames) || DEFAULTS.maxGames);
   config.gamePortFirst = Number(config.gamePortFirst) || DEFAULTS.gamePortFirst;
   config.gamePortCount = Math.max(1, Number(config.gamePortCount) || DEFAULTS.gamePortCount);
+  config.idleStopMinutes = Math.max(0, Number(config.idleStopMinutes === undefined ? DEFAULTS.idleStopMinutes : config.idleStopMinutes) || 0);
   if (!config.webServer && config.maxGames > 1) config.maxGames = 1; // a remote web server: one game per PC
   config.centralUrl = config.webServer ? 'http://127.0.0.1' : config.centralUrl;
   return config;
@@ -185,17 +198,24 @@ class WebServer {
   }
 }
 
-// --- one game ------------------------------------------------------------------------------
+// --- one game server ---------------------------------------------------------------------
 
 class GameSlot {
-  // index: which port pair this game uses while it runs.
-  constructor(placeId, index, config, onChange) {
+  // index: which port pair this server uses while it runs. jobId: its own ID
+  // (the game list's game ID); privateId: the private server it runs.
+  constructor(placeId, index, config, onChange, { jobId, privateId = null } = {}) {
     this.placeId = placeId;
     this.index = index;
     this.config = config;
     this.onChange = onChange;
-    this.scope = `place ${placeId}`;
+    this.jobId = jobId || crypto.randomBytes(8).toString('hex');
+    this.privateId = privateId;
+    this.scope = `place ${placeId} ${this.tag()}`;
     this.session = null;
+    this.retiring = false; // being stopped for good
+    this.failures = 0;
+    this.idleSince = Date.now();
+    this.maxPlayers = null;
     this.state = 'starting';
     this.lastError = null;
     this.startedAt = 0;
@@ -213,6 +233,11 @@ class GameSlot {
   get gamePort() { return this.config.gamePortFirst + this.index; }
   get soapPort() { return hosting.SOAP_PORT + this.index; }
 
+  // "#ab12cd" for a public server, "private #ab12cd" for a private one.
+  tag() {
+    return `${this.privateId ? 'private ' : ''}#${this.jobId.slice(0, 6)}`;
+  }
+
   setState(state, error) {
     this.state = state;
     if (error !== undefined) this.lastError = error;
@@ -223,8 +248,9 @@ class GameSlot {
   hostConfig() {
     const place = places.load().places[this.placeId];
     if (!place) throw new Error('this place is no longer in the library');
-    this.scope = `${place.name} (${this.placeId})`;
+    this.scope = `${place.name} (${this.placeId}) ${this.tag()}`;
     this.startedVersion = place.version || 1;
+    this.maxPlayers = places.maxPlayersOf(place);
     return {
       gameName: place.name,
       placeId: this.placeId,
@@ -234,6 +260,9 @@ class GameSlot {
       publicAddress: `tailscale:${this.gamePort}`,
       centralUrl: this.config.centralUrl,
       hostKey: this.config.hostKey,
+      jobId: this.jobId,
+      privateId: this.privateId,
+      maxPlayers: this.maxPlayers,
     };
   }
 
@@ -246,15 +275,15 @@ class GameSlot {
   }
 
   async run() {
-    let failures = 0;
     while (!this.shuttingDown) {
       try {
         this.setState('starting');
         const config = this.hostConfig();
         this.session = await hosting.startHosting(config, { log: (line) => log(this.scope, line), dedicated: true });
-        failures = 0;
+        this.failures = 0;
         this.badChecks = 0;
         this.startedAt = Date.now();
+        this.idleSince = Date.now();
         this.setState('running', null);
         log(this.scope, `online; players join at ${this.session.publicAddress}`);
         const result = await this.session.stopped;
@@ -270,8 +299,8 @@ class GameSlot {
       } catch (error) {
         this.session = null;
         if (this.shuttingDown) break;
-        failures++;
-        const delay = Math.min(300, 15 * 2 ** Math.min(failures - 1, 5));
+        this.failures++;
+        const delay = Math.min(300, 15 * 2 ** Math.min(this.failures - 1, 5));
         this.setState('error', error.message);
         log(this.scope, `could not start: ${error.message}; trying again in ${delay} seconds`);
         await this.pause(delay * 1000);
@@ -326,16 +355,28 @@ class GameSlot {
     }
   }
 
-  // Players and memory for the status report.
+  // Players and memory for the status report; tracks how long nobody has
+  // played (an RCC too busy to answer counts as played).
   async sample() {
     const session = this.session;
     if (!session || this.state !== 'running') return;
     this.players = await session.players();
     this.memoryMB = session.memoryMB();
+    if (this.players === null || this.players.length > 0) this.idleSince = Date.now();
+  }
+
+  idleFor() {
+    return this.state === 'running' && !this.restarting && Array.isArray(this.players) && this.players.length === 0
+      ? Date.now() - this.idleSince : 0;
   }
 
   report() {
     return {
+      placeId: this.placeId,
+      jobId: this.jobId,
+      privateId: this.privateId,
+      maxPlayers: this.maxPlayers,
+      idleSince: this.idleFor() > 0 ? new Date(this.idleSince).toISOString() : null,
       state: this.state,
       players: this.players,
       memoryMB: this.memoryMB,
@@ -500,6 +541,29 @@ class CloudEditSlot {
 
 // --- main ----------------------------------------------------------------------------------
 
+// All servers of one place as one status entry: running if any runs, every
+// player, memory added up.
+function combined(reports) {
+  const states = reports.map((report) => report.state);
+  const state = ['running', 'starting', 'restarting', 'error', 'stopping'].find((name) => states.includes(name)) || states[0];
+  const known = reports.filter((report) => Array.isArray(report.players));
+  const memory = reports.filter((report) => report.memoryMB !== null);
+  const started = reports.map((report) => report.startedAt).filter(Boolean).sort();
+  const errored = reports.find((report) => report.lastError);
+  const first = reports.find((report) => report.address) || reports[0];
+  return {
+    state,
+    players: known.length ? [].concat(...known.map((report) => report.players)) : null,
+    memoryMB: memory.length ? memory.reduce((sum, report) => sum + report.memoryMB, 0) : null,
+    startedAt: started[0] || null,
+    restarts: reports.reduce((sum, report) => sum + (report.restarts || 0), 0),
+    lastError: errored ? errored.lastError : null,
+    address: first.address,
+    gamePort: first.gamePort,
+    servers: reports.length,
+  };
+}
+
 function nextDaily(time) {
   const [hours, minutes] = time.split(':').map(Number);
   const next = new Date();
@@ -536,10 +600,10 @@ async function main() {
     log('web', 'web server is up on port 80; manage games at http://<this PC>/manage');
   }
 
-  const slots = new Map(); // placeId -> GameSlot
+  const slots = new Map(); // jobId -> GameSlot (game servers, private ones too)
   const cloud = new Map(); // placeId -> CloudEditSlot (Team Create servers)
-  const retiring = new Set();
   let problems = [];
+  let startFailures = []; // start requests that could not start a server: { id, error, at }
   let shuttingDown = false;
   // Updates: what the last GitHub check found (lib/updates.js).
   const updateState = { lastCheck: null, lastError: null, available: null, checking: false };
@@ -551,13 +615,19 @@ async function main() {
 
   // --- status for the management page ---
   let statusTimer = null;
+  // servers: every game server by job ID. games: per place, all its servers
+  // together (what readers from before servers on demand expect).
   const writeStatus = () => {
+    const servers = {};
+    for (const [id, slot] of slots) servers[id] = slot.report();
     const games = {};
-    for (const [id, slot] of slots) games[id] = slot.report();
+    for (const report of Object.values(servers)) (games[report.placeId] = games[report.placeId] || []).push(report);
+    for (const [placeId, list] of Object.entries(games)) games[placeId] = combined(list);
     const cloudEdit = {};
     for (const [id, slot] of cloud) cloudEdit[id] = slot.report();
     places.writeRunnerStatus({
-      pid: process.pid, maxGames: config.maxGames, games, cloudEdit, problems,
+      pid: process.pid, maxGames: config.maxGames, idleStopMinutes: config.idleStopMinutes,
+      servers, games, cloudEdit, problems, startFailures,
       updates: Object.assign({ autoUpdate: config.autoUpdate !== false }, updateState),
     });
   };
@@ -571,12 +641,65 @@ async function main() {
       await slot.sample().catch(() => {});
       if (slot.idleTooLong()) slot.shutdown('nobody has been editing for a while').catch(() => {});
     }
+    stopIdle();
     writeStatus();
   };
 
   // A free port pair: games count up from the first, Team Create servers
   // down from the last, so they rarely meet.
   const usedIndexes = () => new Set([...slots.values(), ...cloud.values()].map((slot) => slot.index));
+
+  // --- game servers ---
+  const live = () => [...slots.values()].filter((slot) => !slot.retiring);
+  // The servers of a place: public ones (privateId null) or a private server's.
+  const serversOf = (placeId, privateId = null) => live().filter((slot) => slot.placeId === placeId && slot.privateId === privateId);
+
+  // -> { slot } or { error } (the text players see)
+  const startServer = (placeId, privateId, entries, why) => {
+    if (live().length >= config.maxGames) {
+      return { error: `The server already runs ${config.maxGames} game server${config.maxGames === 1 ? '' : 's'}, as many as it may. Try again in a few minutes.` };
+    }
+    const used = usedIndexes();
+    let index = 0;
+    while (used.has(index)) index++;
+    if (index >= config.gamePortCount) return { error: 'The server has no free game port for another game server. Try again in a few minutes.' };
+    const slot = new GameSlot(placeId, index, config, statusSoon, { privateId });
+    slots.set(slot.jobId, slot);
+    log(`place ${placeId}`, `starting ${privateId ? 'a private' : 'a'} server ${slot.tag()} of "${entries[placeId].name}" (${why}; game port ${slot.gamePort})`);
+    slot.run().catch((error) => log(slot.scope, `stopped: ${error.message}`)).finally(() => {
+      if (slots.get(slot.jobId) === slot && slot.shuttingDown) slots.delete(slot.jobId);
+      statusSoon();
+    });
+    statusSoon();
+    return { slot };
+  };
+
+  // Stops a server for good (kickMessage: save its players first).
+  const stopServer = (slot, kickMessage, why) => {
+    if (slot.retiring) return;
+    slot.retiring = true;
+    log(slot.scope, `${why}; stopping this server`);
+    slot.shutdown(kickMessage).catch(() => {}).finally(() => {
+      if (slots.get(slot.jobId) === slot) slots.delete(slot.jobId);
+      statusSoon();
+    });
+  };
+
+  // Servers nobody has played on for idleStopMinutes stop, except the one a
+  // "keep running" game keeps. A server that keeps failing to start stops
+  // too, unless it is that one.
+  const stopIdle = () => {
+    const entries = places.load().places;
+    const idleMs = config.idleStopMinutes * 60 * 1000;
+    for (const slot of live()) {
+      const place = entries[slot.placeId];
+      const kept = place && place.enabled && place.keepRunning !== false && !slot.privateId
+        && serversOf(slot.placeId).filter((other) => other !== slot).length === 0;
+      if (kept) continue;
+      if (idleMs > 0 && slot.idleFor() > idleMs) stopServer(slot, null, `nobody has played for ${config.idleStopMinutes} minutes`);
+      else if (slot.state === 'error' && slot.failures >= 3) stopServer(slot, null, `it failed to start ${slot.failures} times`);
+    }
+  };
   const startCloudEdit = (id, entries) => {
     const used = usedIndexes();
     let index = config.gamePortCount - 1;
@@ -594,56 +717,50 @@ async function main() {
     });
   };
 
-  // --- keep running games in line with the library ---
+  // --- keep the servers in line with the library ---
   const handled = new Set(places.readRequests().map((request) => request.id)); // older requests are done
+  const failStart = (request, error) => {
+    startFailures = startFailures.concat({ id: request.id, error, at: new Date().toISOString() }).slice(-20);
+    log(`place ${request.placeId}`, `could not start a server: ${error}`);
+    statusSoon();
+  };
   let reconciling = false;
   const reconcile = async () => {
     if (reconciling || shuttingDown) return;
     reconciling = true;
     try {
       const entries = places.load().places;
+      const privates = {};
+      for (const server of privateservers.list()) privates[server.id] = server;
       const wanted = Object.keys(entries).filter((id) => entries[id].enabled).sort((a, b) => Number(a) - Number(b));
       const nextProblems = [];
 
-      // Turned off or deleted: save players and stop.
-      for (const [id, slot] of slots) {
-        if (!wanted.includes(id) && !retiring.has(id)) {
-          retiring.add(id);
-          log(slot.scope, entries[id] ? 'turned off on the management page' : 'removed from the library');
-          slot.shutdown(MESSAGES.off).catch(() => {}).finally(() => {
-            slots.delete(id);
-            retiring.delete(id);
-            statusSoon();
-          });
+      // Turned off or deleted (or the private server was): save players and stop.
+      for (const slot of live()) {
+        const place = entries[slot.placeId];
+        if (!place || !place.enabled) {
+          stopServer(slot, MESSAGES.off, place ? 'turned off on the management page' : 'removed from the library');
+        } else if (slot.privateId && (!privates[slot.privateId] || privates[slot.privateId].placeId !== slot.placeId)) {
+          stopServer(slot, MESSAGES.privateGone, 'its private server was deleted');
         }
       }
 
-      // Turned on: start, while there is room.
+      // "Keep running": one public server at all times, while there is room.
       for (const id of wanted) {
-        if (slots.has(id)) continue;
-        if (slots.size >= config.maxGames) {
-          nextProblems.push(`"${entries[id].name}" (${id}) is online but waits: ${config.maxGames} games already run (maxGames in config\\dedicated.json).`);
+        if (entries[id].keepRunning === false || serversOf(id).length > 0) continue;
+        const started = startServer(id, null, entries, 'it is kept running');
+        if (started.error) {
+          nextProblems.push(`"${entries[id].name}" (${id}) is kept running but waits: ${started.error.replace(/ Try again.*$/, '')} (maxGames, gamePortCount in config\\dedicated.json)`);
           continue;
         }
-        const used = usedIndexes();
-        let index = 0;
-        while (used.has(index)) index++;
-        if (index >= config.gamePortCount) {
-          nextProblems.push(`no free game port for "${entries[id].name}" (gamePortCount in config\\dedicated.json).`);
-          continue;
-        }
-        const slot = new GameSlot(id, index, config, statusSoon);
-        slots.set(id, slot);
-        log(`place ${id}`, `turning on "${entries[id].name}" (game port ${slot.gamePort})`);
-        slot.run().catch((error) => log(slot.scope, `stopped: ${error.message}`));
         await sleep(1000); // one RCC start at a time is gentler
       }
 
       // A new version of a running game: save players and restart on it.
       // Team Create saves (every few minutes while people build) wait until
       // nobody is playing, so players are not kicked each time.
-      for (const [id, slot] of slots) {
-        const place = entries[id];
+      for (const slot of live()) {
+        const place = entries[slot.placeId];
         if (place && slot.session && slot.startedVersion !== null && (place.version || 1) !== slot.startedVersion && !slot.restarting) {
           if (place.versionSource === 'teamcreate') {
             if (Array.isArray(slot.players) && slot.players.length === 0) {
@@ -664,7 +781,7 @@ async function main() {
         }
       }
 
-      // Restart buttons on the management page.
+      // Players joining (start), and buttons on the management page.
       for (const request of places.readRequests()) {
         if (handled.has(request.id)) continue;
         handled.add(request.id);
@@ -672,15 +789,34 @@ async function main() {
           serverRequests.push(request.action);
           continue;
         }
+        const id = String(request.placeId);
         if (request.action === 'cloudedit') {
-          const id = String(request.placeId);
           if (entries[id] && entries[id].teamCreate && !cloud.has(id)) startCloudEdit(id, entries);
           continue;
         }
-        const slot = slots.get(String(request.placeId));
-        if (request.action === 'restart' && slot) {
-          log(slot.scope, 'restart requested on the management page');
-          slot.restart('restart requested', MESSAGES.manual).catch(() => {});
+        if (request.action === 'start') {
+          // A player joins and every server is full, or there is none. One
+          // that is starting already will do.
+          const privateId = request.privateId ? String(request.privateId) : null;
+          if (!entries[id] || !entries[id].enabled) { failStart(request, 'This game is not online right now.'); continue; }
+          if (privateId && (!privates[privateId] || privates[privateId].placeId !== id)) { failStart(request, 'That private server no longer exists.'); continue; }
+          const existing = serversOf(id, privateId);
+          if (privateId ? existing.length > 0 : existing.some((slot) => slot.state === 'starting' || slot.restarting)) continue;
+          const started = startServer(id, privateId, entries, privateId ? `private server "${privates[privateId].name}"` : 'a player is joining');
+          if (started.error) failStart(request, started.error);
+          continue;
+        }
+        if (request.action === 'restart') {
+          const targets = request.jobId ? [slots.get(String(request.jobId))].filter(Boolean) : live().filter((slot) => slot.placeId === id);
+          for (const slot of targets) {
+            log(slot.scope, 'restart requested on the management page');
+            slot.restart('restart requested', MESSAGES.manual).catch(() => {});
+          }
+          continue;
+        }
+        if (request.action === 'stop-server') {
+          const slot = slots.get(String(request.jobId || ''));
+          if (slot) stopServer(slot, MESSAGES.stopped, 'closed on the management page');
         }
       }
 
@@ -866,18 +1002,18 @@ async function main() {
     const name = (command || '').toLowerCase();
     if (name === 'status') {
       await sampleAll();
-      if (slots.size === 0) log('status', 'no games online (turn some on at http://<this PC>/manage)');
+      if (slots.size === 0) log('status', 'no game servers running (they start when someone joins; games are turned on at http://<this PC>/manage)');
       for (const slot of slots.values()) log('status', slot.describe());
       for (const slot of cloud.values()) log('status', slot.describe());
       for (const problem of problems) log('status', problem);
     } else if (name === 'restart') {
-      const targets = !argument || argument === 'all' ? [...slots.values()] : [slots.get(argument)].filter(Boolean);
-      if (targets.length === 0) log('server', `no online game with place ID ${argument}`);
+      const targets = !argument || argument === 'all' ? live() : live().filter((slot) => slot.placeId === argument || slot.jobId.startsWith(argument.replace(/^#/, '')));
+      if (targets.length === 0) log('server', `no running server of place ${argument} (or with that job ID)`);
       for (const slot of targets) await slot.restart('restart requested', MESSAGES.manual);
     } else if (name === 'stop' || name === 'quit' || name === 'exit') {
       shutdown(false);
     } else if (name !== '') {
-      log('server', 'commands: status, restart, restart <place ID>, stop');
+      log('server', 'commands: status, restart, restart <place ID or job ID>, stop');
     }
   });
   writeStatus();

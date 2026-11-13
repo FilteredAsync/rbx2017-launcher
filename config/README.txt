@@ -230,7 +230,20 @@ button opens it). Changes need the host key (config\host-key.txt).
     newer Studio are converted on the way in (see convertPlace.bat).
   - Turn games online or offline, restart them, rename them, change their
     description or thumbnail, upload a new version (same place ID; the
-    running game saves its players and restarts), or delete them.
+    running game saves its players and restarts), or delete them. Place
+    files can be up to 1 GB.
+  - Servers start on demand: a game that is online gets a server when the
+    first player joins it (the launcher shows "Starting a server..."), and
+    more servers when those are full ("Players per server" under Edit). A
+    server nobody has played on for idleStopMinutes stops again. Tick "Keep
+    one server running" under Edit to have one up all the time (games from
+    before servers started on demand have it on). Each server is listed under
+    its game with its own Restart and Stop.
+  - Private servers: signed-in players make them in the launcher (a game's
+    details). The owner, the owner's friends and anyone given its invite code
+    can join; /manage lists them under their game and can delete them.
+    Stored in Webserver
+odedataprivate-servers.json.
   - Library: Webserver\node\data\places.json. Files: Server\content\places\
     (<placeId>.rbxlx; replaced versions in old\, deleted games in deleted\).
     Saves: Webserver\node\data\datastore-<placeId>.json. Thumbnails:
@@ -238,6 +251,8 @@ button opens it). Changes need the host key (config\host-key.txt).
   - On the first start the library holds Lumber Tycoon 2 as place 1818.
 
 What the always-on server does by itself:
+  - Starts a server when a player joins a game with no server that has room,
+    and stops one nobody has played on for idleStopMinutes.
   - A game whose RCC stops by itself starts again after 10 seconds.
   - A game whose RCC stops answering (3 checks a minute apart) is restarted.
   - A game using more than memoryLimitMB restarts when nobody is playing, or,
@@ -245,7 +260,7 @@ What the always-on server does by itself:
   - Every game restarts daily at restartDaily. Players are kicked with a
     message first, so the game saves their progress.
   - The web server is started again if it stops.
-In its window type: status, restart, restart <place ID>, stop. Stop it with
+In its window type: status, restart, restart <place ID or job ID>, stop. Stop it with
 "stop" or Ctrl+C (players are saved first); closing the window stops
 everything at once. Its log: Webserver\node\logs\dedicated.log.
 autostartServer.bat starts it whenever this Windows account signs in
@@ -263,12 +278,16 @@ Server-wide settings, config\dedicated.json (every field optional):
   {
       "webServer": true,           run the web server on this PC
       "restartDaily": "05:00",     24-hour time, or "" for no daily restart
-      "maxGames": 4,               games online at the same time
+      "maxGames": 4,               game servers running at the same time
+                                   (players get "try again in a few
+                                   minutes" past it)
+      "idleStopMinutes": 5,        stop a server nobody has played on this
+                                   long; 0 = never
       "memoryLimitMB": 3000,       per game; 0 = no limit (an RCC can use 4096)
       "healthCheckSeconds": 60,
       "failedChecksBeforeRestart": 3,
       "saveWaitSeconds": 10,       time for saves after players are kicked
-      "gamePortFirst": 53640,      each online game gets the next free UDP
+      "gamePortFirst": 53640,      each running server gets the next free UDP
       "gamePortCount": 20,         port from this range
       "autoUpdate": true,          install server updates once nobody plays
                                    (false: only with Install on /manage)

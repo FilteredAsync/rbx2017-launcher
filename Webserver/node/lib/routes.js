@@ -23,6 +23,7 @@ const gamethumbs = require('./gamethumbs');
 const placefile = require('./placefile');
 const missingassets = require('./missingassets');
 const places = require('./places');
+const privateservers = require('./privateservers');
 const rbxm = require('./rbxm');
 const social = require('./social');
 const thumbs = require('./thumbs');
@@ -426,6 +427,10 @@ async function placeLauncher(ctx) {
     if (game === null) {
       return send(ctx, 200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
         core.phpJson({ jobId: '', status: 5, joinScriptUrl: null, authenticationUrl: null, authenticationTicket: null, message: 'That game is no longer online.' }));
+    }
+    if (game.privateId && !launcher.ticketAllows(q.ticket, game.id)) {
+      return send(ctx, 200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+        core.phpJson({ jobId: game.id, status: 12, joinScriptUrl: null, authenticationUrl: null, authenticationTicket: null, message: 'That is a private server. Join it from the launcher.' }));
     }
     const target = await games.resolve(game);
     if (target === null) {
@@ -882,11 +887,11 @@ async function gamesApi(ctx, match) {
     // Players in each game, from the always-on server's last check (null:
     // not known, e.g. a game hosted from another PC).
     const runner = places.runnerStatus();
-    const running = runner && !runner.stale && runner.games ? runner.games : {};
+    const running = runner && !runner.stale && runner.servers ? runner.servers : {};
     const list = games.list().map((game) => {
       const place = library[game.placeId];
       const creator = place ? places.creatorOf(place) : null;
-      const status = running[game.placeId];
+      const status = running[game.id];
       return Object.assign(game, place ? { name: place.name, description: place.description || '' } : {}, {
         creator: creator ? creator.name : '',
         playing: status && Array.isArray(status.players) ? status.players.length : null,
@@ -921,7 +926,9 @@ async function gamesApi(ctx, match) {
 //                                            body: a .rbxlx; converted, given the next place ID
 //   POST   /api/places/<id>/file?fromPlace=   new file for a place (same ID)
 //   POST   /api/places/<id>                   JSON {name, description, enabled, universeId}
-//   POST   /api/places/<id>/restart           ask the always-on server to restart it
+//   POST   /api/places/<id>/restart           ask the always-on server to restart its servers
+//   POST   /api/places/<id>/servers/<job ID>/restart | stop    one server (players saved first)
+//   DELETE /api/private-servers/<id>          remove a private server (its server stops)
 //   DELETE /api/places/<id>                   remove (saves, thumbnail and ID stay reserved)
 // Changes need the host key (X-Host-Key).
 
@@ -934,15 +941,25 @@ function forViewer(place, isAdmin) {
 
 function placesWithStatus(isAdmin) {
   const runner = places.runnerStatus();
-  const running = runner && !runner.stale && runner.games ? runner.games : {};
+  const up = runner && !runner.stale;
+  const running = up && runner.games ? runner.games : {};
+  const servers = up && runner.servers ? Object.values(runner.servers) : [];
+  const privates = isAdmin ? privateservers.list() : [];
+  const ownerName = (userId) => { const found = accounts.byUserId(userId); return found ? found.name : `User ${userId}`; };
+  const privateName = (id) => { const found = privates.find((server) => server.id === id); return found ? `${found.name} (${ownerName(found.ownerId)})` : 'a private server'; };
   creators.fillMissing();
   return {
     places: places.list().map((place) => Object.assign(forViewer(place, isAdmin), {
       thumbnail: gamethumbs.version(place.placeId),
       status: running[place.placeId] || null,
-      cloudEdit: runner && !runner.stale && runner.cloudEdit ? runner.cloudEdit[place.placeId] || null : null,
+      // Each running server: job ID, players, state; private ones say whose.
+      servers: servers.filter((server) => String(server.placeId) === String(place.placeId))
+        .map((server) => Object.assign({}, server, { privateName: server.privateId ? (isAdmin ? privateName(server.privateId) : 'a private server') : null })),
+      privateServers: privates.filter((server) => server.placeId === String(place.placeId))
+        .map((server) => ({ id: server.id, name: server.name, owner: ownerName(server.ownerId), members: server.members.length, friends: server.friends, createdAt: server.createdAt })),
+      cloudEdit: up && runner.cloudEdit ? runner.cloudEdit[place.placeId] || null : null,
     })),
-    runner: runner ? { running: !runner.stale, updatedAt: runner.updatedAt, maxGames: runner.maxGames, problems: runner.problems || [] } : { running: false },
+    runner: runner ? { running: !runner.stale, updatedAt: runner.updatedAt, maxGames: runner.maxGames, idleStopMinutes: runner.idleStopMinutes, problems: runner.problems || [] } : { running: false },
     // For the join code players paste into their launcher.
     server: { tailscaleUrl: core.tailscaleIPv4() ? `http://${core.tailscaleIPv4()}` : null },
   };
@@ -953,7 +970,7 @@ async function convertUpload(ctx, query) {
   const declared = Number(ctx.req.headers['content-length']);
   const bytes = await ctx.body();
   if (bytes.length === 0) return { error: 'no place file was sent' };
-  if (Number.isFinite(declared) && declared !== bytes.length) return { error: 'the upload was cut short (too large? the limit is 512 MB)' };
+  if (Number.isFinite(declared) && declared !== bytes.length) return { error: 'the upload was cut short (too large? the limit is 1 GB)' };
   let universeId = places.placeKey(query.universeid);
   if (universeId === null && places.placeKey(query.fromplace)) {
     universeId = await placefile.universeForPlace(places.placeKey(query.fromplace));
@@ -1007,10 +1024,30 @@ async function placesApi(ctx, match) {
   }
   if (action === null) {
     const body = await jsonBody(ctx);
-    const place = places.update(placeId, { name: body.name, description: body.description, enabled: body.enabled, universeId: body.universeId, teamCreate: body.teamCreate, creator: body.creator });
+    const place = places.update(placeId, {
+      name: body.name, description: body.description, enabled: body.enabled, universeId: body.universeId,
+      teamCreate: body.teamCreate, creator: body.creator, keepRunning: body.keepRunning, maxPlayers: body.maxPlayers,
+    });
     return sendJson(ctx, 200, { place });
   }
   return sendJson(ctx, 404, { error: 'unknown places API call' });
+}
+
+// One server of a place (/manage): restart it, or save its players and stop it.
+async function placeServerApi(ctx, match) {
+  if (ctx.method !== 'POST') return sendJson(ctx, 405, { error: 'use POST' });
+  if (!admin.allowed(ctx)) return sendJson(ctx, 403, admin.DENIED);
+  if (!places.get(match[1])) return sendJson(ctx, 404, { error: 'no such place' });
+  if (match[3].toLowerCase() === 'restart') places.requestRestart(match[1], match[2].toLowerCase());
+  else places.requestStopServer(match[1], match[2].toLowerCase());
+  return sendJson(ctx, 200, { ok: true });
+}
+
+async function privateServerAdminApi(ctx, match) {
+  if (ctx.method !== 'DELETE') return sendJson(ctx, 405, { error: 'use DELETE' });
+  if (!admin.allowed(ctx)) return sendJson(ctx, 403, admin.DENIED);
+  const result = privateservers.remove(match[1].toLowerCase());
+  return result.error ? sendJson(ctx, 404, { error: result.error }) : sendJson(ctx, 200, { ok: true });
 }
 
 // Missing assets and their replacements (lib/missingassets.js), for /manage.
@@ -1172,7 +1209,7 @@ async function serverApi(ctx, match) {
     const declared = Number(ctx.req.headers['content-length']);
     const bytes = await ctx.body();
     if (bytes.length === 0) return sendJson(ctx, 400, { error: 'no update file was sent' });
-    if (Number.isFinite(declared) && declared !== bytes.length) return sendJson(ctx, 400, { error: 'the upload was cut short (too large? the limit is 512 MB)' });
+    if (Number.isFinite(declared) && declared !== bytes.length) return sendJson(ctx, 400, { error: 'the upload was cut short (too large? the limit is 1 GB)' });
     try {
       const { dir, ...staged } = updates.stage(bytes, 'uploaded on /manage');
       return sendJson(ctx, 200, { staged });
@@ -1229,6 +1266,8 @@ const ROUTES = [
   [/^api\/games(?:\/([a-z0-9]+)(?:\/([a-z]+))?)?\/?$/i, gamesApi],
   [/^api\/thumbnails\/(\d{1,15})\/?$/i, thumbnailsApi],
   [/^api\/places(?:\/(\d{1,15})(?:\/([a-z]+))?)?\/?$/i, placesApi],
+  [/^api\/places\/(\d{1,15})\/servers\/([0-9a-f]{16,32})\/(restart|stop)\/?$/i, placeServerApi],
+  [/^api\/private-servers\/([0-9a-f]{12})\/?$/i, privateServerAdminApi],
   [/^manage(?:\/([a-z.]*))?\/?$/i, managePage],
   [/^download\/((?:client|studio)-files\.(?:zip|json))$/i, downloadsRoute],
   [/^download\/menu-music\.mp3$/i, menuMusicRoute],

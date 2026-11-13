@@ -621,25 +621,58 @@ function registerIpc() {
     };
   });
 
+  // The games on the server, each with its servers (lib/launcherapi.js).
+  // Servers from before servers on demand only list running games: each
+  // becomes a game with that one server.
   ipcMain.handle('play:games', async (event, centralUrl) => {
     const proxy = lib('proxy');
     const url = proxy.normalizeCentralUrl(centralUrl);
     if (url === null) throw new Error('That web server address does not look right (use http://host or host:port).');
-    return lib('joining').fetchGames(url);
+    try {
+      const response = await fetch(`${url}/api/launcher/games`, { signal: AbortSignal.timeout(10000) });
+      if (response.ok) {
+        const data = await response.json();
+        if (Array.isArray(data.games)) return data.games;
+      }
+    } catch (error) { /* the older list below says why the server is unreachable */ }
+    const byPlace = new Map();
+    for (const game of await lib('joining').fetchGames(url)) {
+      const key = String(game.placeId);
+      const entry = byPlace.get(key) || {
+        placeId: key, name: game.name, description: game.description || '', creator: game.creator || '', thumbnail: game.thumbnail || null,
+        maxPlayers: null, canStart: false, starting: false, playing: 0, servers: [], legacy: true,
+      };
+      const playing = Number.isFinite(game.playing) ? game.playing : 0;
+      entry.playing += playing;
+      entry.servers.push({ id: game.id, players: [], playing, maxPlayers: null, upSeconds: game.upSeconds, address: game.address });
+      byPlace.set(key, entry);
+    }
+    return [...byPlace.values()];
   });
 
   // Joins as the signed-in account, or as a guest ("Guest 1234"): the server
-  // hands out a join ticket that decides who the player is.
-  ipcMain.handle('play:join', async (event, { game, guest }) => {
+  // picks a server with room (or starts one, while this waits) and hands out
+  // a join ticket that decides who the player is.
+  // request: { placeId } | { gameId } | { privateId } (lib/joining.js).
+  let joinCancelled = false;
+  ipcMain.handle('play:join', async (event, { request, game, guest }) => {
     if (playSession) throw new Error('The client is already running. Close it first.');
     const joining = lib('joining');
     const url = account.serverUrl();
     const log = logger('play');
+    joinCancelled = false;
     await updateFilesBeforePlay(url, log);
     if (playSession) throw new Error('The client is already running. Close it first.');
     // The ticket comes after any update, so a long download cannot outlast it.
-    const ticket = await account.joinTicket(url, game && game.id, Boolean(guest));
-    playSession = await joining.joinGame({ centralUrl: url, ticket: ticket.ticket, name: ticket.name, game, log });
+    const ticket = await account.joinTicket(url, request || { gameId: game && game.id }, Boolean(guest), {
+      onWait: (text) => send('play-progress', { text }),
+      cancelled: () => joinCancelled,
+    });
+    if (joinCancelled) throw new Error('Cancelled.');
+    // Older servers name no server: then it is the one asked for.
+    const target = ticket.game || { id: request && request.gameId, name: game && game.name, placeId: game && game.placeId, address: request && request.address };
+    if (!target.address) throw new Error('The server did not say where the game runs. Update its server files.');
+    playSession = await joining.joinGame({ centralUrl: url, ticket: ticket.ticket, name: ticket.name, game: target, log });
     send('status-changed');
     playSession.exited.then(() => log('The client closed.'), (error) => log(`Error: ${error.message}`)).finally(() => {
       playSession = null;
@@ -649,9 +682,16 @@ function registerIpc() {
   });
 
   ipcMain.handle('play:stop', async () => {
+    joinCancelled = true; // still waiting for a server: give up
     if (playSession) playSession.stop();
     return true;
   });
+
+  // Private servers (the game's details).
+  ipcMain.handle('private:list', (event, placeId) => account.privateServers(account.serverUrl(), placeId));
+  ipcMain.handle('private:create', (event, options) => account.createPrivateServer(account.serverUrl(), options || {}));
+  ipcMain.handle('private:redeem', (event, code) => account.redeemPrivateCode(account.serverUrl(), code));
+  ipcMain.handle('private:action', (event, options) => account.privateServerAction(account.serverUrl(), options || {}));
 
   ipcMain.handle('host:start', async (event, config) => {
     if (hostSession) throw new Error('Already hosting.');

@@ -44,23 +44,34 @@ async function fetchGames(centralUrl) {
 
 // Asks the web server for a join ticket (lib/launcherapi.js): with a session
 // token the player joins as that account, without one as a guest.
-// -> { ticket, name, userId, guest }
-async function joinTicket(centralUrl, gameId, token) {
+// request: { placeId } (any server of the game with room), { gameId } (that
+// server) or { privateId } (a private server); a plain string is a game ID.
+// When the game has no server with room, the web server starts one and
+// answers 202 { starting }: this asks again every few seconds (onWait is
+// told each time) until the server is up, cancelled() is true, or waitMs.
+// -> { ticket, name, userId, guest, game: { id, name, placeId, address } }
+async function joinTicket(centralUrl, request, token, { onWait = null, cancelled = () => false, waitMs = 180000 } = {}) {
   const headers = { 'Content-Type': 'application/json' };
   if (token) headers.Authorization = `Bearer ${token}`;
-  let response;
-  try {
-    response = await fetch(`${centralUrl}/api/launcher/join`, {
-      method: 'POST', headers, body: JSON.stringify({ gameId, guest: !token }), signal: AbortSignal.timeout(10000),
-    });
-  } catch (error) {
-    throw new Error(`could not reach the web server at ${centralUrl}: ${error.cause && error.cause.code ? error.cause.code : error.message}`);
+  const body = JSON.stringify(Object.assign({}, request && typeof request === 'object' ? request : { gameId: request }, { guest: !token }));
+  const until = Date.now() + waitMs;
+  for (;;) {
+    let response;
+    try {
+      response = await fetch(`${centralUrl}/api/launcher/join`, { method: 'POST', headers, body, signal: AbortSignal.timeout(10000) });
+    } catch (error) {
+      throw new Error(`could not reach the web server at ${centralUrl}: ${error.cause && error.cause.code ? error.cause.code : error.message}`);
+    }
+    let data = {};
+    try { data = await response.json(); } catch (error) { data = {}; }
+    if (response.status === 404 && !data.error) throw new Error('this server is too old for launcher sign-in; update its server files');
+    if (!response.ok) throw new Error(data.error || `the web server answered HTTP ${response.status}`);
+    if (!data.starting) return data;
+    if (Date.now() > until) throw new Error('The game server took too long to start. Try again in a minute.');
+    if (onWait) onWait(data.message || 'Starting a server…');
+    await new Promise((resolve) => setTimeout(resolve, Math.min(5000, Math.max(1000, Number(data.retryMs) || 2000))));
+    if (cancelled()) throw Object.assign(new Error('Cancelled.'), { cancelled: true });
   }
-  let data = {};
-  try { data = await response.json(); } catch (error) { data = {}; }
-  if (response.status === 404 && !data.error) throw new Error('this server is too old for launcher sign-in; update its server files');
-  if (!response.ok) throw new Error(data.error || `the web server answered HTTP ${response.status}`);
-  return data;
 }
 
 // Starts the client in game ({ id, name, address }). Resolves once the client

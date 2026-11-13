@@ -330,6 +330,19 @@ code { background: rgba(0,0,0,.35); padding: 5px 9px; font-family: Consolas, mon
 .detail-desc:empty { display: none; }
 .detail-note { color: var(--gold); margin-top: 10px; min-height: 22px; }
 .detail-as { color: var(--muted); margin-top: 12px; font-size: 15px; }
+.detail { max-height: 90vh; }
+.detail-info { overflow-y: auto; max-height: 90vh; padding-right: 6px; }
+.detail-section { margin-top: 18px; }
+.detail-head { font-size: 13px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+.server-list { display: grid; gap: 6px; }
+.server-row { display: flex; align-items: center; gap: 10px; background: rgba(255, 255, 255, .06); padding: 8px 10px; }
+.server-row button.ghost { padding: 7px 14px; }
+.server-text { flex: 1; min-width: 0; font-size: 15px; }
+.server-players { color: var(--muted); font-size: 13px; margin-top: 2px; overflow-wrap: anywhere; }
+.server-empty { color: var(--muted); font-size: 14px; }
+.private-form { display: flex; gap: 8px; margin-top: 8px; }
+.private-form input { flex: 1; min-width: 0; max-width: 320px; }
+.private-form button.ghost { padding: 9px 16px; }
 .play-button { background: var(--good); color: #fff; border: 2px solid transparent; font-size: 24px; font-weight: 700; padding: 14px 60px; cursor: pointer; }
 .play-button:hover { filter: brightness(1.08); }
 

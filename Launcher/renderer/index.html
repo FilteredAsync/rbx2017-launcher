@@ -435,6 +435,23 @@
           <button class="ghost" id="detail-back">Back</button>
         </div>
         <div class="detail-as" id="detail-as"></div>
+        <div class="detail-section hidden" id="detail-servers-box">
+          <div class="detail-head">Servers</div>
+          <div class="server-list" id="detail-servers"></div>
+        </div>
+        <div class="detail-section hidden" id="detail-private-box">
+          <div class="detail-head">Private servers</div>
+          <div class="server-list" id="detail-private"></div>
+          <form class="private-form" id="private-create">
+            <input id="private-name" maxlength="40" placeholder="Name for a new private server" autocomplete="off">
+            <button class="ghost" type="submit">Make one</button>
+          </form>
+          <form class="private-form" id="private-redeem">
+            <input id="private-code" maxlength="12" placeholder="Invite code" autocomplete="off" spellcheck="false">
+            <button class="ghost" type="submit">Use code</button>
+          </form>
+          <div class="status" id="private-status"></div>
+        </div>
       </div>
     </div>
   </div>

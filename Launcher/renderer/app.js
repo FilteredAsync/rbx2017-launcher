@@ -14,7 +14,7 @@ let formsFilled = false;
 let hostPlayersTimer = null;
 let view = 'home';
 let screen = 'start';
-let lastGames = [];
+let lastGames = []; // the server's games, each with its servers (main.js play:games)
 let detailGame = null;
 let me = null; // { account: { name, userId, admin }, offline } when signed in
 let guest = false;
@@ -124,12 +124,17 @@ function cover(game) {
   return node;
 }
 
-// Players in an online game: the server's count (its always-on server checks
-// every game), or the launchers that said they joined it.
+// Players in a game, all its servers together: the server's count (its
+// always-on server checks every server), or who it says is in that game.
 function playersIn(game) {
   if (!game) return 0;
   if (Number.isFinite(game.playing)) return game.playing;
-  return onlinePlayers.filter((player) => player.gameId === game.id).length;
+  return onlinePlayers.filter((player) => String(player.placeId) === String(game.placeId)).length;
+}
+
+// A game in the list can be played when a server runs or one can start.
+function isPlayable(game) {
+  return Boolean(game && lastGames.includes(game) && ((game.servers || []).length > 0 || game.canStart));
 }
 
 const PERSON_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="7.5" r="4.5"/><path d="M3 22c0-5 4-8 9-8s9 3 9 8z"/></svg>';
@@ -622,14 +627,15 @@ function recentList() {
 }
 
 function rememberPlayed(game) {
-  const list = recentList().filter((entry) => !(entry.name === game.name && entry.address === game.address));
-  list.unshift({ name: game.name, placeId: game.placeId, address: game.address, thumbnail: game.thumbnail || null, when: Date.now() });
+  const list = recentList().filter((entry) => !(entry.placeId ? String(entry.placeId) === String(game.placeId) : entry.name === game.name));
+  list.unshift({ name: game.name, placeId: game.placeId, creator: game.creator || '', thumbnail: game.thumbnail || null, when: Date.now() });
   storage('recent', JSON.stringify(list.slice(0, 6)));
 }
 
-// An online game matching a remembered one (game IDs change every restart).
+// The game list's entry for a remembered or linked game (by place ID).
 function onlineMatch(entry) {
-  return lastGames.find((game) => game.name === entry.name && game.address === entry.address)
+  if (!entry) return null;
+  return (entry.placeId ? lastGames.find((game) => String(game.placeId) === String(entry.placeId)) : null)
     || lastGames.find((game) => game.name === entry.name) || null;
 }
 
@@ -678,7 +684,7 @@ function renderHome() {
   for (let i = 0; i < 6; i++) {
     const game = lastGames[i];
     const count = playersIn(game);
-    if (game) grid.append(gameTile(game, { badge: count ? `${count} PLAYING` : `UP ${formatUptime(game.upSeconds).toUpperCase()}`, live: count > 0 }));
+    if (game) grid.append(gameTile(game, { badge: count ? `${count} PLAYING` : null, live: count > 0 }));
     else if (i === lastGames.length && state && state.canHost) grid.append(placeholder('Host a game', '+', () => { showView('settings'); showSettings('host'); }));
     else if (i === lastGames.length) grid.append(placeholder(lastGames.length ? 'More games show up here.' : 'No games online yet.', '·'));
     else grid.append(placeholder(''));
@@ -692,26 +698,145 @@ function renderHome() {
 // --- game details ----------------------------------------------------------------------
 
 function openDetail(game) {
-  detailGame = onlineMatch(game) || (game.id ? game : null) || game;
-  const playable = Boolean(detailGame.id && lastGames.includes(detailGame));
+  detailGame = onlineMatch(game) || game;
+  const listed = lastGames.includes(detailGame);
+  const servers = listed && Array.isArray(detailGame.servers) ? detailGame.servers : [];
+  const playable = isPlayable(detailGame);
+  const busy = Boolean(state && state.play.active);
   const box = $('detail-cover');
   box.textContent = '';
   box.append(cover(detailGame));
   $('detail-name').textContent = detailGame.name;
   const by = detailGame.creator ? `By ${detailGame.creator} · ` : '';
-  const count = playable ? playersIn(detailGame) : 0;
-  $('detail-meta').textContent = playable
-    ? `${by}${count} playing · up ${formatUptime(detailGame.upSeconds)} · place ${detailGame.placeId}`
+  const count = listed ? playersIn(detailGame) : 0;
+  const serverText = servers.length ? `${servers.length} server${servers.length === 1 ? '' : 's'}` : 'a server starts when you join';
+  $('detail-meta').textContent = listed
+    ? `${by}${count} playing · ${serverText}${detailGame.maxPlayers ? ` · up to ${detailGame.maxPlayers} per server` : ''} · place ${detailGame.placeId}`
     : `${by}Place ${detailGame.placeId || '?'}`;
-  const inGame = onlinePlayers.filter((player) => player.gameId === detailGame.id).map((player) => player.name);
-  $('detail-players').textContent = inGame.length ? `Playing now: ${inGame.join(', ')}` : '';
+  $('detail-players').textContent = '';
   $('detail-desc').textContent = detailGame.description || '';
-  $('detail-note').textContent = playable ? (state && state.play.active ? 'The client is already running.' : '') : 'This game is not online right now.';
+  $('detail-note').textContent = playable ? (busy ? 'The client is already running.' : '')
+    : listed ? 'The server PC is not running its games right now.' : 'This game is not online right now.';
   $('detail-as').textContent = me ? `You'll play as ${me.account.name}.` : 'You\'ll play as a guest. Sign in to use your own name and avatar.';
-  $('detail-play').disabled = !playable || Boolean(state && state.play.active);
+  $('detail-play').disabled = !playable || busy;
+  renderServerList(servers, playable && !busy);
+  loadPrivate(detailGame);
   $('overlay').classList.remove('hidden');
   focusEl($('detail-play').disabled ? $('detail-back') : $('detail-play'));
 }
+
+// The game's public servers, each with who is in it and its own Join.
+function renderServerList(servers, canJoin) {
+  const list = $('detail-servers');
+  list.textContent = '';
+  $('detail-servers-box').classList.toggle('hidden', servers.length === 0);
+  servers.forEach((server, index) => {
+    const row = el('div', 'server-row');
+    const full = Boolean(server.maxPlayers && server.playing >= server.maxPlayers);
+    const text = el('div', 'server-text');
+    text.append(el('b', '', `Server ${index + 1}`),
+      document.createTextNode(` · ${server.playing}${server.maxPlayers ? `/${server.maxPlayers}` : ''} playing${server.upSeconds ? ` · up ${formatUptime(server.upSeconds)}` : ''}`));
+    if (server.players && server.players.length) text.append(el('div', 'server-players', server.players.join(', ')));
+    const join = el('button', 'ghost', full ? 'Full' : 'Join');
+    join.disabled = full || !canJoin;
+    join.addEventListener('click', () => startPlay(detailGame, { gameId: server.id, address: server.address }));
+    row.append(text, join);
+    list.append(row);
+  });
+}
+
+// --- private servers (in the game's details) ---
+
+// The game list refreshes in the background, so games are matched by place ID.
+const shownGame = (game) => Boolean(detailGame && game && String(detailGame.placeId) === String(game.placeId));
+
+async function loadPrivate(game, keepStatus) {
+  const current = game ? onlineMatch(game) : null;
+  const show = Boolean(me && current && !current.legacy && current.canStart);
+  $('detail-private-box').classList.toggle('hidden', !show);
+  if (!keepStatus) setStatus('private-status', '');
+  if (!show) return;
+  try {
+    const data = await api.privateServers(current.placeId);
+    if (!shownGame(current)) return;
+    renderPrivate(current, Array.isArray(data.servers) ? data.servers : []);
+  } catch (error) {
+    if (shownGame(current)) setStatus('private-status', message(error), 'error');
+  }
+}
+
+function renderPrivate(game, servers) {
+  const list = $('detail-private');
+  list.textContent = '';
+  if (servers.length === 0) list.append(el('div', 'server-empty', 'None yet. Make one for you and your friends, or enter an invite code.'));
+  for (const server of servers) {
+    const row = el('div', 'server-row');
+    const text = el('div', 'server-text');
+    const where = server.playing ? `${server.playing} playing` : server.running ? 'empty' : 'starts when you join';
+    text.append(el('b', '', server.name), document.createTextNode(` · ${server.mine ? 'yours' : `${server.owner.name}'s`} · ${where}`));
+    if (server.players && server.players.length) text.append(el('div', 'server-players', server.players.join(', ')));
+    if (server.mine) text.append(el('div', 'server-players', `Invite code ${server.code}${server.friendsCanJoin ? ' · your friends can join without it' : ''}`));
+    const join = el('button', 'ghost', 'Join');
+    join.disabled = Boolean(state && state.play.active);
+    join.addEventListener('click', () => startPlay(game, { privateId: server.id }));
+    row.append(text, join);
+    if (server.mine) {
+      const copy = el('button', 'ghost', 'Copy code');
+      copy.addEventListener('click', () => {
+        navigator.clipboard.writeText(server.code).then(
+          () => setStatus('private-status', `Copied ${server.code}. Anyone who enters it can join "${server.name}".`, 'good'),
+          () => setStatus('private-status', `The invite code is ${server.code}.`));
+      });
+      const remove = el('button', 'ghost', 'Delete');
+      remove.addEventListener('click', () => privateAction(game, server, 'delete'));
+      row.append(copy, remove);
+    }
+    list.append(row);
+  }
+}
+
+async function privateAction(game, server, verb) {
+  if (verb === 'delete' && !window.confirm(`Delete your private server "${server.name}"? Anyone in it is sent back to the launcher.`)) return;
+  try {
+    await api.privateServerAction({ id: server.id, verb });
+    setStatus('private-status', verb === 'delete' ? `Deleted "${server.name}".` : 'Done.', 'good');
+  } catch (error) {
+    setStatus('private-status', message(error), 'error');
+  }
+  loadPrivate(game, true);
+}
+
+$('private-create').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const game = detailGame;
+  if (!game || !me) return;
+  try {
+    const result = await api.createPrivateServer({ placeId: game.placeId, name: $('private-name').value.trim() || `${me.account.name}'s server` });
+    $('private-name').value = '';
+    setStatus('private-status', `Made "${result.server.name}". Your friends can join it; give others its invite code, ${result.server.code}.`, 'good');
+  } catch (error) {
+    setStatus('private-status', message(error), 'error');
+  }
+  loadPrivate(game, true);
+});
+
+$('private-redeem').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const game = detailGame;
+  const code = $('private-code').value.trim();
+  if (!game || !me || !code) return;
+  try {
+    const result = await api.redeemPrivateCode(code);
+    $('private-code').value = '';
+    const server = result.server;
+    setStatus('private-status', String(server.placeId) === String(game.placeId)
+      ? `You can now join "${server.name}".`
+      : `That code is for "${server.name}" in ${server.gameName}: it is listed there now.`, 'good');
+  } catch (error) {
+    setStatus('private-status', message(error), 'error');
+  }
+  loadPrivate(game, true);
+});
 
 function closeDetail() {
   $('overlay').classList.add('hidden');
@@ -761,9 +886,14 @@ function hideLoading() {
 
 $('loading-cancel').addEventListener('click', () => {
   if (!loading) return hideLoading();
-  if (loading.started) api.stopClient();
-  else loading.cancelled = true; // stops the client as soon as it starts
+  if (!loading.started) loading.cancelled = true; // stops the client as soon as it starts
+  api.stopClient(); // and stops waiting for a server
   hideLoading();
+});
+
+// While the server starts a game server for this join.
+api.onPlayProgress((info) => {
+  if (loading && !loading.started && info && info.text) setLoadingStatus(info.text);
 });
 
 // The game window takes the focus once it is up.
@@ -771,9 +901,19 @@ window.addEventListener('blur', () => {
   if (loading && loading.started) setTimeout(() => { if (loading && loading.started) hideLoading(); }, 400);
 });
 
-$('detail-play').addEventListener('click', async () => {
-  if (!detailGame) return;
-  const game = detailGame;
+// Play: any server of the game with room (the server starts one if none
+// has). Older servers cannot pick: then the first listed server.
+$('detail-play').addEventListener('click', () => {
+  const game = detailGame ? onlineMatch(detailGame) || detailGame : null;
+  if (!game) return;
+  const first = (game.servers || [])[0];
+  if (!game.legacy) startPlay(game, { placeId: game.placeId });
+  else if (first) startPlay(game, { gameId: first.id, address: first.address });
+});
+
+// request: { placeId } | { gameId, address } | { privateId } (main.js play:join)
+async function startPlay(game, request) {
+  if (!game || loading) return;
   $('detail-play').disabled = true;
   $('detail-note').textContent = '';
   closeDetail();
@@ -781,8 +921,8 @@ $('detail-play').addEventListener('click', async () => {
   const mine = loading;
   playStarting = true;
   try {
-    setLoadingStatus('Joining the server…');
-    const joined = await api.join({ game, guest: !me });
+    setLoadingStatus(request.privateId ? 'Joining the private server…' : 'Finding a server…');
+    const joined = await api.join({ request, game: { name: game.name, placeId: game.placeId }, guest: !me });
     playStarting = false;
     rememberPlayed(game);
     renderHome();
@@ -811,7 +951,7 @@ $('detail-play').addEventListener('click', async () => {
   } finally {
     $('detail-play').disabled = false;
   }
-});
+}
 
 // --- state -----------------------------------------------------------------------------
 
@@ -925,6 +1065,14 @@ async function findGames(quiet) {
     refreshOnlinePlayers(true);
     renderAllGames();
     if (screen === 'shell' && view === 'home') renderHome();
+    // Open details: the fresh copy of the game and its servers.
+    const current = !$('overlay').classList.contains('hidden') && detailGame ? onlineMatch(detailGame) : null;
+    if (current) {
+      detailGame = current;
+      if (!$('detail-servers-box').contains(document.activeElement)) {
+        renderServerList(current.servers || [], isPlayable(current) && !(state && state.play.active));
+      }
+    }
   }
 }
 
@@ -933,9 +1081,10 @@ function renderAllGames() {
   list.textContent = '';
   for (const game of lastGames) {
     const by = game.creator ? `By ${game.creator} · ` : '';
-    list.append(gameTile(game, { players: playersIn(game), caption: `${by}up ${formatUptime(game.upSeconds)}` }));
+    const servers = (game.servers || []).length;
+    list.append(gameTile(game, { players: playersIn(game), caption: `${by}${servers ? `${servers} server${servers === 1 ? '' : 's'}` : 'starts when you join'}` }));
   }
-  if (lastGames.length === 0) list.append(placeholder('No games online. Host one, or ask your host to start theirs.', '·'));
+  if (lastGames.length === 0) list.append(placeholder('No games online. Host one, or ask your host to turn one on.', '·'));
 }
 
 $('play-refresh').addEventListener('click', () => findGames(false));
@@ -1015,9 +1164,12 @@ function personPicture(box, userId, size = 150) {
   img.addEventListener('load', () => { box.textContent = ''; box.append(img); });
 }
 
+// The game someone is playing, from the game list.
 function onlineGame(person) {
+  const where = person.online || person;
   const gameId = person.gameId || (person.online && person.online.gameId) || null;
-  return gameId ? lastGames.find((game) => game.id === gameId) || null : null;
+  return (gameId ? lastGames.find((game) => (game.servers || []).some((server) => server.id === gameId)) : null)
+    || (where.placeId ? lastGames.find((game) => String(game.placeId) === String(where.placeId)) : null) || null;
 }
 
 // A card: picture, name and where they are; clicking it opens their profile.
@@ -1074,15 +1226,17 @@ async function friendAction(verb, person, statusId = 'friends-status') {
   return ok;
 }
 
+// Joins the very server someone is in (a private one only if you may).
 function joinPerson(person) {
   const game = onlineGame(person);
-  if (!game) {
+  const gameId = person.gameId || (person.online && person.online.gameId) || null;
+  if (!game || !gameId) {
     setStatus('friends-status', `${person.name}'s game is not in the game list right now.`, 'error');
     return;
   }
   closeProfile();
-  openDetail(game);
-  $('detail-play').click();
+  const server = (game.servers || []).find((entry) => entry.id === gameId);
+  startPlay(game, { gameId, address: server ? server.address : undefined });
 }
 
 // Where someone is, and how you two relate.
@@ -1095,8 +1249,8 @@ function relation(person) {
 }
 
 function whereText(person) {
-  const game = person.online || (person.gameId ? { gameName: person.gameName } : null);
-  return game ? `in ${game.gameName}` : 'offline';
+  const game = person.online || (person.gameId ? { gameName: person.gameName, privateServer: person.privateServer } : null);
+  return game ? `in ${game.gameName}${game.privateServer ? ' (private server)' : ''}` : 'offline';
 }
 
 async function searchPeople(search, quiet) {

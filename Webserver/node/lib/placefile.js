@@ -301,19 +301,86 @@ function convertPlace(input, options) {
     attributes: 0, sharedStrings: 0, newCsg: 0, taskCalls: 0, compoundAssignments: 0,
     gameAssetNames: new Set(), unsupportedThumbnails: new Set(), luauScripts: [], unknownClasses: new Map(),
   };
-  // Latin-1 keeps every byte as it was; only ASCII markup is touched.
-  let text = input.toString('latin1');
-  text = text.replace(/(?:\r?\n[ \t]*)?<SharedStrings>[\s\S]*?<\/SharedStrings>/g, (match) => {
-    counts.sharedStrings += (match.match(/<SharedString\s/g) || []).length;
-    return '';
-  });
   const known = classesOf2017();
-  text = text.replace(/(<Item\s+class="([^"]+)"[^>]*>\s*<Properties>)([\s\S]*?)(<\/Properties>)/g, (match, open, className, props, close) => {
-    if (known !== null && !known.has(className)) counts.unknownClasses.set(className, (counts.unknownClasses.get(className) || 0) + 1);
-    const converted = convertProperties(className, props, options, counts);
-    return converted === props ? match : open + converted + close;
-  });
-  return { output: Buffer.from(text, 'latin1'), counts, summary: summarize(counts, options) };
+  const output = [];
+  for (const piece of pieces(dropSharedStrings(input, counts))) {
+    // Latin-1 keeps every byte as it was; only ASCII markup is touched.
+    let text = piece.toString('latin1');
+    text = text.replace(/(<Item\s+class="([^"]+)"[^>]*>\s*<Properties>)([\s\S]*?)(<\/Properties>)/g, (match, open, className, props, close) => {
+      if (known !== null && !known.has(className)) counts.unknownClasses.set(className, (counts.unknownClasses.get(className) || 0) + 1);
+      const converted = convertProperties(className, props, options, counts);
+      return converted === props ? match : open + converted + close;
+    });
+    output.push(Buffer.from(text, 'latin1'));
+  }
+  return { output: output.length === 1 ? output[0] : Buffer.concat(output), counts, summary: summarize(counts, options) };
+}
+
+// Node cannot hold a string much over 512 MB, so a big place is converted in
+// pieces of about PIECE_BYTES. Each piece ends just before an <Item> tag that
+// is not inside a script's CDATA, so every <Properties> block (all that
+// convertProperties changes) stays whole in one piece.
+const PIECE_BYTES = 64 * 1024 * 1024;
+const ITEM_TAG = Buffer.from('<Item ', 'latin1');
+const CDATA_OPEN = Buffer.from('<![CDATA[', 'latin1');
+const CDATA_CLOSE = Buffer.from(']]>', 'latin1');
+
+function pieces(input) {
+  const result = [];
+  let start = 0;
+  while (input.length - start > PIECE_BYTES) {
+    let cut = input.indexOf(ITEM_TAG, start + PIECE_BYTES);
+    // Inside a CDATA section: the next <Item after it ends.
+    for (let inside = cdataAround(input, start, cut); cut >= 0 && inside !== -1; inside = cdataAround(input, start, cut)) {
+      cut = inside === null ? -1 : input.indexOf(ITEM_TAG, inside);
+    }
+    if (cut < 0) break;
+    result.push(input.subarray(start, cut));
+    start = cut;
+  }
+  result.push(input.subarray(start));
+  return result;
+}
+
+// Whether position "at" is inside a CDATA section (scanning from "from",
+// which is not): -1 when it is not, else where that section ends (null: never).
+function cdataAround(input, from, at) {
+  let position = from;
+  for (;;) {
+    const open = input.indexOf(CDATA_OPEN, position);
+    if (open < 0 || open >= at) return -1;
+    const close = input.indexOf(CDATA_CLOSE, open + CDATA_OPEN.length);
+    if (close < 0) return null;
+    if (close + CDATA_CLOSE.length > at) return close + CDATA_CLOSE.length;
+    position = close + CDATA_CLOSE.length;
+  }
+}
+
+// <SharedStrings> sections (newer places; the 2017 engine has none), with
+// the line break before them, removed from the bytes.
+function dropSharedStrings(input, counts) {
+  const open = Buffer.from('<SharedStrings>', 'latin1');
+  const close = Buffer.from('</SharedStrings>', 'latin1');
+  const entry = Buffer.from('<SharedString', 'latin1');
+  const kept = [];
+  let from = 0;
+  for (;;) {
+    const start = input.indexOf(open, from);
+    const end = start < 0 ? -1 : input.indexOf(close, start + open.length);
+    if (end < 0) break;
+    for (let at = input.indexOf(entry, start + open.length); at >= 0 && at < end; at = input.indexOf(entry, at + entry.length)) {
+      if ([0x20, 0x09, 0x0a, 0x0d].includes(input[at + entry.length])) counts.sharedStrings++;
+    }
+    let cut = start;
+    let back = start;
+    while (back > from && (input[back - 1] === 0x20 || input[back - 1] === 0x09)) back--;
+    if (back > from && input[back - 1] === 0x0a) cut = back - 1 > from && input[back - 2] === 0x0d ? back - 2 : back - 1;
+    kept.push(input.subarray(from, cut));
+    from = end + close.length;
+  }
+  if (kept.length === 0) return input;
+  kept.push(input.subarray(from));
+  return Buffer.concat(kept);
 }
 
 function summarize(counts, options) {

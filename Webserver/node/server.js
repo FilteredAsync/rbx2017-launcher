@@ -23,7 +23,7 @@ const www = require('./lib/www');
 
 const LOG_DIR = path.join(__dirname, 'logs');
 const PID_FILE = path.join(__dirname, 'server.pid');
-const MAX_BODY = 512 * 1024 * 1024; // place uploads can be large
+const MAX_BODY = 1024 * 1024 * 1024; // place uploads can be large (up to 1 GB)
 
 const SERVER_DEFAULTS = {
   hosts: ['127.0.0.1', '::1'],

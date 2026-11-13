@@ -9,8 +9,11 @@
 //   Server/content/places/old/                 replaced versions (last 3 kept)
 //   Server/content/places/deleted/             removed places
 //
-// "enabled": true means the always-on server (dedicated.js) keeps the game
-// running. The web server changes the library (lib/routes.js, /manage);
+// "enabled": true means players can play the game: the always-on server
+// (dedicated.js) starts a server for it when someone joins and stops it once
+// it has been empty for a while; "keepRunning" keeps one server up all the
+// time (places from before servers started on demand have it on).
+// "maxPlayers": players per server; more players get another server. The web server changes the library (lib/routes.js, /manage);
 // dedicated.js reads it, takes restart requests from data/control.json and
 // reports what runs in data/runner-status.json.
 
@@ -25,6 +28,13 @@ const STATUS = path.join(DATA, 'runner-status.json');
 const CONTENT = core.rootPath('Server', 'content');
 const PLACES_DIR = path.join(CONTENT, 'places');
 const FIRST_UPLOAD_ID = 2000;
+const DEFAULT_MAX_PLAYERS = 12;
+const MAX_MAX_PLAYERS = 50;
+
+function maxPlayersOf(place) {
+  const n = Math.round(Number(place && place.maxPlayers));
+  return n >= 1 && n <= MAX_MAX_PLAYERS ? n : DEFAULT_MAX_PLAYERS;
+}
 const KEEP_OLD_VERSIONS = 3;
 
 function now() {
@@ -136,6 +146,8 @@ function describe(placeId, place) {
     name: place.name,
     description: place.description || '',
     enabled: Boolean(place.enabled),
+    keepRunning: place.keepRunning !== false,
+    maxPlayers: maxPlayersOf(place),
     file: place.file,
     fileSize: size,
     universeId: place.universeId || '',
@@ -203,6 +215,9 @@ function create({ name, description, universeId, enabled, bytes, notes, from, ow
     description: cleanText(description, 1000),
     file,
     enabled: Boolean(enabled),
+    // New games start when someone joins (turn on "keep running" on /manage).
+    keepRunning: false,
+    maxPlayers: DEFAULT_MAX_PLAYERS,
     universeId: placeKey(universeId) || '',
     version: 1,
     createdAt: now(),
@@ -241,6 +256,11 @@ function update(placeId, fields) {
   if (fields.name !== undefined) place.name = cleanText(fields.name, 60) || place.name;
   if (fields.description !== undefined) place.description = cleanText(fields.description, 1000);
   if (fields.enabled !== undefined) place.enabled = Boolean(fields.enabled);
+  if (fields.keepRunning !== undefined && fields.keepRunning !== null) place.keepRunning = Boolean(fields.keepRunning);
+  if (fields.maxPlayers !== undefined && fields.maxPlayers !== null && fields.maxPlayers !== '') {
+    const n = Math.round(Number(fields.maxPlayers));
+    if (n >= 1 && n <= MAX_MAX_PLAYERS) place.maxPlayers = n;
+  }
   if (fields.universeId !== undefined) setUniverse(place, placeKey(fields.universeId) || '');
   if (fields.teamCreate !== undefined) place.teamCreate = Boolean(fields.teamCreate);
   // A typed creator name (/manage); empty means "nobody".
@@ -315,15 +335,30 @@ function remove(placeId) {
 // --- talking to the always-on server -------------------------------------------------
 
 // Asks dedicated.js to restart (or start) a place soon.
-function request(action, placeId) {
+// extra: more fields for dedicated.js ({ privateId } or { jobId }). -> the request's ID
+function request(action, placeId, extra = {}) {
   const control = core.readJsonFile(CONTROL) || {};
   const requests = Array.isArray(control.requests) ? control.requests.slice(-50) : [];
-  requests.push({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, action, placeId: String(placeId), at: now() });
+  const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  requests.push(Object.assign({}, extra, { id, action, placeId: String(placeId), at: now() }));
   core.writeFileAtomic(CONTROL, JSON.stringify({ requests }, null, 2));
+  return id;
 }
 
-function requestRestart(placeId) {
-  request('restart', placeId);
+// Every server of a place, or the one with that job ID.
+function requestRestart(placeId, jobId = null) {
+  request('restart', placeId, jobId ? { jobId: String(jobId) } : {});
+}
+
+// Asks dedicated.js for a new server of a place (or a private server's
+// server) -> the request's ID, which its status names if it cannot start one.
+function requestStart(placeId, privateId = null) {
+  return request('start', placeId, privateId ? { privateId: String(privateId) } : {});
+}
+
+// Saves the players of one server and stops it.
+function requestStopServer(placeId, jobId) {
+  request('stop-server', placeId, { jobId: String(jobId) });
 }
 
 // Asks dedicated.js to start a Team Create (cloud edit) server for a place.
@@ -357,7 +392,7 @@ function writeRunnerStatus(status) {
 
 module.exports = {
   load, exists, ensure, list, get, create, replaceFile, update, setAccess, remove, filePath, placeKey,
-  creatorOf, setLookedUpCreator,
-  requestRestart, requestCloudEdit, requestServer, readRequests, runnerStatus, writeRunnerStatus,
+  creatorOf, setLookedUpCreator, maxPlayersOf,
+  requestRestart, requestStart, requestStopServer, requestCloudEdit, requestServer, readRequests, runnerStatus, writeRunnerStatus,
   LIBRARY, CONTROL, STATUS,
 };

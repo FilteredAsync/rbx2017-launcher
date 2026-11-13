@@ -127,30 +127,81 @@ function renderServer() {
   const line = $('server-line');
   line.textContent = '';
   const runner = data && data.runner ? data.runner : { running: false };
-  const online = data ? data.places.filter((place) => place.status && place.status.state === 'running').length : 0;
+  const servers = data ? data.places.reduce((sum, place) => sum + (place.servers || []).length, 0) : 0;
   if (runner.running) {
-    line.append(el('span', 'ok', 'Always-on server running'), document.createTextNode(` · ${online} game${online === 1 ? '' : 's'} online${runner.maxGames ? ` (up to ${runner.maxGames})` : ''}`));
+    line.append(el('span', 'ok', 'Always-on server running'), document.createTextNode(` · ${servers} game server${servers === 1 ? '' : 's'} running${runner.maxGames ? ` (up to ${runner.maxGames})` : ''}`
+      + (runner.idleStopMinutes ? ` · servers nobody plays on stop after ${runner.idleStopMinutes} min` : '')));
   } else {
     line.append(el('span', 'bad', 'The always-on server is not running'), document.createTextNode(' - games will not start until startServer.bat runs on the server.'));
   }
   for (const problem of runner.problems || []) line.append(el('div', 'bad', problem));
 }
 
+// One line for the whole game; serverList() has each server.
 function statusPill(place) {
-  const status = place.status;
+  const servers = place.servers || [];
   const runnerUp = data && data.runner && data.runner.running;
-  if (!place.enabled) return el('span', 'pill', status ? 'Turning off…' : 'Offline');
+  if (!place.enabled) return el('span', 'pill', servers.length ? 'Turning off…' : 'Offline');
   if (!runnerUp) return el('span', 'pill starting', 'Waiting for the always-on server');
-  if (!status) return el('span', 'pill starting', 'Starting…');
-  if (status.state === 'running') {
-    const players = Array.isArray(status.players) ? status.players : null;
-    const who = players === null ? 'busy' : `${players.length} player${players.length === 1 ? '' : 's'}${players.length ? `: ${players.join(', ')}` : ''}`;
-    const pill = el('span', 'pill running', `Online · ${who} · ${status.memoryMB || '?'} MB · up ${duration(Date.now() - Date.parse(status.startedAt))}`);
-    pill.title = `Players join at ${status.address || '?'}`;
-    return pill;
+  if (servers.length === 0) {
+    return place.keepRunning ? el('span', 'pill starting', 'Starting…') : el('span', 'pill', 'Online · no server running; one starts when someone joins');
   }
-  if (status.state === 'error') return el('span', 'pill error', `Not starting: ${status.lastError || 'unknown error'}`);
-  return el('span', 'pill starting', status.state === 'restarting' ? 'Restarting…' : 'Starting…');
+  const running = servers.filter((server) => server.state === 'running');
+  const players = running.reduce((sum, server) => sum + (Array.isArray(server.players) ? server.players.length : 0), 0);
+  if (running.length === 0) {
+    const broken = servers.find((server) => server.state === 'error');
+    if (broken) return el('span', 'pill error', `Not starting: ${broken.lastError || 'unknown error'}`);
+    return el('span', 'pill starting', servers.some((server) => server.state === 'restarting') ? 'Restarting…' : 'Starting…');
+  }
+  return el('span', 'pill running', `Online · ${running.length} server${running.length === 1 ? '' : 's'} · ${players} player${players === 1 ? '' : 's'}${servers.length > running.length ? ` · ${servers.length - running.length} starting` : ''}`);
+}
+
+// Each running server of a place, with its own Restart and Stop.
+function serverList(place) {
+  const box = el('div', 'servers');
+  box.dataset.servers = place.placeId;
+  for (const server of place.servers || []) {
+    const row = el('div', `server-row ${server.state}`);
+    const players = Array.isArray(server.players) ? server.players : null;
+    const who = players === null ? 'busy' : `${players.length}/${server.maxPlayers || '?'} player${players.length === 1 ? '' : 's'}${players.length ? `: ${players.join(', ')}` : ''}`;
+    const parts = [`#${server.jobId.slice(0, 6)}`];
+    if (server.privateId) parts.push(`private: ${server.privateName || 'a private server'}`);
+    if (server.state === 'running') {
+      parts.push(who, `${server.memoryMB || '?'} MB`, `up ${duration(Date.now() - Date.parse(server.startedAt))}`);
+      if (server.idleSince) parts.push(`empty for ${duration(Date.now() - Date.parse(server.idleSince))}`);
+    } else {
+      parts.push(server.state === 'error' ? `not starting: ${server.lastError || 'unknown error'}` : `${server.state}…`);
+    }
+    const text = el('span', 'server-text', parts.join(' · '));
+    text.title = `Job ID ${server.jobId}${server.address ? ` · players join at ${server.address}` : ''}`;
+    row.append(text);
+    const base = `/api/places/${place.placeId}/servers/${server.jobId}`;
+    row.append(button('Restart', 'ghost small', () => act(() => change('POST', `${base}/restart`, '{}'), `Restarting server #${server.jobId.slice(0, 6)} (players are saved first)…`)));
+    row.append(button('Stop', 'ghost small', () => {
+      if (players && players.length && !confirm(`Stop server #${server.jobId.slice(0, 6)}? ${players.length} player${players.length === 1 ? ' is' : 's are'} saved and sent back to the launcher.`)) return;
+      act(() => change('POST', `${base}/stop`, '{}'), `Stopping server #${server.jobId.slice(0, 6)}…`);
+    }));
+    box.append(row);
+  }
+  return box;
+}
+
+// Players' private servers of a place (admins can delete them).
+function privateList(place) {
+  const box = el('div', 'servers');
+  const list = place.privateServers || [];
+  if (list.length === 0) return box;
+  box.append(el('div', 'pid', `Private servers (${list.length}):`));
+  for (const server of list) {
+    const row = el('div', 'server-row');
+    row.append(el('span', 'server-text', `"${server.name}" · owner ${server.owner} · ${server.members} member${server.members === 1 ? '' : 's'}${server.friends ? ' · friends may join' : ''}`));
+    row.append(button('Delete', 'ghost small', () => {
+      if (!confirm(`Delete the private server "${server.name}" of ${server.owner}? Anyone in it is saved and sent back.`)) return;
+      act(() => change('DELETE', `/api/private-servers/${server.id}`), `Deleting "${server.name}"…`);
+    }));
+    box.append(row);
+  }
+  return box;
 }
 
 function placeCard(place) {
@@ -188,9 +239,10 @@ function placeCard(place) {
     if (place.editors.length) who.push(`editors: ${place.editors.map((e) => e.name).join(', ')}`);
     info.append(el('div', 'pid', `Studio: ${who.join(' · ')}`));
   }
+  info.append(el('div', 'pid', `Up to ${place.maxPlayers} players per server · ${place.keepRunning ? 'one server always running' : 'servers start when someone joins'}`));
   const pill = statusPill(place);
   pill.dataset.pill = id;
-  info.append(pill);
+  info.append(pill, serverList(place), privateList(place));
   top.append(thumb, info);
   card.append(top);
 
@@ -202,8 +254,8 @@ function placeCard(place) {
   box.addEventListener('change', () => act(() => change('POST', `/api/places/${id}`, JSON.stringify({ enabled: box.checked })), box.checked ? `Turning "${place.name}" on…` : `Turning "${place.name}" off…`));
   toggle.append(box, document.createTextNode('Online'));
   actions.append(toggle);
-  const restart = button('Restart', 'ghost', () => act(() => change('POST', `/api/places/${id}/restart`, '{}'), `Restarting "${place.name}" (players are saved first)…`));
-  restart.disabled = !place.enabled;
+  const restart = button('Restart all', 'ghost', () => act(() => change('POST', `/api/places/${id}/restart`, '{}'), `Restarting every server of "${place.name}" (players are saved first)…`));
+  restart.disabled = !place.enabled || !(place.servers || []).length;
   actions.append(restart);
   actions.append(button('Edit', 'ghost', () => { editing.has(id) ? editing.delete(id) : editing.add(id); renderPlaces(true); }));
   actions.append(button('Replace file', 'ghost', () => { pendingPlace = place; $('replace-file').value = ''; $('replace-file').click(); }));
@@ -271,15 +323,30 @@ function editForm(place) {
   teamCreate.checked = place.teamCreate;
   const teamCreateLabel = el('label', 'check');
   teamCreateLabel.append(teamCreate, document.createTextNode(' Team Create: the owner and editors build it together in Studio'));
+  const keepRunning = el('input');
+  keepRunning.type = 'checkbox';
+  keepRunning.checked = place.keepRunning;
+  const keepRunningLabel = el('label', 'check');
+  keepRunningLabel.append(keepRunning, document.createTextNode(' Keep one server running (otherwise servers start when someone joins and stop when empty)'));
+  const maxPlayers = el('input');
+  maxPlayers.type = 'number';
+  maxPlayers.min = '1';
+  maxPlayers.max = '50';
+  maxPlayers.value = String(place.maxPlayers);
+  const maxPlayersLabel = el('label', '', 'Players per server (more players get another server)');
+  maxPlayersLabel.append(maxPlayers);
   const row = el('div', 'row');
   const save = el('button', '', 'Save');
   save.type = 'submit';
   row.append(save, button('Cancel', 'ghost', () => { editing.delete(id); renderPlaces(true); }));
-  form.append(nameLabel, descriptionLabel, universeLabel, creatorLabel, ownerLabel, editorsLabel, teamCreateLabel, row);
+  form.append(nameLabel, descriptionLabel, universeLabel, creatorLabel, ownerLabel, editorsLabel, maxPlayersLabel, keepRunningLabel, teamCreateLabel, row);
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     act(async () => {
-      const fields = { name: name.value, description: description.value, universeId: universe.value.trim(), teamCreate: teamCreate.checked };
+      const fields = {
+        name: name.value, description: description.value, universeId: universe.value.trim(), teamCreate: teamCreate.checked,
+        keepRunning: keepRunning.checked, maxPlayers: Number(maxPlayers.value) || undefined,
+      };
       if (!ownedHere) fields.creator = creator.value.trim();
       await change('POST', `/api/places/${id}`, JSON.stringify(fields));
       const editorNames = editors.value.split(',').map((n) => n.trim()).filter(Boolean);
@@ -302,6 +369,8 @@ function renderPlaces(force) {
         pill.dataset.pill = place.placeId;
         old.replaceWith(pill);
       }
+      const oldServers = list.querySelector(`[data-servers="${place.placeId}"]`);
+      if (oldServers) oldServers.replaceWith(serverList(place));
     }
     return;
   }

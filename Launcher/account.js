@@ -178,11 +178,12 @@ module.exports = function accountModule({ ROOT, lib }) {
   }
 
   // Join ticket for the client: the account's, or a guest's.
-  async function joinTicket(centralUrl, gameId, guest) {
+  // request: { placeId } | { gameId } | { privateId }; options: onWait, cancelled.
+  async function joinTicket(centralUrl, request, guest, options = {}) {
     const url = serverUrl(centralUrl);
     const entry = guest ? null : session(url);
     if (!guest && !entry) throw new Error('Sign in first, or play as a guest.');
-    return lib('joining').joinTicket(url, gameId, entry ? entry.token : null);
+    return lib('joining').joinTicket(url, request, entry ? entry.token : null, options);
   }
 
   // --- launcher-net:// -------------------------------------------------------------------
@@ -285,6 +286,13 @@ module.exports = function accountModule({ ROOT, lib }) {
     current,
     joinTicket,
     manageToken,
+    privateServers: (centralUrl, placeId) => authed(centralUrl, 'GET', `private-servers${placeId ? `?placeId=${encodeURIComponent(String(placeId))}` : ''}`),
+    createPrivateServer: (centralUrl, { placeId, name }) => authed(centralUrl, 'POST', 'private-servers', { body: { placeId: String(placeId || ''), name: String(name || '').slice(0, 40) } }),
+    redeemPrivateCode: (centralUrl, code) => authed(centralUrl, 'POST', 'private-servers/redeem', { body: { code: String(code || '').slice(0, 20) } }),
+    privateServerAction: (centralUrl, { id, verb, body }) => {
+      if (!/^[0-9a-f]{12}$/.test(String(id || '')) || !['rename', 'friends', 'code', 'delete', 'leave'].includes(verb)) throw new Error('Unknown private server action.');
+      return authed(centralUrl, 'POST', `private-servers/${id}/${verb}`, { body: body || {} });
+    },
     handleNet,
     avatar: (centralUrl) => authed(centralUrl, 'GET', 'avatar'),
     saveAvatar: (centralUrl, body) => authed(centralUrl, 'POST', 'avatar', { body }),

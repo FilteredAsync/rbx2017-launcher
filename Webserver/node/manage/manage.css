@@ -71,6 +71,12 @@ progress { width: 220px; }
 .pill.running { color: var(--good); border-color: rgba(58, 212, 125, .5); }
 .pill.starting { color: var(--warn); border-color: rgba(240, 180, 41, .5); }
 .pill.error { color: var(--bad); border-color: rgba(255, 92, 92, .5); }
+.servers { margin-top: 6px; display: grid; gap: 4px; }
+.server-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.server-row.running .server-text { color: #c3cbd8; }
+.server-row.error .server-text { color: var(--bad); }
+.server-text { flex: 1 1 260px; min-width: 0; overflow-wrap: anywhere; }
+button.small { padding: 2px 8px; font-size: 12px; }
 .card-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 14px 14px; align-items: center; }
 .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; margin-right: 6px; color: var(--text); text-transform: none; letter-spacing: 0; font-size: 13px; flex-direction: row; }
 .switch input { width: 16px; height: 16px; accent-color: var(--good); }
