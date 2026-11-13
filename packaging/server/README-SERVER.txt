@@ -48,10 +48,16 @@ Setup (once)
 
 Players
 -------
-In the launcher's GAMES tab, set the web server address to
+Players install the launcher with RobloxClient-Setup-<version>.exe (from the
+GitHub release, or from you). On its first start it asks for this server's
+address and downloads the game files from here:
   http://<this PC's Tailscale address>       e.g. http://100.101.102.103
-and press Find games. Nothing else changes on their PCs; they do not run the
-web server or host any more.
+The files it hands out are in downloads\ (client-files.zip, about 85 MB).
+If the game client ever changes, build them again on the PC that has the
+client (python tools/build-client-files.py) and copy its downloads\ folder
+here; launchers then offer the update. Players with an older full installer
+just set the same address in the GAMES tab. Nobody else runs the web server
+or hosts.
 
 
 Running it
