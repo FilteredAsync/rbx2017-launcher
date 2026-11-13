@@ -1,0 +1,144 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Publish</title>
+  <link rel="stylesheet" href="/studio/studio.css">
+</head>
+<body>
+  <main style="padding-top:4px">
+    <div class="panel narrow" id="login-panel" style="display:none">
+      <h2 style="margin-top:0">Log in to publish</h2>
+      <form id="login-form" autocomplete="off">
+        <label for="login-name">Username</label>
+        <input type="text" id="login-name" maxlength="20" spellcheck="false">
+        <label for="login-password">Password</label>
+        <input type="password" id="login-password" maxlength="200">
+        <div class="row">
+          <button type="submit" id="login-go">Log in</button>
+          <span class="status" id="login-status"></span>
+        </div>
+      </form>
+    </div>
+
+    <div class="panel" id="publish-panel" style="display:none">
+      <h2 style="margin-top:0">Publish to this server</h2>
+      <p class="hint">Publishing puts the game in the server's game list as <b id="who-name"></b>'s. Other players can join it from their launcher.</p>
+
+      <div class="choice-list" id="choices"></div>
+
+      <div id="new-fields">
+        <label for="new-name">Name</label>
+        <input type="text" id="new-name" maxlength="60">
+        <label for="new-description">Description (optional)</label>
+        <textarea id="new-description" maxlength="1000"></textarea>
+      </div>
+
+      <label class="check"><input type="checkbox" id="online" checked> Online: players can join it right away</label>
+
+      <div class="row">
+        <button type="button" id="publish">Publish</button>
+        <span class="status" id="publish-status"></span>
+      </div>
+    </div>
+  </main>
+
+  <script src="/studio/studio.js"></script>
+  <script>
+  (function () {
+    var $ = Studio.$;
+    var selected = 0;   // place ID, 0 = new game
+    var games = [];
+
+    function choice(placeId, title, meta) {
+      var el = Studio.make('div', 'choice');
+      var radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = 'target';
+      el.appendChild(radio);
+      el.appendChild(document.createTextNode(title));
+      if (meta) el.appendChild(Studio.make('div', 'meta', meta));
+      el.onclick = function () { pick(placeId); };
+      el.setAttribute('data-place', String(placeId));
+      return el;
+    }
+
+    function pick(placeId) {
+      selected = placeId;
+      var items = $('choices').childNodes;
+      for (var i = 0; i < items.length; i++) {
+        var on = items[i].getAttribute('data-place') === String(placeId);
+        items[i].className = 'choice' + (on ? ' selected' : '');
+        items[i].firstChild.checked = on;
+      }
+      Studio.show($('new-fields'), placeId === 0);
+      for (var j = 0; j < games.length; j++) {
+        if (games[j].placeId === placeId) $('online').checked = games[j].online;
+      }
+      if (placeId === 0) $('online').checked = true;
+    }
+
+    function loggedIn(account) {
+      Studio.text($('who-name'), account.name);
+      Studio.show($('login-panel'), false);
+      Studio.show($('publish-panel'), true);
+      loadChoices(0);
+    }
+
+    // Lists "a new game" and every game this account may publish over, then
+    // selects selectId (0 = a new game).
+    function loadChoices(selectId) {
+      Studio.api('GET', '/studio/api/games', null, function (error, data) {
+        if (error) { Studio.status($('publish-status'), error, 'bad'); return; }
+        games = [];
+        for (var i = 0; i < data.games.length; i++) if (data.games[i].canEdit) games.push(data.games[i]);
+        var list = $('choices');
+        list.innerHTML = '';
+        list.appendChild(choice(0, 'A new game', ''));
+        for (var k = 0; k < games.length; k++) {
+          var game = games[k];
+          list.appendChild(choice(game.placeId, 'Update ' + game.name, 'Place ' + game.placeId + ' · ' + Studio.statusLine(game) + (game.owner && !game.isOwner ? ' · by ' + game.owner : '')));
+        }
+        pick(selectId);
+        if (selectId === 0) $('new-name').focus();
+      });
+    }
+
+    $('publish').onclick = function () {
+      if (!Studio.inStudio()) { Studio.status($('publish-status'), 'Publish from Roblox Studio.', 'bad'); return; }
+      var body = { placeId: selected, online: $('online').checked };
+      if (selected === 0) {
+        body.name = $('new-name').value.replace(/^\s+|\s+$/g, '');
+        body.description = $('new-description').value;
+        if (!body.name) { Studio.status($('publish-status'), 'Give the game a name.', 'bad'); $('new-name').focus(); return; }
+      }
+      $('publish').disabled = true;
+      Studio.status($('publish-status'), 'Publishing…');
+      Studio.api('POST', '/studio/api/publish', body, function (error, data) {
+        if (error) { $('publish').disabled = false; Studio.status($('publish-status'), error, 'bad'); return; }
+        var ok = false;
+        try { ok = window.external.SaveUrl(data.uploadUrl); } catch (e) { ok = false; }
+        $('publish').disabled = false;
+        if (ok === false) {
+          Studio.status($('publish-status'), 'Studio could not upload the place. See the Output window.', 'bad');
+          return;
+        }
+        Studio.status($('publish-status'), 'Published ' + data.name + ' (place ' + data.placeId + '). ' + (body.online ? 'It is online now.' : 'It stays offline.') + ' You can close this window.', 'good');
+        // Publishing again from here updates this game instead of making another.
+        if (selected === 0) {
+          $('new-name').value = '';
+          $('new-description').value = '';
+          loadChoices(data.placeId);
+        }
+      });
+    };
+
+    Studio.loginForm(loggedIn);
+    Studio.api('GET', '/studio/api/me', null, function (error, data) {
+      if (!error && data.account) loggedIn(data.account);
+      else { Studio.show($('login-panel'), true); $('login-name').focus(); }
+    });
+  }());
+  </script>
+</body>
+</html>

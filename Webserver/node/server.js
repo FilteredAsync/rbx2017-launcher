@@ -49,8 +49,13 @@ function log(message) {
   core.appendLog(path.join(LOG_DIR, 'server.log'), line, 5 * 1024 * 1024);
 }
 
+// Login tickets and Studio edit tokens stay out of the log.
+function loggedUrl(url) {
+  return String(url).replace(/([?&](?:t|suggest|ticket)=)[^&#]*/gi, '$1…');
+}
+
 function accessLog(ctx, status, bytes, started) {
-  const line = `${ctx.remote} "${ctx.method} ${ctx.req.url} HTTP/${ctx.req.httpVersion}" ${status} ${bytes} ${Date.now() - started}ms`;
+  const line = `${ctx.remote} "${ctx.method} ${loggedUrl(ctx.req.url)} HTTP/${ctx.req.httpVersion}" ${status} ${bytes} ${Date.now() - started}ms`;
   core.appendLog(path.join(LOG_DIR, 'access.log'), `${core.gmdate()}  ${line}`, 5 * 1024 * 1024);
 }
 

@@ -1,0 +1,113 @@
+/* Studio's start page and publish dialog: light, like Studio 2017 itself. */
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: #f2f2f2;
+  color: #1e1e1e;
+  font-family: "Source Sans Pro", "Segoe UI", Arial, sans-serif;
+  font-size: 14px;
+}
+a { color: #0074bd; }
+h1, h2, h3 { font-weight: 600; margin: 0; }
+h2 { font-size: 18px; margin: 22px 0 10px; }
+.hint { color: #666; font-size: 13px; }
+
+.top {
+  background: #fff;
+  border-bottom: 1px solid #d6d6d6;
+  padding: 14px 24px;
+  overflow: hidden;
+}
+.top .brand { float: left; }
+.top .brand h1 { font-size: 22px; }
+.top .brand .hint { margin-top: 2px; }
+.top .who { float: right; text-align: right; padding-top: 6px; }
+.top .who b { font-weight: 600; }
+
+main { padding: 6px 24px 30px; max-width: 1180px; }
+
+.panel {
+  background: #fff;
+  border: 1px solid #d6d6d6;
+  border-radius: 3px;
+  padding: 18px 20px;
+  margin-top: 18px;
+}
+.panel.narrow { max-width: 420px; }
+.panel p { margin: 0 0 12px; line-height: 1.4; }
+
+label { display: block; font-size: 13px; color: #444; margin: 10px 0 4px; }
+input[type=text], input[type=password], textarea {
+  width: 100%;
+  border: 1px solid #b9b9b9;
+  border-radius: 2px;
+  padding: 7px 8px;
+  font: inherit;
+  background: #fff;
+}
+input:focus, textarea:focus { outline: none; border-color: #00a2ff; }
+textarea { resize: vertical; min-height: 54px; }
+.check { margin-top: 12px; color: #1e1e1e; font-size: 14px; }
+.check input { margin-right: 6px; vertical-align: middle; }
+
+button {
+  background: #00a2ff;
+  border: 1px solid #0090e2;
+  border-radius: 2px;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  padding: 7px 16px;
+}
+button:hover { background: #0090e2; }
+button:disabled { background: #9ccfee; border-color: #9ccfee; cursor: default; }
+button.ghost { background: #fff; border-color: #b9b9b9; color: #1e1e1e; font-weight: 400; }
+button.ghost:hover { background: #f0f0f0; }
+.row { margin-top: 14px; }
+.row button { margin-right: 8px; }
+
+.status { display: inline-block; margin-left: 6px; font-size: 13px; color: #555; }
+.status.bad { color: #c62828; }
+.status.good { color: #2e7d32; }
+
+.games { overflow: hidden; margin: 0 -8px; }
+.game {
+  float: left;
+  width: 200px;
+  margin: 0 8px 16px;
+  background: #fff;
+  border: 1px solid #d6d6d6;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.game .art {
+  height: 112px;
+  background: #5a6b7d;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 10px;
+  position: relative;
+  overflow: hidden;
+}
+.game .art img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+.game .body { padding: 9px 10px 10px; }
+.game .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.game .meta { color: #666; font-size: 12px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.game .actions { margin-top: 8px; }
+.game .actions button { padding: 5px 12px; }
+.game .actions a { font-size: 12px; margin-left: 8px; }
+.game.new .art { background: #dfe8ef; color: #335; text-align: center; padding-top: 34px; font-size: 32px; }
+.editors { margin-top: 8px; }
+.editors input { font-size: 13px; padding: 5px 6px; }
+.editors .row { margin-top: 6px; }
+.empty { color: #666; margin: 4px 0 8px; }
+
+.choice { border: 1px solid #d6d6d6; border-radius: 3px; padding: 9px 11px; margin-top: 8px; cursor: pointer; background: #fff; }
+.choice.selected { border-color: #00a2ff; background: #f0f9ff; }
+.choice input { margin-right: 8px; vertical-align: middle; }
+.choice .meta { color: #666; font-size: 12px; margin-left: 24px; }
+.choice-list { max-height: 210px; overflow-y: auto; }
+
+.toolbox { padding: 16px; }

@@ -118,6 +118,10 @@ function describe(placeId, place) {
     updatedAt: place.updatedAt,
     uploadedFrom: place.uploadedFrom || '',
     notes: Array.isArray(place.notes) ? place.notes : [],
+    // Studio: who made it (may publish over it and choose editors) and who
+    // else may edit it. Places uploaded on /manage have no owner: only admins.
+    owner: place.owner && place.owner.userId ? { userId: Number(place.owner.userId), name: String(place.owner.name || '') } : null,
+    editors: Array.isArray(place.editors) ? place.editors.map((e) => ({ userId: Number(e.userId), name: String(e.name || '') })) : [],
   };
 }
 
@@ -155,7 +159,7 @@ function storePlaceFile(placeId, bytes) {
 }
 
 // A new place from an already converted .rbxlx -> its description.
-function create({ name, description, universeId, enabled, bytes, notes, from }) {
+function create({ name, description, universeId, enabled, bytes, notes, from, owner }) {
   const library = load();
   let id = Math.max(library.nextPlaceId, FIRST_UPLOAD_ID);
   while (library.places[String(id)]) id++;
@@ -173,6 +177,7 @@ function create({ name, description, universeId, enabled, bytes, notes, from }) 
     uploadedFrom: cleanText(from, 60),
     notes: Array.isArray(notes) ? notes.slice(0, 60) : [],
   };
+  if (owner && owner.userId) library.places[placeId].owner = { userId: Number(owner.userId), name: String(owner.name || '') };
   library.nextPlaceId = id + 1;
   save(library);
   return describe(placeId, library.places[placeId]);
@@ -203,6 +208,28 @@ function update(placeId, fields) {
   if (fields.description !== undefined) place.description = cleanText(fields.description, 1000);
   if (fields.enabled !== undefined) place.enabled = Boolean(fields.enabled);
   if (fields.universeId !== undefined) place.universeId = placeKey(fields.universeId) || '';
+  place.updatedAt = now();
+  save(library);
+  return describe(id, place);
+}
+
+// Owner and editors: { owner: {userId, name} | null, editors: [{userId, name}] }.
+function setAccess(placeId, { owner, editors }) {
+  const id = placeKey(placeId);
+  const library = load();
+  const place = id === null ? null : library.places[id];
+  if (!place) return null;
+  if (owner !== undefined) {
+    if (owner && owner.userId) place.owner = { userId: Number(owner.userId), name: String(owner.name || '') };
+    else delete place.owner;
+  }
+  if (editors !== undefined) {
+    const seen = new Set();
+    place.editors = (Array.isArray(editors) ? editors : [])
+      .filter((e) => e && e.userId && !seen.has(Number(e.userId)) && seen.add(Number(e.userId)))
+      .slice(0, 50)
+      .map((e) => ({ userId: Number(e.userId), name: String(e.name || '') }));
+  }
   place.updatedAt = now();
   save(library);
   return describe(id, place);
@@ -254,7 +281,7 @@ function writeRunnerStatus(status) {
 }
 
 module.exports = {
-  load, exists, ensure, list, get, create, replaceFile, update, remove, filePath, placeKey,
+  load, exists, ensure, list, get, create, replaceFile, update, setAccess, remove, filePath, placeKey,
   requestRestart, readRequests, runnerStatus, writeRunnerStatus,
   LIBRARY, CONTROL, STATUS,
 };

@@ -154,6 +154,11 @@ function placeCard(place) {
   pid.append(document.createTextNode('Place ID '), el('b', '', id), document.createTextNode(` · version ${place.version} · ${size(place.fileSize)}`));
   info.append(pid);
   if (place.description) info.append(el('div', 'desc', place.description));
+  if (place.owner || place.editors.length) {
+    const who = [place.owner ? `By ${place.owner.name}` : 'No owner (admins only)'];
+    if (place.editors.length) who.push(`editors: ${place.editors.map((e) => e.name).join(', ')}`);
+    info.append(el('div', 'pid', `Studio: ${who.join(' · ')}`));
+  }
   const pill = statusPill(place);
   pill.dataset.pill = id;
   info.append(pill);
@@ -214,15 +219,27 @@ function editForm(place) {
   descriptionLabel.append(description);
   const universeLabel = el('label', '', 'Roblox universe for rbxgameasset images');
   universeLabel.append(universe);
+  const owner = el('input');
+  owner.value = place.owner ? place.owner.name : '';
+  owner.placeholder = 'Studio account name (empty: admins only)';
+  const ownerLabel = el('label', '', 'Owner in Studio (may publish over it and pick editors)');
+  ownerLabel.append(owner);
+  const editors = el('input');
+  editors.value = place.editors.map((e) => e.name).join(', ');
+  editors.placeholder = 'Studio account names, comma-separated';
+  const editorsLabel = el('label', '', 'Editors in Studio');
+  editorsLabel.append(editors);
   const row = el('div', 'row');
   const save = el('button', '', 'Save');
   save.type = 'submit';
   row.append(save, button('Cancel', 'ghost', () => { editing.delete(id); renderPlaces(true); }));
-  form.append(nameLabel, descriptionLabel, universeLabel, row);
+  form.append(nameLabel, descriptionLabel, universeLabel, ownerLabel, editorsLabel, row);
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     act(async () => {
       await change('POST', `/api/places/${id}`, JSON.stringify({ name: name.value, description: description.value, universeId: universe.value.trim() }));
+      const editorNames = editors.value.split(',').map((n) => n.trim()).filter(Boolean);
+      await change('POST', `/api/places/${id}/access`, JSON.stringify({ owner: owner.value.trim(), editors: editorNames }));
       editing.delete(id);
     }, `Saving "${name.value}"…`);
   });
@@ -460,7 +477,70 @@ $('missing-file').addEventListener('change', () => {
   }, `Uploading a replacement for ${asset.name || asset.id}…`);
 });
 
+// --- Studio accounts -----------------------------------------------------------------------
+
+async function loadAccounts() {
+  const key = storedKey();
+  const rows = $('account-rows');
+  if (!key) {
+    $('accounts-state').textContent = 'Enter the host key to see them.';
+    rows.textContent = '';
+    return;
+  }
+  try {
+    const response = await fetch('/api/studio/accounts', { headers: { 'X-Host-Key': key }, cache: 'no-store' });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+    renderAccounts(result.accounts);
+  } catch (error) {
+    $('accounts-state').textContent = error.message;
+  }
+}
+
+function renderAccounts(list) {
+  const rows = $('account-rows');
+  rows.textContent = '';
+  $('accounts-state').textContent = `${list.length} account${list.length === 1 ? '' : 's'}`;
+  if (list.length === 0) {
+    const row = el('tr');
+    const cell = el('td', 'who', 'Nobody has logged in to Studio yet.');
+    cell.colSpan = 5;
+    row.append(cell);
+    rows.append(row);
+    return;
+  }
+  for (const account of list) {
+    const row = el('tr');
+    row.append(el('td', '', account.name), el('td', 'who', account.userId), el('td', 'who', account.lastLoginAt ? when(account.lastLoginAt) : 'never'));
+    const adminCell = el('td');
+    const admin = el('input');
+    admin.type = 'checkbox';
+    admin.checked = account.admin;
+    admin.addEventListener('change', () => act(async () => {
+      await change('POST', `/api/studio/accounts/${encodeURIComponent(account.name)}`, JSON.stringify({ admin: admin.checked }));
+      await loadAccounts();
+    }, admin.checked ? `Making ${account.name} an admin…` : `${account.name} is no longer an admin…`));
+    adminCell.append(admin);
+    const actions = el('td', 'actions');
+    actions.append(button('Delete', 'danger', () => {
+      if (!confirm(`Delete the Studio account ${account.name}?
+
+They are logged out. Logging in with that name again makes a new account with whatever password is typed (how a forgotten password is reset). Whoever logs in with that name next also gets the games it owns, so only delete it for its owner.`)) return;
+      act(async () => {
+        await change('DELETE', `/api/studio/accounts/${encodeURIComponent(account.name)}`);
+        await loadAccounts();
+      }, `Deleting ${account.name}…`);
+    }));
+    row.append(adminCell, actions);
+    rows.append(row);
+  }
+}
+
+$('key-form').addEventListener('submit', () => setTimeout(loadAccounts, 0));
+
 refresh();
 loadMissing();
+loadAccounts();
+setInterval(() => { if (!busy) loadAccounts(); }, 15000);
 setInterval(() => { if (!busy) refresh(); }, 5000);
 setInterval(() => { if (!busy) loadMissing(); }, 15000);

@@ -1,0 +1,216 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Start Page</title>
+  <link rel="stylesheet" href="/studio/studio.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <h1>ROBLOX Studio</h1>
+      <div class="hint" id="server-line"></div>
+    </div>
+    <div class="who" id="who" style="display:none">
+      Logged in as <b id="who-name"></b>
+      <button class="ghost" id="logout" type="button">Log out</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="panel narrow" id="login-panel" style="display:none">
+      <h2 style="margin-top:0">Log in</h2>
+      <p class="hint">Your account on this server. First time here? Log in with a new name and a password of at least 6 characters: that creates your account. Use your Roblox username so your avatar shows up in games.</p>
+      <form id="login-form" autocomplete="off">
+        <label for="login-name">Username</label>
+        <input type="text" id="login-name" maxlength="20" spellcheck="false">
+        <label for="login-password">Password</label>
+        <input type="password" id="login-password" maxlength="200">
+        <div class="row">
+          <button type="submit" id="login-go">Log in</button>
+          <span class="status" id="login-status"></span>
+        </div>
+      </form>
+    </div>
+
+    <div id="games-panel" style="display:none">
+      <h2>Your games</h2>
+      <div class="games" id="mine"></div>
+      <div id="shared-section">
+        <h2>Games you can edit</h2>
+        <div class="games" id="shared"></div>
+      </div>
+      <div id="other-section">
+        <h2>Other games on this server</h2>
+        <p class="hint">Only their owners and the editors they choose can open these.</p>
+        <div class="games" id="other"></div>
+      </div>
+      <p><span class="status" id="games-status"></span></p>
+    </div>
+
+    <div class="panel" id="not-studio" style="display:none">
+      <p>This is Roblox Studio's start page for this server. Open it from Studio.</p>
+    </div>
+  </main>
+
+  <script src="/studio/studio.js"></script>
+  <script>
+  (function () {
+    var $ = Studio.$;
+    var me = null;
+    Studio.text($('server-line'), 'Server: ' + location.host.replace(/\.$/, ''));
+
+    function open(placeId) {
+      if (!Studio.inStudio()) { Studio.status($('games-status'), 'Open this page in Roblox Studio to edit games.', 'bad'); return; }
+      Studio.status($('games-status'), 'Opening…');
+      Studio.api('POST', '/studio/api/open', { placeId: placeId }, function (error, data) {
+        if (error) { Studio.status($('games-status'), error, 'bad'); return; }
+        Studio.status($('games-status'), '');
+        window.external.StartGame(data.ticket || '', data.url || '', data.script);
+      });
+    }
+
+    function editorsBox(game, card) {
+      var box = Studio.make('div', 'editors');
+      var label = Studio.make('label', '', 'Editors (names, comma-separated)');
+      var input = Studio.make('input');
+      input.type = 'text';
+      input.value = game.editors.join(', ');
+      var row = Studio.make('div', 'row');
+      var save = Studio.make('button', '', 'Save');
+      var state = Studio.make('span', 'status');
+      save.type = 'button';
+      save.onclick = function () {
+        var names = input.value.split(',');
+        var list = [];
+        for (var i = 0; i < names.length; i++) {
+          var name = names[i].replace(/^\s+|\s+$/g, '');
+          if (name) list.push(name);
+        }
+        Studio.status(state, 'Saving…');
+        Studio.api('POST', '/studio/api/editors', { placeId: game.placeId, editors: list }, function (error, data) {
+          if (error) { Studio.status(state, error, 'bad'); return; }
+          game.editors = data.editors;
+          input.value = data.editors.join(', ');
+          Studio.status(state, 'Saved', 'good');
+        });
+      };
+      row.appendChild(save);
+      row.appendChild(state);
+      box.appendChild(label);
+      box.appendChild(input);
+      box.appendChild(row);
+      card.appendChild(box);
+      return box;
+    }
+
+    function card(game, editable) {
+      var el = Studio.make('div', 'game');
+      var art = Studio.make('div', 'art', game.name);
+      var img = document.createElement('img');
+      img.onerror = function () { img.parentNode && img.parentNode.removeChild(img); };
+      img.src = '/api/thumbnails/' + game.placeId + '?v=' + encodeURIComponent(game.updatedAt || '');
+      art.appendChild(img);
+      el.appendChild(art);
+      var body = Studio.make('div', 'body');
+      body.appendChild(Studio.make('div', 'name', game.name));
+      body.appendChild(Studio.make('div', 'meta', 'Place ' + game.placeId + ' · ' + Studio.statusLine(game)));
+      if (game.owner && !game.isOwner) body.appendChild(Studio.make('div', 'meta', 'By ' + game.owner));
+      if (editable) {
+        var actions = Studio.make('div', 'actions');
+        var edit = Studio.make('button', '', 'Edit');
+        edit.type = 'button';
+        edit.onclick = function () { open(game.placeId); };
+        actions.appendChild(edit);
+        if (game.isOwner || (me && me.admin && game.owner)) {
+          var link = Studio.make('a', '', 'Editors');
+          var box = null;
+          link.href = '#';
+          link.onclick = function (event) {
+            event.preventDefault();
+            if (box) { Studio.show(box, box.style.display === 'none'); return; }
+            box = editorsBox(game, body);
+          };
+          actions.appendChild(link);
+        }
+        body.appendChild(actions);
+      }
+      el.appendChild(body);
+      return el;
+    }
+
+    function newPlaceCard() {
+      var el = Studio.make('div', 'game new');
+      el.appendChild(Studio.make('div', 'art', '+'));
+      var body = Studio.make('div', 'body');
+      body.appendChild(Studio.make('div', 'name', 'New place'));
+      body.appendChild(Studio.make('div', 'meta', 'A baseplate to build on'));
+      var actions = Studio.make('div', 'actions');
+      var start = Studio.make('button', '', 'Create');
+      start.type = 'button';
+      start.onclick = function () { open(0); };
+      actions.appendChild(start);
+      body.appendChild(actions);
+      el.appendChild(body);
+      return el;
+    }
+
+    function fill(list, games, editable, emptyText) {
+      list.innerHTML = '';
+      for (var i = 0; i < games.length; i++) list.appendChild(card(games[i], editable));
+      if (!games.length && emptyText) list.appendChild(Studio.make('p', 'empty', emptyText));
+    }
+
+    function loadGames() {
+      Studio.api('GET', '/studio/api/games', null, function (error, data) {
+        if (error) { Studio.status($('games-status'), error, 'bad'); return; }
+        var mine = [], shared = [], other = [];
+        for (var i = 0; i < data.games.length; i++) {
+          var game = data.games[i];
+          if (game.isOwner) mine.push(game);
+          else if (game.canEdit) shared.push(game);
+          else other.push(game);
+        }
+        var mineList = $('mine');
+        fill(mineList, mine, true, '');
+        mineList.insertBefore(newPlaceCard(), mineList.firstChild);
+        fill($('shared'), shared, true, '');
+        Studio.show($('shared-section'), shared.length > 0);
+        fill($('other'), other, false, '');
+        Studio.show($('other-section'), other.length > 0);
+      });
+    }
+
+    function loggedIn(account) {
+      me = account;
+      Studio.text($('who-name'), account.name + (account.admin ? ' (admin)' : ''));
+      Studio.show($('who'), true);
+      Studio.show($('login-panel'), false);
+      Studio.show($('games-panel'), true);
+      loadGames();
+    }
+
+    function loggedOut() {
+      me = null;
+      Studio.show($('who'), false);
+      Studio.show($('games-panel'), false);
+      Studio.show($('login-panel'), true);
+      $('login-name').focus();
+    }
+
+    $('logout').onclick = function () { Studio.logout(loggedOut); };
+    Studio.loginForm(loggedIn);
+    Studio.show($('not-studio'), !Studio.inStudio());
+    Studio.api('GET', '/studio/api/me', null, function (error, data) {
+      if (!error && data.account) loggedIn(data.account);
+      else loggedOut();
+    });
+    // Players come and go: keep the online counts fresh.
+    setInterval(function () {
+      var typing = document.activeElement && /INPUT|TEXTAREA/.test(document.activeElement.tagName);
+      if (me && !typing) loadGames();
+    }, 30000);
+  }());
+  </script>
+</body>
+</html>

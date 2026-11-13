@@ -143,6 +143,8 @@ function readHead(file, size) {
 }
 
 async function assetEndpoint(ctx) {
+  // A library place opened in Studio (lib/studio.js).
+  if (studio.placeAsset(ctx)) return;
   const query = ctx.queryLower;
   const decimalParameter = (name) => {
     if (query[name] === undefined) return undefined;
@@ -956,12 +958,16 @@ function fixed(contentType, body, extra) {
   return (ctx) => send(ctx, 200, Object.assign({ 'Content-Type': contentType }, extra || {}), body);
 }
 
+// Roblox Studio 2017: login, start page, editing and publishing (lib/studio.js).
+const studio = require('./studio')({ send, sendUtf8, sendFile, sendJson, jsonBody, sign });
+
 // --- Route table ---------------------------------------------------------------------
 // Matched case-insensitively against the path without the leading "/".
 // Covers www/.htaccess rewrites and every PHP file with real logic.
 
 const opt = '(?:/index\\.php)?/?';
 const ROUTES = [
+  ...studio.routes,
   [/^api\/games(?:\/([a-z0-9]+)(?:\/([a-z]+))?)?\/?$/i, gamesApi],
   [/^api\/thumbnails\/(\d{1,15})\/?$/i, thumbnailsApi],
   [/^api\/places(?:\/(\d{1,15})(?:\/([a-z]+))?)?\/?$/i, placesApi],
