@@ -6,6 +6,8 @@
 const path = require('path');
 const core = require('./core');
 const assets = require('./assets');
+const accounts = require('./accounts');
+const avatarStore = require('./avatarstore');
 
 function validUsername(name) {
   return typeof name === 'string' && /^[A-Za-z0-9_]{3,20}$/.test(name);
@@ -103,9 +105,8 @@ const ANIMATIONS = new Set([48, 49, 50, 51, 52, 53, 54, 55, 56]);
 const LAYERED = new Set([64, 65, 66, 67, 68, 69, 70, 71, 72, 76, 77]);
 const EXPRESSIONS = new Set([61, 78]);
 
-async function characterFor(localUserId, usernameParam) {
-  const config = core.assetConfig();
-  const character = {
+function emptyCharacter() {
+  return {
     username: null,
     robloxUserId: null,
     source: 'default',
@@ -116,8 +117,49 @@ async function characterFor(localUserId, usernameParam) {
     gear: [],
     dropped: [],
   };
+}
 
-  const username = resolveUsername(localUserId, usernameParam);
+// A saved look (an account's avatar from the launcher's editor, or the guest
+// look) as a character.
+function storedCharacter(username, stored, source) {
+  const character = emptyCharacter();
+  character.username = username;
+  character.source = source;
+  character.bodyColors = Object.assign({}, character.bodyColors, stored.bodyColors);
+  for (const asset of stored.assets) {
+    if (KEPT.has(asset.typeId) || BODY_PARTS.has(asset.typeId)) character.assets.push({ id: asset.id, typeId: asset.typeId, name: asset.name });
+    else character.dropped.push(Object.assign({}, asset, { reason: `asset type ${asset.typeId} is not worn by this client` }));
+  }
+  return character;
+}
+
+// Guests wear the guest look; this server's accounts wear the avatar saved in
+// the launcher, or, until they save one, a copy of the Roblox account with
+// the same name (kept as their avatar from then on). Other names (playGame.bat
+// and older launchers) get the Roblox account's current look.
+async function characterFor(localUserId, usernameParam) {
+  if (localUserId !== null && avatarStore.isGuestId(localUserId)) {
+    return storedCharacter(validUsername(usernameParam) ? usernameParam : 'Guest', avatarStore.guest(), 'guest');
+  }
+  const account = localUserId !== null ? accounts.byUserId(localUserId) : null;
+  if (account) {
+    const saved = avatarStore.get(account.userId);
+    if (saved) return storedCharacter(account.name, saved, 'account');
+    const copied = await robloxCharacter(account.name);
+    if (['live', 'cache', 'stale-cache'].includes(copied.source)) {
+      try {
+        avatarStore.set(account.userId, { bodyColors: copied.bodyColors, assets: copied.assets }, 'roblox-copy');
+      } catch (error) { /* read-only data folder: copied again next time */ }
+    }
+    return copied;
+  }
+  return robloxCharacter(resolveUsername(localUserId, usernameParam));
+}
+
+// What the Roblox account with this name wears, made 2017-compatible.
+async function robloxCharacter(username) {
+  const config = core.assetConfig();
+  const character = emptyCharacter();
   character.username = username;
   if (username === null) {
     character.source = 'no username (run detect-roblox-user.ps1 or pass a name to launchClient.bat)';
@@ -273,5 +315,5 @@ function bodyColorsXml(character) {
 
 module.exports = {
   validUsername, activeUsername, rememberLocalUser, resolveUsername,
-  characterFor, bodyColorsUrl, avatarFetchJson, bodyColorsXml,
+  characterFor, robloxCharacter, bodyColorsUrl, avatarFetchJson, bodyColorsXml, KEPT, BODY_PARTS,
 };

@@ -160,4 +160,4 @@ function characterMeshXml(meshes) {
   return { xml: `${xml}</roblox>\n`, kept, skipped };
 }
 
-module.exports = { characterMeshes, characterMeshXml };
+module.exports = { characterMeshes, characterMeshXml, lz4Block };

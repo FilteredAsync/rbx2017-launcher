@@ -11,6 +11,8 @@ const path = require('path');
 const core = require('./core');
 const assets = require('./assets');
 const avatar = require('./avatar');
+const avatarStore = require('./avatarstore');
+const accounts = require('./accounts');
 const datastore = require('./datastore');
 const games = require('./games');
 const gamethumbs = require('./gamethumbs');
@@ -310,6 +312,26 @@ async function legacyBodyPart(ctx, assetId) {
   send(ctx, 200, { 'Content-Type': 'text/xml', 'Cache-Control': 'no-store', 'X-Legacy-Asset-Cache': `BODYPART-R6-${kept}` }, xml);
 }
 
+// An asset's bytes from the cache, downloading it first if needed (meshes
+// converted for the 2017 client, gzip undone). null if Roblox has none.
+async function assetBytes(assetId) {
+  const cachePath = path.join(core.cacheDir('assets'), `id-${assetId}.bin`);
+  try {
+    if (fs.statSync(cachePath).size > 0) {
+      const bytes = fs.readFileSync(cachePath);
+      return bytes[0] === 0x1f && bytes[1] === 0x8b ? assets.normalizeAsset(bytes).bytes : bytes;
+    }
+  } catch (error) { /* not cached yet */ }
+  const key = `id-${assetId}`;
+  let pending = inflight.get(key);
+  if (!pending) {
+    pending = fetchIntoCache('id', assetId, cachePath, `${cachePath}.json`, `${cachePath}.missing`).finally(() => inflight.delete(key));
+    inflight.set(key, pending);
+  }
+  const outcome = await pending;
+  return outcome.ok ? outcome.bytes : null;
+}
+
 async function fetchIntoCache(kind, value, cachePath, metadataPath, missingPath) {
   const download = await assets.downloadAsset(kind === 'id' || kind === 'named' ? kind : 'assetversionid', value);
   if (!download.ok) {
@@ -344,7 +366,9 @@ async function fetchIntoCache(kind, value, cachePath, metadataPath, missingPath)
 
 function characterParams(ctx) {
   const query = ctx.queryLower;
-  const userId = query.userid !== undefined ? core.decimal(String(query.userid)) : null;
+  const raw = query.userid !== undefined ? String(query.userid) : null;
+  // Guests have negative user IDs.
+  const userId = raw === null ? null : /^-\d{1,9}$/.test(raw) ? raw : core.decimal(raw);
   const username = query.username !== undefined && avatar.validUsername(String(query.username)) ? String(query.username) : null;
   return { userId, username };
 }
@@ -414,19 +438,29 @@ async function placeLauncher(ctx) {
     state = Object.assign({}, state, { address: '127.0.0.1', port: relayPort });
   }
   const placeId = ctypeDigit(q.placeid) ? q.placeid : String(state.placeId);
-  const userId = ctypeDigit(q.id) ? q.id : '1';
-  const activeUser = avatar.activeUsername();
-  const username = q.username !== undefined ? q.username : (q.user !== undefined ? q.user : (activeUser !== null ? activeUser : 'Player'));
-  const appearance = q.app !== undefined && q.app !== ''
-    ? q.app
-    : `http://localhost./v1.1/avatar-fetch/?placeId=${rawurlencode(placeId)}&userId=${rawurlencode(userId)}`;
+  // Who joins: the launcher's join ticket (lib/launcherapi.js) decides the
+  // name and user ID; without one the player is a guest. "allowNamedJoins":
+  // true in config/assets.json brings back joining under any typed name.
+  let userId;
+  let username;
+  if (core.assetConfig().allowNamedJoins === true && q.ticket === undefined) {
+    userId = ctypeDigit(q.id) ? q.id : '1';
+    const activeUser = avatar.activeUsername();
+    username = q.username !== undefined ? q.username : (q.user !== undefined ? q.user : (activeUser !== null ? activeUser : 'Player'));
+  } else {
+    const who = launcher.joinIdentity(q.ticket);
+    userId = String(who.userId);
+    username = who.name;
+  }
+  const appearance = `http://localhost./v1.1/avatar-fetch/?placeId=${rawurlencode(placeId)}&userId=${rawurlencode(userId)}`;
   const joinUrl = 'http://localhost./game/join.php'
     + `?placeid=${rawurlencode(placeId)}`
     + `&ip=${rawurlencode(state.address)}`
     + `&port=${rawurlencode(String(state.port))}`
     + `&id=${rawurlencode(userId)}`
     + `&user=${rawurlencode(username)}`
-    + `&app=${rawurlencode(appearance)}`;
+    + `&app=${rawurlencode(appearance)}`
+    + `&sig=${launcher.joinSignature(userId, username, placeId)}`;
   send(ctx, 200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }, core.phpJson({
     jobId: state.jobId,
     status: 2,
@@ -448,11 +482,19 @@ function join(ctx) {
   const state = gameServerState();
   const placeid = integer('placeid', String(state.placeId));
   const port = integer('port', String(state.port));
-  const id = integer('id', '1');
+  let id = /^-\d{1,9}$/.test(String(q.id || '')) ? String(q.id) : integer('id', '1');
   let ip = q.ip !== undefined ? q.ip : state.address;
   const activeUser = avatar.activeUsername();
-  const user = q.user !== undefined ? q.user : (q.username !== undefined ? q.username : (activeUser !== null ? activeUser : 'Player'));
-  const app = q.app !== undefined && q.app !== '' ? q.app : `http://localhost./v1.1/avatar-fetch/?placeId=${placeid}&userId=${id}`;
+  let user = q.user !== undefined ? q.user : (q.username !== undefined ? q.username : (activeUser !== null ? activeUser : 'Player'));
+  // The name and ID come signed from placelauncher.ashx; an address made up
+  // by hand joins as a guest.
+  if (!(core.assetConfig().allowNamedJoins === true && q.sig === undefined)
+    && !launcher.checkJoinSignature(id, String(user), placeid, q.sig)) {
+    const guest = launcher.guestIdentity();
+    id = String(guest.userId);
+    user = guest.name;
+  }
+  const app = `http://localhost./v1.1/avatar-fetch/?placeId=${placeid}&userId=${id}`;
   avatar.rememberLocalUser(id, String(user));
   if (net.isIP(ip) === 0) ip = '127.0.0.1';
 
@@ -689,7 +731,17 @@ function thumbnailRoute(kind) {
   return async (ctx) => {
     const q = ctx.queryLower;
     const pick = (...names) => { for (const name of names) if (q[name] !== undefined && q[name] !== '') return String(q[name]); return undefined; };
-    const id = core.decimal(pick(...(kind === 'asset' ? ['aid', 'assetid', 'id'] : ['userid', 'id'])) || '');
+    const names = kind === 'asset' ? ['aid', 'assetid', 'id'] : kind === 'bundle' ? ['bundleid', 'id'] : ['userid', 'id'];
+    const raw = pick(...names) || '';
+    // Players of this server: their picture is the one the launcher saved
+    // with their avatar (guests and new players get the default figure).
+    if (kind === 'avatar' || kind === 'headshot') {
+      const local = avatarStore.imageFor(raw);
+      if (local) return send(ctx, 200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-cache' }, local);
+      // An account here has no Roblox picture under its user ID.
+      if (avatarStore.isGuestId(raw) || accounts.byUserId(raw)) return fail(ctx, 404, 'No picture saved for this player yet');
+    }
+    const id = core.decimal(raw);
     if (id === null || id === '0' || id.length > 15) return fail(ctx, 400, 'Invalid id');
     const width = parseInt(pick('wd', 'width', 'x', 'w') || '', 10) || 0;
     const height = parseInt(pick('ht', 'height', 'y', 'h') || '', 10) || width;
@@ -940,6 +992,17 @@ function downloadsRoute(ctx, match) {
   sendFile(ctx, file, { 'Content-Type': DOWNLOADS[name], 'Cache-Control': name.endsWith('.json') ? 'no-cache' : 'public, max-age=3600' });
 }
 
+// The host's menu music (config/menu-music.mp3 on this PC): launchers
+// download it into their own config folder, so every player hears it.
+function menuMusicRoute(ctx) {
+  const file = core.rootPath('config', 'menu-music.mp3');
+  if (!core.isFile(file)) return sendJson(ctx, 404, { error: 'this server has no menu music' });
+  const stat = fs.statSync(file);
+  const etag = `"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`;
+  if (ctx.req.headers['if-none-match'] === etag) return send(ctx, 304, { ETag: etag, 'Cache-Control': 'no-cache' }, '');
+  sendFile(ctx, file, { 'Content-Type': 'audio/mpeg', ETag: etag, 'Cache-Control': 'no-cache' });
+}
+
 // The management page (Webserver/node/manage/).
 const MANAGE_FILES = { '': ['index.html', 'text/html; charset=utf-8'], 'manage.js': ['manage.js', 'text/javascript; charset=utf-8'], 'manage.css': ['manage.css', 'text/css; charset=utf-8'] };
 function managePage(ctx, match) {
@@ -974,6 +1037,7 @@ function fixed(contentType, body, extra) {
 
 // Roblox Studio 2017: login, start page, editing and publishing (lib/studio.js).
 const studio = require('./studio')({ send, sendUtf8, sendFile, sendJson, jsonBody, sign });
+const launcher = require('./launcherapi')({ send, sendJson, jsonBody, assetBytes });
 
 // --- Route table ---------------------------------------------------------------------
 // Matched case-insensitively against the path without the leading "/".
@@ -982,11 +1046,13 @@ const studio = require('./studio')({ send, sendUtf8, sendFile, sendJson, jsonBod
 const opt = '(?:/index\\.php)?/?';
 const ROUTES = [
   ...studio.routes,
+  ...launcher.routes,
   [/^api\/games(?:\/([a-z0-9]+)(?:\/([a-z]+))?)?\/?$/i, gamesApi],
   [/^api\/thumbnails\/(\d{1,15})\/?$/i, thumbnailsApi],
   [/^api\/places(?:\/(\d{1,15})(?:\/([a-z]+))?)?\/?$/i, placesApi],
   [/^manage(?:\/([a-z.]*))?\/?$/i, managePage],
   [/^download\/((?:client|studio)-files\.(?:zip|json))$/i, downloadsRoute],
+  [/^download\/menu-music\.mp3$/i, menuMusicRoute],
   [/^api\/assets\/(?:missing|(\d{1,15})\/replacement)\/?$/i, assetsApi],
   [new RegExp(`^asset(?:/index\\.php)?/?$`, 'i'), assetEndpoint],
   [/^asset\/bodycolors\.(?:ashx|php)$/i, bodyColors],
@@ -1007,6 +1073,7 @@ const ROUTES = [
   [/^game\/tools\/thumbnailasset\.ashx$/i, thumbnailRoute('asset')],
   [/^(?:thumbs\/asset\.ashx|asset-thumbnail\/image)$/i, thumbnailRoute('asset')],
   [/^(?:thumbs\/avatar\.ashx|avatar-thumbnail\/image)$/i, thumbnailRoute('avatar')],
+  [/^bundle-thumbnail\/image$/i, thumbnailRoute('bundle')],
   [/^(?:thumbs\/headshot\.ashx|headshot-thumbnail\/image)$/i, thumbnailRoute('headshot')],
   [new RegExp(`^setting/quietget/rccservicerccservice${opt}$`, 'i'), rccSettings],
   // RCC parses these as JSON and crashes on anything else ("Expect either an

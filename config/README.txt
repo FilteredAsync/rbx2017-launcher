@@ -166,6 +166,17 @@ use an override file (section 3) if you have a replacement.
   legacyBodyPartMaxAssetId  Empty = keep all body parts (their R6 CharacterMesh is
                             applied). A number drops body parts above that ID.
   loadGear                  true to give players their equipped gear.
+  allowNamedJoins           false (the default): players join through the
+                            launcher's sign-in (1.4.0 and newer), as their
+                            account or as a guest; anything else joins as a
+                            guest. true: also lets older launchers and
+                            playGame.bat join under any typed name, as before
+                            (use it only while everyone updates).
+  guestAppearance           What guests wear instead of the 2016 guest look
+                            (Robloxian 2.0 body, ROBLOX 'R' Baseball Cap):
+                              "guestAppearance": { "bodyColors": { "HeadColor": 24, "TorsoColor": 23,
+                                "LeftArmColor": 24, "RightArmColor": 24, "LeftLegColor": 119,
+                                "RightLegColor": 119 }, "assets": [ { "id": "417457461", "typeId": 8 } ] }
   avatarCacheSeconds        How long an avatar is reused before asking Roblox again.
   gameAssets                rbxgameasset:// name -> asset ID, for places that use
                             named game assets, e.g.

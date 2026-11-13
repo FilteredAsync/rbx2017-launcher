@@ -141,6 +141,15 @@ function xmlEscape(text) {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 }
 
+function xmlUnescape(text) {
+  const named = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+  return text.replace(/&(?:#x([0-9a-f]+)|#(\d+)|(amp|lt|gt|quot|apos));/gi, (all, hex, dec, name) => {
+    if (name) return named[name.toLowerCase()];
+    const code = hex ? parseInt(hex, 16) : parseInt(dec, 10);
+    return code > 0 && code < 0x110000 ? String.fromCodePoint(code) : '';
+  });
+}
+
 // SOAP call to RCC. The game job's Execute stays open while the game runs, so
 // that caller does not wait for it; timeoutMs is for short calls.
 function soap(action, envelope, timeoutMs, port = SOAP_PORT) {
@@ -258,7 +267,8 @@ async function rccPlayers(soapPort = SOAP_PORT) {
     const result = await soap('Execute', executeEnvelope('Players', lua), 8000, soapPort);
     const match = /<ns1:value>([\s\S]*?)<\/ns1:value>/.exec(result.body);
     if (!match) return result.status === 200 ? [] : null;
-    return match[1].split('\n').map((name) => name.trim()).filter(Boolean);
+    // SOAP escapes the newlines between names as &#xA;.
+    return xmlUnescape(match[1]).split('\n').map((name) => name.trim()).filter(Boolean);
   } catch (error) {
     return null;
   }

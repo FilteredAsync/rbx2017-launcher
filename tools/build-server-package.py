@@ -63,7 +63,9 @@ def main():
         'Webserver/node/data/places.json', 'Webserver/node/data/control.json', 'Webserver/node/data/runner-status.json',
         # Studio accounts and the secret behind Studio's edit tokens belong to
         # this PC; the server makes its own (people log in there again).
-        'Webserver/node/data/accounts.json', 'Webserver/node/data/studio-secret.txt'])
+        'Webserver/node/data/accounts.json', 'Webserver/node/data/studio-secret.txt',
+        # Players' avatars and pictures go with their accounts.
+        'Webserver/node/data/avatars.json', 'Webserver/node/data/avatar-images'])
     add_tree('Webserver/www', exclude=['Webserver/www/v1/dump', 'Webserver/www/Error/captures'])
     add_tree('Webserver/bin/apache/certificats')
     for name in ('server.json', 'assets.json', 'README.txt'):

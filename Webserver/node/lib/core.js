@@ -137,6 +137,9 @@ const ASSET_DEFAULTS = {
   avatarCacheSeconds: 120,
   gameAssets: {},
   gameUniverseId: '',
+  // Joining (lib/launcherapi.js) and guests (lib/avatarstore.js).
+  allowNamedJoins: false,
+  guestAppearance: null,
 };
 
 const settingsCache = new Map();

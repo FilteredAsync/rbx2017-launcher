@@ -122,7 +122,9 @@ function isLoopback(address) {
 // -> { account, token, created } or { error, status }
 // The first account made on the server PC itself (a loopback address) is an
 // admin: admins may edit every game. /manage changes who is one.
-function login(name, password, address) {
+// mode: 'claim' (Studio's page: the first login with a name creates it),
+// 'signin' (the account must exist) or 'signup' (the name must be free).
+function login(name, password, address, mode = 'claim') {
   name = String(name || '').trim();
   password = String(password || '');
   if (tooManyFailures(address)) return { status: 429, error: 'Too many wrong passwords. Wait a few minutes and try again.' };
@@ -133,6 +135,8 @@ function login(name, password, address) {
   const key = name.toLowerCase();
   let account = data.accounts[key];
   let created = false;
+  if (account && mode === 'signup') return { status: 409, error: 'That name is taken. Pick another, or sign in if it is yours.' };
+  if (!account && mode === 'signin') return { status: 404, error: 'No account has that name. Check the spelling, or create one.' };
   if (!account) {
     if (password.length < MIN_PASSWORD) {
       return { status: 400, error: `New account: pick a password of at least ${MIN_PASSWORD} characters.` };
@@ -182,13 +186,19 @@ function fromToken(token) {
   return publicAccount(account);
 }
 
+// A launcher sends its session as "Authorization: Bearer <token>".
+function bearerToken(header) {
+  const match = /^Bearer\s+([0-9a-f]{64})$/i.exec(String(header || '').trim());
+  return match ? match[1].toLowerCase() : null;
+}
+
 function cookieToken(cookieHeader) {
   const match = /(?:^|;\s*)\.ROBLOSECURITY=([0-9a-f]{64})(?:;|$)/i.exec(String(cookieHeader || ''));
   return match ? match[1].toLowerCase() : null;
 }
 
 function fromRequest(req) {
-  return fromToken(cookieToken(req.headers.cookie));
+  return fromToken(bearerToken(req.headers.authorization) || cookieToken(req.headers.cookie));
 }
 
 function logout(token) {
@@ -257,6 +267,17 @@ function editToken(userId, placeId, days = 7) {
   return `${payload}.${mac}`;
 }
 
+// Short HMAC over any text with the server secret (join tickets).
+function mac(text) {
+  return base64url(crypto.createHmac('sha256', secret()).update(String(text)).digest()).slice(0, 32);
+}
+
+function checkMac(text, value) {
+  const expected = Buffer.from(mac(text));
+  const actual = Buffer.from(String(value || ''));
+  return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+}
+
 // -> { userId, placeId } or null
 function checkEditToken(token) {
   const match = /^(\d{1,12})\.(\d{1,15})\.(\d{1,12})\.([A-Za-z0-9_-]{32})$/.exec(String(token || ''));
@@ -269,6 +290,6 @@ function checkEditToken(token) {
 }
 
 module.exports = {
-  login, logout, fromToken, fromRequest, cookieToken, byUserId, byName, list, setAdmin, remove,
-  editToken, checkEditToken, NAME_RE,
+  login, logout, fromToken, fromRequest, cookieToken, bearerToken, byUserId, byName, list, setAdmin, remove,
+  editToken, checkEditToken, mac, checkMac, NAME_RE, MIN_PASSWORD,
 };

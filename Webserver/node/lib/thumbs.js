@@ -22,12 +22,15 @@ const SIZES = {
   avatar: ['30x30', '48x48', '60x60', '75x75', '100x100', '110x110', '140x140', '150x150', '150x200', '180x180', '250x250',
     '352x352', '420x420', '720x720'],
   headshot: ['48x48', '50x50', '60x60', '75x75', '100x100', '110x110', '150x150', '180x180', '352x352', '420x420', '720x720'],
+  bundle: ['150x150', '420x420'],
 };
 
 const ENDPOINTS = {
   asset: 'https://thumbnails.roblox.com/v1/assets?assetIds=%ID%&returnPolicy=PlaceHolder&size=%SIZE%&format=Png&isCircular=false',
   avatar: 'https://thumbnails.roblox.com/v1/users/avatar?userIds=%ID%&size=%SIZE%&format=Png&isCircular=false',
   headshot: 'https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=%ID%&size=%SIZE%&format=Png&isCircular=false',
+  // Packages in the launcher's avatar editor.
+  bundle: 'https://thumbnails.roblox.com/v1/bundles/thumbnails?bundleIds=%ID%&size=%SIZE%&format=Png&isCircular=false',
 };
 
 // The requested size if Roblox offers it, else the smallest square at least

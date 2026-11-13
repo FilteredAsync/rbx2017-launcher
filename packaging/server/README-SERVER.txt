@@ -112,12 +112,29 @@ then reach this server only. Set it up once in the Tailscale admin console
 Players' PCs show up in Machines as rbx-<username>; remove any you do not
 recognize. Tagged players do not count as Tailscale users.
 
+Accounts, guests and avatars
+----------------------------
+Players sign in to this server from the launcher (1.4.0 and newer) with a
+username and password; "Sign up" there makes the account. The same accounts
+log in to Roblox Studio. Joining a game uses the account's name, so nobody
+can play under someone else's name. Without an account players can "Play as
+a guest": they join as "Guest_1234" with the 2016 guest look and cannot use
+Studio, the avatar editor or the chat (as guests could not in 2016).
+Each account has its own avatar, made in the launcher's Avatar tab (hats,
+hair, faces, heads, shirts, pants, t-shirts, packages, body colors). A new
+account starts with what the Roblox account with the same name wears. The
+avatars and their pictures are kept in Webserver\node\data\avatars.json and
+data\avatar-images\; the catalog comes from Roblox (this PC needs internet).
+Older launchers (1.3.0 and before) join as guests until they update; while
+everyone updates, "allowNamedJoins": true in config\assets.json lets them in
+under their typed name again.
+
 Roblox Studio and Team Create
 -----------------------------
 Roblox Studio 2017 (Studio\RobloxStudioBeta.exe) uses this server: its start
-page lists the games here. Log in on that page with a username and password;
-the first login with a name creates that account (use your Roblox username,
-so your avatar shows in games). The first account made on this PC is an
+page lists the games here. Log in on that page with your launcher account
+(on Studio's page the first login with a new name also creates an account).
+The first account made on this PC is an
 admin: admins may open and publish over every game. /manage, "Studio
 accounts", changes who is an admin and resets a forgotten password (delete the
 account; the next login with that name makes it again).

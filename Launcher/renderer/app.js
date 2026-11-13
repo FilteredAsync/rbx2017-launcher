@@ -1,13 +1,24 @@
 'use strict';
 
+// The launcher window, laid out like the 2016-2017 Xbox One app:
+//   start screen ("press A") -> sign in / sign up / play as a guest -> tabs
+//   Home · Avatar · Games · Players · Settings
+// Accounts live on the web server (the same ones Roblox Studio uses); the
+// main process keeps the session (account.js). Guests join as "Guest_1234"
+// with the guest look, like 2016's guests.
+
 const api = window.launcher;
 const $ = (id) => document.getElementById(id);
 let state = null;
 let formsFilled = false;
-let playersTimer = null;
+let hostPlayersTimer = null;
 let view = 'home';
+let screen = 'start';
 let lastGames = [];
 let detailGame = null;
+let me = null; // { account: { name, userId, admin }, offline } when signed in
+let guest = false;
+let settingsPanel = 'account';
 
 // --- helpers --------------------------------------------------------------------
 
@@ -17,19 +28,20 @@ function message(error) {
 }
 
 function setStatus(id, text, kind) {
-  const el = $(id);
-  el.textContent = text || '';
-  el.className = `status${kind ? ` ${kind}` : ''}`;
+  const node = $(id);
+  if (!node) return;
+  node.textContent = text || '';
+  node.className = `${node.classList.contains('account-note') ? 'account-note' : 'status'}${kind ? ` ${kind}` : ''}`;
 }
 
 function appendLog(area, line, time) {
-  const el = $(`log-${area}`);
-  if (!el) return;
-  const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 4;
-  el.textContent += `${time}  ${line}\n`;
-  const lines = el.textContent.split('\n');
-  if (lines.length > 400) el.textContent = lines.slice(-400).join('\n');
-  if (atBottom) el.scrollTop = el.scrollHeight;
+  const node = $(`log-${area}`);
+  if (!node) return;
+  const atBottom = node.scrollTop + node.clientHeight >= node.scrollHeight - 4;
+  node.textContent += `${time}  ${line}\n`;
+  const lines = node.textContent.split('\n');
+  if (lines.length > 400) node.textContent = lines.slice(-400).join('\n');
+  if (atBottom) node.scrollTop = node.scrollHeight;
 }
 
 function formatUptime(seconds) {
@@ -57,6 +69,20 @@ function el(tag, className, text) {
   return node;
 }
 
+function serverAddress() {
+  return (state && state.clientConfig && state.clientConfig.centralUrl) || $('play-server').value.trim() || '';
+}
+
+// Without roblox-logo.png (it is not in the git repository) the logo is text.
+document.querySelectorAll('.logo-img').forEach((logo) => {
+  const fallback = () => {
+    const text = el('div', `${logo.className.replace('logo-img', '')} logo-text`.trim(), 'ROBLOX');
+    logo.replaceWith(text);
+  };
+  logo.addEventListener('error', fallback);
+  if (logo.complete && logo.naturalWidth === 0) fallback();
+});
+
 // --- cover art --------------------------------------------------------------------
 
 // Generated cover for a game: colors from its name (Lumber Tycoon gets
@@ -76,7 +102,7 @@ function cover(game) {
   node.append(el('div', 'cover-title', game.name));
   // A host's own thumbnail replaces the generated art once it has loaded.
   if (game.thumbnail && game.placeId) {
-    api.gameThumbnail({ centralUrl: $('play-server').value.trim(), placeId: game.placeId, version: game.thumbnail }).then((dataUrl) => {
+    api.gameThumbnail({ centralUrl: serverAddress(), placeId: game.placeId, version: game.thumbnail }).then((dataUrl) => {
       if (!dataUrl) return;
       const img = el('img', 'cover-img');
       img.alt = '';
@@ -106,19 +132,200 @@ function placeholder(text, big, onClick) {
   return tile;
 }
 
+// --- screens ---------------------------------------------------------------------------
+
+function showScreen(name) {
+  screen = name;
+  $('screen-start').classList.toggle('hidden', name !== 'start');
+  $('screen-account').classList.toggle('hidden', name !== 'account');
+  $('shell').classList.toggle('hidden', name !== 'shell');
+  document.body.classList.toggle('on-start', name === 'start');
+  document.body.classList.toggle('on-account', name === 'account');
+  document.body.classList.toggle('on-avatar', name === 'shell' && view === 'avatar');
+  if (name === 'start') focusEl($('start-press'));
+  if (name === 'account') {
+    $('acct-server').textContent = serverAddress() ? `Server: ${serverAddress()}` : 'No server set yet';
+    focusEl($('acct-name').value ? $('acct-pass') : $('acct-name'));
+  }
+}
+
+// Leaving the start screen: straight in when already signed in.
+let entering = false;
+async function enter() {
+  if (entering) return;
+  entering = true;
+  try {
+    if (state && state.needsFiles) {
+      // First run after the small Setup.exe: get the game files first.
+      enterShell();
+      showView('settings');
+      showSettings('network');
+      showFilesPanel(false);
+      focusEl($('join-code'));
+      return;
+    }
+    $('start-press').querySelector('span').textContent = 'Signing in…';
+    const current = await api.currentAccount().catch(() => null);
+    if (current && current.account) {
+      await signedIn(current);
+      return;
+    }
+    showScreen('account');
+  } finally {
+    $('start-press').querySelector('span').textContent = 'Press to start';
+    entering = false;
+  }
+}
+$('start-press').addEventListener('click', enter);
+
+function enterShell() {
+  showScreen('shell');
+  if (view === 'home') renderHome();
+  findGames(true);
+  focusEl(firstFocusable('#view-home') || document.querySelector('.tab-link.active'));
+}
+
+// --- sign in -----------------------------------------------------------------------------
+
+let accountMode = 'signin';
+function setAccountMode(mode) {
+  accountMode = mode;
+  document.querySelectorAll('.switch-tab').forEach((tab) => tab.classList.toggle('active', tab.dataset.mode === mode));
+  $('acct-pass2-wrap').classList.toggle('hidden', mode !== 'signup');
+  $('acct-go').textContent = mode === 'signup' ? 'Sign up' : 'Sign in';
+  $('acct-pass').autocomplete = mode === 'signup' ? 'new-password' : 'current-password';
+  setStatus('acct-note', mode === 'signup'
+    ? 'Pick a name (3-20 letters, digits or _) and a password of at least 6 characters. Use your Roblox name to start with your Roblox avatar.'
+    : 'Your account works in every game on this server and in Roblox Studio.');
+}
+document.querySelectorAll('.switch-tab').forEach((tab) => tab.addEventListener('click', () => setAccountMode(tab.dataset.mode)));
+setAccountMode('signin');
+
+async function submitAccount() {
+  const name = $('acct-name').value.trim();
+  const password = $('acct-pass').value;
+  if (!/^[A-Za-z0-9_]{3,20}$/.test(name)) { setStatus('acct-note', 'Usernames are 3 to 20 letters, digits or underscores.', 'error'); return; }
+  if (!password) { setStatus('acct-note', 'Type your password.', 'error'); return; }
+  if (accountMode === 'signup') {
+    if (password.length < 6) { setStatus('acct-note', 'Pick a password of at least 6 characters.', 'error'); return; }
+    if (password !== $('acct-pass2').value) { setStatus('acct-note', 'The two passwords are different.', 'error'); return; }
+  }
+  if (!serverAddress()) { setStatus('acct-note', 'Set your server address first (Change server).', 'error'); return; }
+  $('acct-go').disabled = true;
+  setStatus('acct-note', accountMode === 'signup' ? 'Creating your account…' : 'Signing in…');
+  try {
+    const result = await api.signIn({ name, password, mode: accountMode });
+    $('acct-pass').value = '';
+    $('acct-pass2').value = '';
+    await signedIn({ account: result.account, offline: false }, result.created);
+  } catch (error) {
+    setStatus('acct-note', message(error), 'error');
+  } finally {
+    $('acct-go').disabled = false;
+  }
+}
+$('acct-go').addEventListener('click', submitAccount);
+for (const id of ['acct-name', 'acct-pass', 'acct-pass2']) {
+  $(id).addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); submitAccount(); } });
+}
+$('acct-guest').addEventListener('click', () => playAsGuest());
+$('acct-server-change').addEventListener('click', () => {
+  enterShell();
+  showView('settings');
+  showSettings('network');
+  focusEl($('play-server'));
+});
+
+async function signedIn(current, created) {
+  me = current;
+  guest = false;
+  storage('lastName', current.account.name);
+  updateIdentity();
+  enterShell();
+  const data = await editor.loadAccount(current.account);
+  if (created) setStatus('play-status', `Welcome, ${current.account.name}!`, 'good');
+  refreshPictures(Boolean(data && !data.hasImage), false);
+}
+
+async function playAsGuest() {
+  me = null;
+  guest = true;
+  updateIdentity();
+  enterShell();
+  const data = await editor.showGuest();
+  refreshPictures(Boolean(data && !data.hasImage), true);
+}
+
+async function signOut() {
+  await api.signOut().catch(() => {});
+  me = null;
+  guest = false;
+  editor.clear();
+  $('avatar-img').classList.add('hidden');
+  $('avatar-silhouette').classList.remove('hidden');
+  $('chip-img').classList.add('hidden');
+  updateIdentity();
+  setAccountMode('signin');
+  showScreen('account');
+}
+
+function updateIdentity() {
+  const name = me ? me.account.name : 'Guest';
+  $('chip-name').textContent = name;
+  $('chip-sub').textContent = me ? (me.offline ? 'offline' : (me.account.admin ? 'admin' : '')) : 'guest';
+  $('home-username').textContent = name.toUpperCase();
+  $('avatar-caption').textContent = me ? 'Edit avatar' : 'Guest look';
+  $('account-line').textContent = me ? `Signed in as ${me.account.name}` : (guest ? 'Playing as a guest' : 'Not signed in');
+  $('account-lead').textContent = me
+    ? `Your games, avatar and Studio use this account on ${serverAddress()}.${me.account.admin ? ' You are an admin: you can edit every game in Studio.' : ''}`
+    : 'Guests join as "Guest" with a number and the guest look. Sign up to pick your own name, dress your avatar and use Roblox Studio.';
+  $('account-signin').classList.toggle('hidden', Boolean(me));
+  $('account-signout').classList.toggle('hidden', !me);
+}
+
+$('account-signin').addEventListener('click', () => { setAccountMode('signin'); showScreen('account'); });
+$('avatar-signin').addEventListener('click', () => { setAccountMode('signup'); showScreen('account'); });
+$('account-signout').addEventListener('click', signOut);
+$('user-chip').addEventListener('click', () => { showView('settings', false); showSettings('account'); });
+
+// Pictures of the avatar for Home and the top bar; sent to the server when
+// it has none (or the avatar changed), where games' menus and other players'
+// launchers show them.
+let pictureUrls = [];
+async function refreshPictures(upload, asGuest) {
+  const shots = await editor.pictures().catch(() => null);
+  if (!shots) return;
+  pictureUrls.forEach((url) => URL.revokeObjectURL(url));
+  pictureUrls = [URL.createObjectURL(shots.full), URL.createObjectURL(shots.head)];
+  $('avatar-img').src = pictureUrls[0];
+  $('avatar-img').classList.remove('hidden');
+  $('avatar-silhouette').classList.add('hidden');
+  $('chip-img').src = pictureUrls[1];
+  $('chip-img').classList.remove('hidden');
+  if (upload) {
+    const bytes = new Uint8Array(await shots.full.arrayBuffer());
+    api.uploadAvatarImage(bytes, Boolean(asGuest)).catch(() => {});
+  }
+}
+
+const editor = window.AvatarEditor.create({
+  api,
+  onSaved: () => refreshPictures(true, false),
+});
+
 // --- views and navigation -----------------------------------------------------------
 
-let VIEWS = ['home', 'games', 'host', 'web', 'setup'];
+let VIEWS = ['home', 'avatar', 'games', 'players', 'settings'];
+let SETTINGS = ['account', 'network', 'menu', 'host', 'server', 'setup', 'about'];
 
-// A player install (no server files) cannot host or run the web server:
-// those tabs go away.
+// A player install (no server files) cannot host or run the web server.
 let capabilitiesApplied = false;
 function applyCapabilities() {
   capabilitiesApplied = true;
   if (state.canHost) return;
-  VIEWS = VIEWS.filter((name) => name !== 'host' && name !== 'web');
-  for (const name of ['host', 'web']) {
-    const link = document.querySelector(`.tab-link[data-view="${name}"]`);
+  SETTINGS = SETTINGS.filter((name) => name !== 'host' && name !== 'server');
+  for (const name of ['host', 'server']) {
+    const link = document.querySelector(`.set-link[data-panel="${name}"]`);
     if (link) link.classList.add('hidden');
   }
   // Converting places is for hosts (the server's /manage page converts uploads).
@@ -127,24 +334,32 @@ function applyCapabilities() {
   $('join-panel').classList.remove('hidden');
 }
 
-// Without roblox-logo.png (it is not in the git repository) the header shows text.
-const logo = document.querySelector('.logo');
-const logoFallback = () => logo.replaceWith(el('div', 'logo-text', 'ROBLOX'));
-logo.addEventListener('error', logoFallback);
-if (logo.complete && logo.naturalWidth === 0) logoFallback();
-
 function showView(name, focusContent) {
   view = name;
   document.querySelectorAll('.tab-link').forEach((link) => link.classList.toggle('active', link.dataset.view === name));
   document.querySelectorAll('.view').forEach((section) => section.classList.toggle('active', section.id === `view-${name}`));
-  if (name === 'setup') refreshChecks();
-  if (name === 'host') loadHostThumbnail();
+  document.body.classList.toggle('on-avatar', name === 'avatar');
+  if (name === 'avatar') editor.activate();
+  if (name === 'players') refreshOnlinePlayers();
+  if (name === 'settings') showSettings(settingsPanel);
   if (name === 'games' || name === 'home') findGames(true);
+  if (name === 'home') renderHome();
   if (focusContent) {
     const first = firstFocusable(`#view-${name}`);
     if (first) focusEl(first);
   }
 }
+
+function showSettings(name) {
+  if (!SETTINGS.includes(name)) name = 'account';
+  settingsPanel = name;
+  document.querySelectorAll('.set-link').forEach((link) => link.classList.toggle('active', link.dataset.panel === name));
+  document.querySelectorAll('.set-panel').forEach((panel) => panel.classList.toggle('hidden', panel.id !== `set-${name}`));
+  if (name === 'setup') refreshChecks();
+  if (name === 'host') loadHostThumbnail();
+  if (name === 'about') renderAbout();
+}
+document.querySelectorAll('.set-link').forEach((link) => link.addEventListener('click', () => showSettings(link.dataset.panel)));
 
 function focusables(scope) {
   return [...document.querySelectorAll(`${scope} button, ${scope} input, ${scope} select, ${scope} summary`)]
@@ -155,19 +370,26 @@ function firstFocusable(scope) {
   return focusables(scope)[0] || null;
 }
 
+const TILE_CLASSES = ['game-tile', 'avatar-panel', 'more', 'item-tile', 'player-card'];
 function focusEl(node) {
   if (!node) return;
   document.querySelectorAll('.focused').forEach((other) => other.classList.remove('focused'));
-  if (node.classList.contains('game-tile') || node.classList.contains('avatar-panel') || node.classList.contains('more')) node.classList.add('focused');
+  if (TILE_CLASSES.some((name) => node.classList.contains(name))) node.classList.add('focused');
   node.focus({ preventScroll: false });
   node.scrollIntoView({ block: 'nearest' });
 }
 
-// Spatial navigation: the nearest focusable control in the pressed direction,
-// among the tab bar and the open view (or the details card when it is open).
+// What the arrows and the stick move between on the current screen.
+function navPool() {
+  if (!$('overlay').classList.contains('hidden')) return focusables('#overlay');
+  if (screen === 'start') return [$('start-press')];
+  if (screen === 'account') return focusables('#screen-account');
+  return [...focusables('#tabs'), $('user-chip'), ...focusables(`#view-${view}`), $('settings-hint')];
+}
+
+// Spatial navigation: the nearest focusable control in the pressed direction.
 function move(dx, dy) {
-  const overlayOpen = !$('overlay').classList.contains('hidden');
-  const pool = overlayOpen ? focusables('#overlay') : [...focusables('#tabs'), ...focusables(`#view-${view}`), $('settings-hint')];
+  const pool = navPool();
   const current = document.activeElement && pool.includes(document.activeElement) ? document.activeElement : null;
   if (!current) { focusEl(pool.find((node) => node.classList.contains('tab-link') && node.classList.contains('active')) || pool[0]); return; }
   // Left/right in the tab bar switches tabs right away, like a console.
@@ -199,6 +421,8 @@ function move(dx, dy) {
 
 function goBack() {
   if (!$('overlay').classList.contains('hidden')) { closeDetail(); return; }
+  if (screen === 'account') { showScreen('start'); return; }
+  if (screen !== 'shell') return;
   const active = document.activeElement;
   if (active && active.closest('.view')) {
     focusEl(document.querySelector(`.tab-link[data-view="${view}"]`));
@@ -212,27 +436,35 @@ function goBack() {
 
 function select() {
   const node = document.activeElement;
+  if (screen === 'start') { enter(); return; }
   if (!node || node === document.body || node.tagName === 'INPUT') return;
   node.click();
 }
 
 function switchTab(step) {
+  if (screen !== 'shell') return;
   const next = VIEWS[(VIEWS.indexOf(view) + step + VIEWS.length) % VIEWS.length];
   showView(next);
   focusEl(document.querySelector(`.tab-link[data-view="${next}"]`));
 }
 
+function openSettings() {
+  if (screen !== 'shell') return;
+  showView('settings', true);
+}
+
 document.querySelectorAll('.tab-link').forEach((link) => link.addEventListener('click', () => showView(link.dataset.view)));
 document.querySelectorAll('[data-goto]').forEach((node) => node.addEventListener('click', () => showView(node.dataset.goto, true)));
-$('settings-hint').addEventListener('click', () => showView('setup', true));
+$('settings-hint').addEventListener('click', openSettings);
 document.addEventListener('mouseover', (event) => {
-  const tile = event.target.closest && event.target.closest('.game-tile.nav-target, .avatar-panel, .more');
+  const tile = event.target.closest && event.target.closest('.game-tile.nav-target, .avatar-panel, .more, .player-card');
   if (tile) focusEl(tile);
 });
 
 document.addEventListener('keydown', (event) => {
   const typing = event.target && (event.target.tagName === 'INPUT' || event.target.tagName === 'SELECT');
   if (event.key === 'Escape') { event.preventDefault(); goBack(); return; }
+  if (screen === 'start' && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); enter(); return; }
   if (event.key === 'PageUp') { switchTab(-1); return; }
   if (event.key === 'PageDown') { switchTab(1); return; }
   const dirs = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
@@ -247,7 +479,7 @@ document.addEventListener('keydown', (event) => {
 });
 
 // Controller (Xbox layout): stick/d-pad move, A select, B back, X settings,
-// Y music, LB/RB switch tabs.
+// Y music, LB/RB switch tabs, LT/RT (or the right stick) turn the avatar.
 const pad = { pressed: {}, nextRepeat: 0, held: false };
 function pollGamepad(time) {
   const gamepad = [...(navigator.getGamepads ? navigator.getGamepads() : [])].find(Boolean);
@@ -260,10 +492,15 @@ function pollGamepad(time) {
     };
     edge(0, select);
     edge(1, goBack);
-    edge(2, () => showView('setup', true));
+    edge(2, openSettings);
     edge(3, toggleMusic);
     edge(4, () => switchTab(-1));
     edge(5, () => switchTab(1));
+    if (screen === 'shell' && view === 'avatar') {
+      const turn = (gamepad.buttons[7] ? gamepad.buttons[7].value : 0) - (gamepad.buttons[6] ? gamepad.buttons[6].value : 0)
+        + (Math.abs(gamepad.axes[2] || 0) > 0.25 ? gamepad.axes[2] : 0);
+      if (Math.abs(turn) > 0.05) editor.rotate(turn * 0.06);
+    }
     const x = (button(15) ? 1 : 0) - (button(14) ? 1 : 0) || (Math.abs(gamepad.axes[0]) > 0.6 ? Math.sign(gamepad.axes[0]) : 0);
     const y = (button(13) ? 1 : 0) - (button(12) ? 1 : 0) || (Math.abs(gamepad.axes[1]) > 0.6 ? Math.sign(gamepad.axes[1]) : 0);
     if ((x || y) && time >= pad.nextRepeat) {
@@ -290,9 +527,14 @@ function updateMusic() {
   const clientRunning = Boolean(state && state.play.active);
   window.backgroundPaused = clientRunning; // no animation while the game runs
   $('toggle-music').textContent = `Music: ${musicWanted() ? 'On' : 'Off'}`;
-  $('music-hint').textContent = available ? '' : 'Put an MP3 at config\\menu-music.mp3 to play menu music.';
+  $('music-hint').textContent = available ? 'M or Y turns the music on and off.' : 'No menu music yet: it comes from your server (config\\menu-music.mp3 on the host\'s PC).';
   if (!available) return;
-  if (!music.src) music.src = 'launcher-media://menu-music';
+  // A new stamp means the file changed (downloaded again from the server).
+  const stamp = String(state.musicStamp || 0);
+  if (music.dataset.stamp !== stamp) {
+    music.dataset.stamp = stamp;
+    music.src = `launcher-media://menu-music/?v=${stamp}`;
+  }
   if (musicWanted() && !clientRunning) music.play().catch(() => {});
   else music.pause();
 }
@@ -302,13 +544,16 @@ function toggleMusic() {
   updateMusic();
 }
 
+const BACKGROUNDS = [['classic', 'Classic'], ['neon', 'Neon grid'], ['sunset', 'Sunset']];
 function updateBackgroundButton() {
-  $('toggle-background').textContent = `Background: ${window.backgroundMode === 'sunset' ? 'Sunset' : 'Neon grid'}`;
+  const entry = BACKGROUNDS.find(([key]) => key === window.backgroundMode) || BACKGROUNDS[0];
+  $('toggle-background').textContent = `Background: ${entry[1]}`;
 }
 
 $('toggle-music').addEventListener('click', toggleMusic);
 $('toggle-background').addEventListener('click', () => {
-  window.backgroundMode = window.backgroundMode === 'sunset' ? 'neon' : 'sunset';
+  const index = BACKGROUNDS.findIndex(([key]) => key === window.backgroundMode);
+  window.backgroundMode = BACKGROUNDS[(index + 1) % BACKGROUNDS.length][0];
   storage('background', window.backgroundMode);
   updateBackgroundButton();
 });
@@ -318,25 +563,6 @@ function tick() {
 }
 tick();
 setInterval(tick, 10000);
-
-// --- avatar ------------------------------------------------------------------------
-
-let avatarFor = null;
-let avatarTimer = null;
-function loadAvatar() {
-  const name = $('play-username').value.trim();
-  $('home-username').textContent = name ? name.toUpperCase() : 'GUEST';
-  if (name === avatarFor) return;
-  clearTimeout(avatarTimer);
-  avatarTimer = setTimeout(async () => {
-    avatarFor = name;
-    const image = name ? await api.avatar(name) : null;
-    if (avatarFor !== name) return;
-    $('avatar-img').classList.toggle('hidden', !image);
-    $('avatar-silhouette').classList.toggle('hidden', Boolean(image));
-    if (image) $('avatar-img').src = image;
-  }, 600);
-}
 
 // --- home ---------------------------------------------------------------------------
 
@@ -356,14 +582,18 @@ function onlineMatch(entry) {
     || lastGames.find((game) => game.name === entry.name) || null;
 }
 
+let onlinePlayers = [];
+
 function renderHome() {
-  // Status column
   const rows = [
+    ['Server', serverAddress() ? hostOf(serverAddress()) : 'Not set'],
     ['Games online', String(lastGames.length)],
-    ['Hosting', state && state.host.active ? state.host.publicAddress : 'No'],
-    ['Web server', state && state.web.running ? 'Running' : 'Stopped'],
-    ['Tailscale', state && state.web.tailscaleUrl ? hostOf(state.web.tailscaleUrl) : 'Not connected'],
+    ['Players online', String(onlinePlayers.length)],
   ];
+  if (state && state.canHost) {
+    rows.push(['Web server', state.web.running ? 'Running' : 'Stopped']);
+    rows.push(['Tailscale', state.web.tailscaleUrl ? hostOf(state.web.tailscaleUrl) : 'Not connected']);
+  }
   const status = $('home-status');
   status.textContent = '';
   for (const [label, value] of rows) {
@@ -381,7 +611,7 @@ function renderHome() {
   for (let i = 0; i < 3; i++) {
     const entry = played[i];
     if (!entry) {
-      if (i === 0 && state && state.needsFiles) recent.append(placeholder('Download the game files first (Setup).', '↓', () => showView('setup', true)));
+      if (i === 0 && state && state.needsFiles) recent.append(placeholder('Download the game files first (Settings).', '↓', () => { showView('settings'); showSettings('network'); }));
       else recent.append(i === 0 ? placeholder('Games you join show up here.', '▶', () => showView('games', true)) : placeholder(''));
       continue;
     }
@@ -394,8 +624,9 @@ function renderHome() {
   grid.textContent = '';
   for (let i = 0; i < 6; i++) {
     const game = lastGames[i];
-    if (game) grid.append(gameTile(game, { badge: `UP ${formatUptime(game.upSeconds).toUpperCase()}` }));
-    else if (i === lastGames.length && state && state.canHost) grid.append(placeholder('Host a game', '+', () => showView('host', true)));
+    const count = game ? onlinePlayers.filter((player) => player.gameId === game.id).length : 0;
+    if (game) grid.append(gameTile(game, { badge: count ? `${count} PLAYING` : `UP ${formatUptime(game.upSeconds).toUpperCase()}`, live: count > 0 }));
+    else if (i === lastGames.length && state && state.canHost) grid.append(placeholder('Host a game', '+', () => { showView('settings'); showSettings('host'); }));
     else if (i === lastGames.length) grid.append(placeholder(lastGames.length ? 'More games show up here.' : 'No games online yet.', '·'));
     else grid.append(placeholder(''));
   }
@@ -415,11 +646,13 @@ function openDetail(game) {
   box.append(cover(detailGame));
   $('detail-name').textContent = detailGame.name;
   $('detail-meta').textContent = playable
-    ? `Place ${detailGame.placeId} · up ${formatUptime(detailGame.upSeconds)}\nServer ${detailGame.address}`
-    : `Place ${detailGame.placeId || '?'} · ${detailGame.address || ''}`;
-  $('detail-meta').style.whiteSpace = 'pre-line';
+    ? `Place ${detailGame.placeId} · up ${formatUptime(detailGame.upSeconds)}`
+    : `Place ${detailGame.placeId || '?'}`;
+  const inGame = onlinePlayers.filter((player) => player.gameId === detailGame.id).map((player) => player.name);
+  $('detail-players').textContent = inGame.length ? `Playing now: ${inGame.join(', ')}` : '';
   $('detail-desc').textContent = detailGame.description || '';
   $('detail-note').textContent = playable ? (state && state.play.active ? 'The client is already running.' : '') : 'This game is not online right now.';
+  $('detail-as').textContent = me ? `You'll play as ${me.account.name}.` : 'You\'ll play as a guest. Sign in to use your own name and avatar.';
   $('detail-play').disabled = !playable || Boolean(state && state.play.active);
   $('overlay').classList.remove('hidden');
   focusEl($('detail-play').disabled ? $('detail-back') : $('detail-play'));
@@ -437,13 +670,18 @@ $('detail-play').addEventListener('click', async () => {
   $('detail-play').disabled = true;
   $('detail-note').textContent = 'Starting the client…';
   try {
-    await api.join({ centralUrl: $('play-server').value.trim(), username: $('play-username').value.trim(), game: detailGame });
+    const joined = await api.join({ game: detailGame, guest: !me });
     rememberPlayed(detailGame);
-    $('detail-note').textContent = 'Have fun!';
-    setTimeout(() => { closeDetail(); renderHome(); }, 900);
+    $('detail-note').textContent = joined.guest ? `Have fun, ${joined.name}!` : 'Have fun!';
+    setTimeout(() => { closeDetail(); renderHome(); }, 1100);
   } catch (error) {
     $('detail-note').textContent = message(error);
     $('detail-play').disabled = false;
+    if (/sign in/i.test(message(error)) && me) {
+      // The session ran out on the server.
+      me = null;
+      updateIdentity();
+    }
   }
 });
 
@@ -455,6 +693,7 @@ async function refreshState() {
   showUpdate(state.update);
   if (!formsFilled) fillForms();
   $('presence-dot').className = `presence-dot${state.web.tailscaleUrl ? ' on' : ''}`;
+  $('start-foot').textContent = `Launcher ${state.version}${serverAddress() ? ` · ${serverAddress()}` : ''}`;
 
   // Games / play
   $('play-close').classList.toggle('hidden', !state.play.active);
@@ -465,13 +704,13 @@ async function refreshState() {
   $('host-start').classList.toggle('hidden', state.host.active);
   $('host-stop').classList.toggle('hidden', !state.host.active);
   $('host-live').classList.toggle('hidden', !state.host.active);
-  document.querySelectorAll('#view-host input, #view-host select').forEach((node) => { node.disabled = state.host.active; });
+  document.querySelectorAll('#set-host input, #set-host select').forEach((node) => { node.disabled = state.host.active; });
   if (state.host.active) {
     $('host-address').textContent = state.host.publicAddress;
     setStatus('host-status', `Hosting (game ${state.host.gameId}).`, 'good');
-    if (!playersTimer) { refreshPlayers(); playersTimer = setInterval(refreshPlayers, 8000); }
+    if (!hostPlayersTimer) { refreshHostPlayers(); hostPlayersTimer = setInterval(refreshHostPlayers, 8000); }
   } else {
-    if (playersTimer) { clearInterval(playersTimer); playersTimer = null; }
+    if (hostPlayersTimer) { clearInterval(hostPlayersTimer); hostPlayersTimer = null; }
     if ($('host-status').classList.contains('good')) setStatus('host-status', 'Not hosting.');
   }
 
@@ -484,14 +723,14 @@ async function refreshState() {
   $('web-copy').disabled = !state.web.tailscaleUrl;
   updateHostKeyField();
   updateMusic();
-  if (view === 'home' && $('overlay').classList.contains('hidden')) renderHome();
+  if (screen === 'shell' && view === 'home' && $('overlay').classList.contains('hidden')) renderHome();
 }
 
 function fillForms() {
   formsFilled = true;
   const client = state.clientConfig || {};
   $('play-server').value = client.centralUrl || 'http://127.0.0.1';
-  $('play-username').value = client.username || '';
+  $('acct-name').value = storage('lastName') || '';
   const host = state.hostConfig || {};
   $('host-name').value = host.gameName || '';
   $('host-place').value = host.placeId || '1818';
@@ -502,7 +741,6 @@ function fillForms() {
   $('host-central').value = host.centralUrl || 'http://127.0.0.1';
   $('host-key').value = host.hostKey || '';
   updateReach();
-  loadAvatar();
 }
 
 function updateReach() {
@@ -518,18 +756,35 @@ function updateHostKeyField() {
 
 $('host-reach').addEventListener('change', updateReach);
 $('host-central').addEventListener('input', updateHostKeyField);
-$('play-username').addEventListener('input', loadAvatar);
+
+// Network: the server this launcher plays on (accounts belong to it).
+$('server-save').addEventListener('click', async () => {
+  try {
+    const url = await api.setServer($('play-server').value.trim());
+    $('play-server').value = url;
+    await refreshState();
+    setStatus('server-status', 'Saved.', 'good');
+    findGames(true);
+    if (me) {
+      // Another server has its own accounts.
+      const current = await api.currentAccount().catch(() => null);
+      if (!current) { setStatus('server-status', 'Saved. Sign in to your account on this server.', 'good'); me = null; updateIdentity(); }
+    }
+  } catch (error) {
+    setStatus('server-status', message(error), 'error');
+  }
+});
 
 // --- games ------------------------------------------------------------------------------
 
 let findingGames = false;
 async function findGames(quiet) {
-  if (findingGames) return;
+  if (findingGames || !serverAddress()) return;
   findingGames = true;
   if (!quiet) setStatus('play-status', 'Looking for games…');
   $('play-refresh').disabled = true;
   try {
-    lastGames = await api.games($('play-server').value.trim());
+    lastGames = await api.games(serverAddress());
     setStatus('play-status', lastGames.length ? `${lastGames.length} game${lastGames.length === 1 ? '' : 's'} online.` : 'No games are online right now.');
   } catch (error) {
     lastGames = [];
@@ -537,8 +792,9 @@ async function findGames(quiet) {
   } finally {
     findingGames = false;
     $('play-refresh').disabled = false;
+    refreshOnlinePlayers(true);
     renderAllGames();
-    if (view === 'home') renderHome();
+    if (screen === 'shell' && view === 'home') renderHome();
   }
 }
 
@@ -546,7 +802,8 @@ function renderAllGames() {
   const list = $('all-games');
   list.textContent = '';
   for (const game of lastGames) {
-    list.append(gameTile(game, { caption: `Place ${game.placeId} · up ${formatUptime(game.upSeconds)}` }));
+    const count = onlinePlayers.filter((player) => player.gameId === game.id).length;
+    list.append(gameTile(game, { caption: count ? `${count} playing · up ${formatUptime(game.upSeconds)}` : `Up ${formatUptime(game.upSeconds)}` }));
   }
   if (lastGames.length === 0) list.append(placeholder('No games online. Host one, or ask your host to start theirs.', '·'));
 }
@@ -555,7 +812,7 @@ $('play-refresh').addEventListener('click', () => findGames(false));
 // The server's management page (upload games, turn them on or off...).
 $('play-manage').addEventListener('click', async () => {
   try {
-    await api.openManage($('play-server').value.trim());
+    await api.openManage(serverAddress());
   } catch (error) {
     setStatus('play-status', message(error), 'error');
   }
@@ -567,8 +824,10 @@ $('play-studio').addEventListener('click', async () => {
   button.disabled = true;
   setStatus('play-status', 'Starting Studio…');
   try {
-    await api.openStudio($('play-server').value.trim());
-    setStatus('play-status', 'Studio is open: log in on its start page with your Studio account.', 'good');
+    await api.openStudio(serverAddress());
+    setStatus('play-status', me
+      ? `Studio is open: sign in on its start page as ${me.account.name}.`
+      : 'Studio is open: sign in on its start page (Studio needs an account; sign up here first).', 'good');
   } catch (error) {
     setStatus('play-status', message(error), 'error');
   } finally {
@@ -582,9 +841,59 @@ api.onStudioProgress((info) => {
 });
 $('play-close').addEventListener('click', () => api.stopClient());
 
+// --- players ------------------------------------------------------------------------------
+
+let refreshingPlayers = false;
+async function refreshOnlinePlayers(quiet) {
+  if (refreshingPlayers || !serverAddress()) return;
+  refreshingPlayers = true;
+  try {
+    const data = await api.onlinePlayers();
+    onlinePlayers = Array.isArray(data.players) ? data.players : [];
+    if (!quiet || view === 'players') setStatus('players-status', onlinePlayers.length ? `${onlinePlayers.length} playing now.` : 'Nobody is playing right now.');
+  } catch (error) {
+    if (!quiet) setStatus('players-status', message(error), 'error');
+  } finally {
+    refreshingPlayers = false;
+    if (view === 'players') renderPlayers();
+  }
+}
+
+const SILHOUETTE = '<svg viewBox="0 0 100 120" aria-hidden="true"><rect x="34" y="8" width="32" height="30" rx="4"/><rect x="26" y="42" width="48" height="44" rx="3"/><rect x="12" y="44" width="12" height="38" rx="3"/><rect x="76" y="44" width="12" height="38" rx="3"/><rect x="28" y="88" width="20" height="30" rx="3"/><rect x="52" y="88" width="20" height="30" rx="3"/></svg>';
+
+function renderPlayers() {
+  const grid = $('player-grid');
+  const focusedName = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.player : null;
+  grid.textContent = '';
+  if (!onlinePlayers.length) {
+    grid.append(el('div', 'empty-note', 'Nobody is in a game right now.'));
+    return;
+  }
+  for (const player of onlinePlayers) {
+    const card = el('button', 'player-card nav-target');
+    card.dataset.player = player.name;
+    if (me && me.account.name.toLowerCase() === player.name.toLowerCase()) card.classList.add('you');
+    const pic = el('div', 'player-pic');
+    pic.innerHTML = SILHOUETTE;
+    if (player.userId !== null && player.userId !== undefined) {
+      const img = el('img');
+      img.alt = '';
+      img.src = `launcher-net://server/avatar-thumbnail/image?userId=${encodeURIComponent(player.userId)}&width=150&height=150`;
+      img.addEventListener('load', () => { pic.textContent = ''; pic.append(img); });
+    }
+    card.append(pic, el('div', 'player-name', player.name), el('div', 'player-where', `in ${player.gameName}`));
+    card.addEventListener('click', () => {
+      const game = lastGames.find((item) => item.id === player.gameId);
+      if (game) openDetail(game);
+    });
+    grid.append(card);
+    if (focusedName === player.name) card.focus({ preventScroll: true });
+  }
+}
+
 // --- host --------------------------------------------------------------------------------
 
-async function refreshPlayers() {
+async function refreshHostPlayers() {
   const names = await api.players();
   $('host-players').textContent = names === null ? 'server busy…' : (names.length ? names.join(', ') : 'nobody yet');
 }
@@ -725,7 +1034,7 @@ const ACTION_LABELS = {
 function showFilesPanel(focus) {
   const panel = $('files-panel');
   panel.classList.remove('hidden');
-  if (!$('files-server').value) $('files-server').value = $('play-server').value.trim() || '';
+  if (!$('files-server').value) $('files-server').value = serverAddress();
   if (state && !state.needsFiles) $('files-lead').textContent = 'A newer version of the game files is on your server. Download it to update (your settings stay).';
   if (focus) focusEl($('files-server').value ? $('files-download') : $('files-server'));
 }
@@ -742,12 +1051,14 @@ $('files-download').addEventListener('click', async () => {
     const result = await api.downloadFiles(address);
     setStatus('files-status', `Ready: game files version ${result.version} installed.`, 'good');
     $('play-server').value = address;
+    await api.setServer(address).catch(() => {});
     await refreshState();
     setTimeout(() => {
       $('files-panel').classList.add('hidden');
       $('files-progress').classList.add('hidden');
-      refreshChecks();
-      showView('home', true);
+      // On to signing in.
+      setAccountMode('signup');
+      showScreen('account');
     }, 1800);
   } catch (error) {
     setStatus('files-status', message(error), 'error');
@@ -771,11 +1082,12 @@ $('join-go').addEventListener('click', async () => {
   joiningNetwork = true;
   $('join-go').disabled = true;
   try {
-    const result = await api.joinWithCode({ code, username: $('play-username').value.trim() });
+    const result = await api.joinWithCode({ code, username: me ? me.account.name : (storage('lastName') || '') });
     $('play-server').value = result.server;
     $('files-server').value = result.server;
     $('join-code').value = '';
     setStatus('join-status', result.alreadyConnected ? 'Connected (this PC was already on the network).' : 'Connected to your host\'s network.', 'good');
+    await refreshState();
     if (state && state.needsFiles) {
       showFilesPanel(false);
       $('files-download').click(); // carry on with the game files
@@ -834,6 +1146,7 @@ async function refreshChecks() {
       const button = el('button', 'ghost small', ACTION_LABELS[check.action] || 'Fix');
       button.addEventListener('click', async () => {
         if (check.action === 'download-files') {
+          showSettings('network');
           showFilesPanel(true);
           return;
         }
@@ -891,10 +1204,21 @@ $('open-root').addEventListener('click', () => api.openFolder('root'));
 $('open-config').addEventListener('click', () => api.openFolder('config'));
 $('open-logs').addEventListener('click', () => api.openFolder('logs'));
 
-// --- start ----------------------------------------------------------------------------------
+// --- about and updates ---------------------------------------------------------------------
 
-api.onLog(({ area, line, time }) => appendLog(area, line, time));
-api.onStatusChanged(() => refreshState());
+function renderAbout() {
+  if (!state) return;
+  $('about-version').textContent = `Version ${state.version}${state.filesVersion ? ` · game files ${state.filesVersion}` : ''}`;
+  const update = state.update || {};
+  const texts = {
+    current: 'This is the newest version.',
+    downloading: `Downloading version ${update.version || ''}… ${update.percent || 0}%`,
+    ready: `Version ${update.version} is ready: use "Restart to update" at the top.`,
+    error: `Could not check for updates: ${update.message || ''}`,
+    off: 'Updates are off for this copy (run from source or the server package).',
+  };
+  $('about-update').textContent = texts[update.state] || '';
+}
 
 // Launcher updates (from the newest GitHub release).
 function showUpdate(status) {
@@ -914,18 +1238,19 @@ $('update-pill').addEventListener('click', async () => {
   }
 });
 
+// --- start ----------------------------------------------------------------------------------
+
+api.onLog(({ area, line, time }) => appendLog(area, line, time));
+api.onStatusChanged(() => refreshState());
+
 updateBackgroundButton();
+updateIdentity();
 refreshState().then(() => {
-  renderHome();
-  findGames(true);
-  if (state.needsFiles) {
-    // First run after the small Setup.exe: get the game files.
-    showView('setup');
-    showFilesPanel(false);
-    focusEl($('join-code'));
-  } else {
-    focusEl(firstFocusable('#view-home'));
-  }
+  showScreen('start');
 });
 setInterval(refreshState, 5000);
-setInterval(() => { if (view === 'home' || view === 'games') findGames(true); }, 15000);
+setInterval(() => {
+  if (screen !== 'shell') return;
+  if (view === 'home' || view === 'games') findGames(true);
+  else if (view === 'players') refreshOnlinePlayers(true);
+}, 15000);

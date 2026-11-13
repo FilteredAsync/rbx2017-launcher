@@ -3,13 +3,17 @@
 A launcher, web server and hosting tools for playing a 2017-era Roblox client
 (RobloxPlayerBeta 0.299 / RCCService 0.300) together over Tailscale.
 
-- **Launcher** (`Launcher/`, Electron): an Xbox One-style home screen with
-  your avatar, recently played and online games, game thumbnails and
-  descriptions, menu music and controller support. Joins games (a local
-  proxy and UDP relay let the 2017 client reach servers on other PCs),
-  hosts games, runs the web server, and converts places.
-- **Web server** (`Webserver/node/`, Node.js, no dependencies): assets
-  (with mesh conversion, thumbnails and `rbxgameasset://` names), avatars,
+- **Launcher** (`Launcher/`, Electron): laid out like the 2016-2017 Xbox One
+  app, with a "press A" start screen, sign-in (accounts on your server, or
+  play as a guest), Home with your avatar, recently played and online games,
+  a 3D avatar editor (hats, faces, clothes, packages and body colors from
+  the Roblox catalog), who is playing where, menu music and controller
+  support. Joins games (a local proxy and UDP relay let the 2017 client
+  reach servers on other PCs), opens Roblox Studio, hosts games, runs the
+  web server, and converts places.
+- **Web server** (`Webserver/node/`, Node.js, no dependencies): accounts,
+  guests and each account's avatar, assets
+  (with mesh conversion, thumbnails and `rbxgameasset://` names),
   DataStore saves, the chat filter, LuaWebService (group and friend checks),
   join scripts, the game list and the place library.
 - **Always-on server** (`Webserver/node/dedicated.js`, `startServer.bat`):
@@ -38,7 +42,11 @@ These come from the original RobloxClient bundle and stay local:
 
 Never commit keys or personal files: `config/host-key.txt`,
 `config/roblox-api-key.txt`, `cache/.roblosecurity`, `config/client.json`,
-`config/host.json`, or anything under `Webserver/node/data/` (saves).
+`config/host.json`, `config/session.json`, or anything under
+`Webserver/node/data/` (saves, accounts and avatars).
+
+The launcher's 3D avatar uses [three.js](https://threejs.org/) r149 (MIT,
+`Launcher/renderer/vendor/`).
 
 ## Players: Setup.exe
 
@@ -53,10 +61,10 @@ an entry in Apps & features.
 | Game client | downloaded on first run from your server | inside |
 | Share on | GitHub Releases | privately only (it contains Roblox's client) |
 
-With the small one, the launcher opens on **Setup > Game files** the first
+With the small one, the launcher opens on **Settings > Network** the first
 time: the player enters your server's address and presses **Download game
 files** (about 85 MB, checked against its SHA-256). When the server has newer
-game files, Setup offers them as an update.
+game files, Settings > Setup offers them as an update.
 
 The server hands out the game files once you build them (and again whenever
 `Client/` changes):
@@ -81,7 +89,7 @@ npm run dist:full   # full Setup.exe
 The installers are not code-signed, so Windows SmartScreen may say "Windows
 protected your PC": choose **More info > Run anyway**. To ship an update,
 raise `version` in `Launcher/package.json` and build again. Installing over
-an older version keeps each player's settings (server address, username),
+an older version keeps each player's settings (server address, sign-in),
 cache and downloaded game files.
 
 Players also need [Tailscale](https://tailscale.com/download), signed in to

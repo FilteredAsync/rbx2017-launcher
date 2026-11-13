@@ -42,14 +42,38 @@ async function fetchGames(centralUrl) {
   return Array.isArray(data.games) ? data.games : [];
 }
 
-// Starts the client in game ({ id, name, address }) as username. Resolves once
-// the client is running, with { exited, stop() }; "exited" resolves when the
-// client closes (proxy and relay are closed then too).
-async function joinGame({ centralUrl, username, game, log = console.log, dryRun = false }) {
+// Asks the web server for a join ticket (lib/launcherapi.js): with a session
+// token the player joins as that account, without one as a guest.
+// -> { ticket, name, userId, guest }
+async function joinTicket(centralUrl, gameId, token) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  let response;
+  try {
+    response = await fetch(`${centralUrl}/api/launcher/join`, {
+      method: 'POST', headers, body: JSON.stringify({ gameId, guest: !token }), signal: AbortSignal.timeout(10000),
+    });
+  } catch (error) {
+    throw new Error(`could not reach the web server at ${centralUrl}: ${error.cause && error.cause.code ? error.cause.code : error.message}`);
+  }
+  let data = {};
+  try { data = await response.json(); } catch (error) { data = {}; }
+  if (response.status === 404 && !data.error) throw new Error('this server is too old for launcher sign-in; update its server files');
+  if (!response.ok) throw new Error(data.error || `the web server answered HTTP ${response.status}`);
+  return data;
+}
+
+// Starts the client in game ({ id, name, address }). Resolves once the client
+// is running, with { exited, stop() }; "exited" resolves when the client
+// closes (proxy and relay are closed then too).
+// With a ticket (from joinTicket) the server decides who joins; a bare
+// username works only on servers with "allowNamedJoins" (otherwise the
+// player becomes a guest).
+async function joinGame({ centralUrl, username, ticket = null, name = null, game, log = console.log, dryRun = false }) {
   if (process.platform !== 'win32') throw new Error('the 2017 client runs on Windows only');
   if (!core.isFile(CLIENT_EXE)) throw new Error(`client not found at ${CLIENT_EXE}`);
-  if (!validUsername(username)) throw new Error('the username needs 3-20 letters, digits or _');
-  const userId = core.localUserId(username);
+  if (!ticket && !validUsername(username)) throw new Error('the username needs 3-20 letters, digits or _');
+  const userId = ticket ? null : core.localUserId(username);
 
   // Shared with Studio (both need port 80); closed when neither runs.
   let localProxy = null;
@@ -70,15 +94,15 @@ async function joinGame({ centralUrl, username, game, log = console.log, dryRun 
     if (localProxy) localProxy.release();
   };
 
-  const joinUrl = `http://localhost./game/placelauncher.ashx/?gameId=${encodeURIComponent(game.id)}`
-    + `&username=${encodeURIComponent(username)}&id=${userId}&relayport=${gameRelay.port}`;
+  const who = ticket ? `ticket=${ticket}` : `username=${encodeURIComponent(username)}&id=${userId}`;
+  const joinUrl = `http://localhost./game/placelauncher.ashx/?gameId=${encodeURIComponent(game.id)}&${who}&relayport=${gameRelay.port}`;
   if (dryRun) {
     log(`Would start the client with -j ${joinUrl}`);
     closeAll();
     return { userId, exited: Promise.resolve(), stop() {} };
   }
 
-  log(`Joining "${game.name}" as ${username} (user ID ${userId}).`);
+  log(`Joining "${game.name}" as ${ticket ? name || 'your account' : `${username} (user ID ${userId})`}.`);
   const child = spawn(CLIENT_EXE, ['--play', '-a', 'http://localhost./Login/Negotiate.ashx/', '-t', 'Test', '-j', joinUrl], {
     cwd: path.dirname(CLIENT_EXE),
     stdio: 'ignore',
@@ -98,4 +122,4 @@ async function joinGame({ centralUrl, username, game, log = console.log, dryRun 
   };
 }
 
-module.exports = { joinGame, fetchGames, validUsername, loadConfig, saveConfig, CONFIG, CLIENT_EXE };
+module.exports = { joinGame, joinTicket, fetchGames, validUsername, loadConfig, saveConfig, CONFIG, CLIENT_EXE };

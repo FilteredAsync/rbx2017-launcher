@@ -15,8 +15,11 @@ const path = require('path');
 
 // Menu music is the player's own file (config/menu-music.mp3), served to the
 // window as launcher-media://menu-music; it is not part of the app.
+// launcher-net:// brings the window pictures, meshes and item data from the
+// web server and the client's own content files (account.js).
 protocol.registerSchemesAsPrivileged([
   { scheme: 'launcher-media', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true } },
+  { scheme: 'launcher-net', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
 ]);
 
 // The RobloxClient folder: the first folder above this app that has the client.
@@ -44,6 +47,7 @@ function findRoot() {
 
 const ROOT = findRoot();
 const lib = (name) => require(path.join(ROOT, 'Webserver', 'node', 'lib', name));
+const account = ROOT === null ? null : require('./account')({ ROOT, lib });
 
 let win = null;
 let hostSession = null;
@@ -170,6 +174,63 @@ async function downloadGameFiles(centralUrl) {
 
 function filesUpdate(centralUrl) {
   return gameFiles().update(centralUrl);
+}
+
+// --- menu music ----------------------------------------------------------------------
+// The host's music (config/menu-music.mp3 on the server PC) is downloaded from
+// its web server into this launcher's config folder, and fetched again when
+// the host changes it. An MP3 the player put there themselves (no
+// menu-music.json beside it) is theirs and is never replaced.
+const MUSIC_MAX_BYTES = 50 * 1024 * 1024;
+let musicSync = null;
+
+function musicFile() {
+  return path.join(ROOT, 'config', 'menu-music.mp3');
+}
+
+function musicStamp() {
+  try {
+    return Math.floor(fs.statSync(musicFile()).mtimeMs);
+  } catch (error) {
+    return null;
+  }
+}
+
+async function downloadMenuMusic(centralUrl) {
+  const url = lib('proxy').normalizeCentralUrl(centralUrl || (lib('joining').loadConfig() || {}).centralUrl || '');
+  if (url === null) return false;
+  const file = musicFile();
+  const infoFile = path.join(ROOT, 'config', 'menu-music.json');
+  let info = null;
+  try {
+    info = JSON.parse(fs.readFileSync(infoFile, 'utf8'));
+  } catch (error) {
+    info = null;
+  }
+  const have = fs.existsSync(file);
+  if (have && !info) return false;
+  const headers = have && info.etag && info.server === url ? { 'If-None-Match': info.etag } : {};
+  const response = await fetch(`${url}/download/menu-music.mp3`, { headers, signal: AbortSignal.timeout(120000) });
+  if (!response.ok) return false; // 304 (unchanged) or a server without music
+  const declared = Number(response.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > MUSIC_MAX_BYTES) return false;
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (bytes.length < 1024 || bytes.length > MUSIC_MAX_BYTES) return false;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(`${file}.tmp`, bytes);
+  fs.renameSync(`${file}.tmp`, file);
+  fs.writeFileSync(infoFile, JSON.stringify({ server: url, etag: response.headers.get('etag') || null }, null, 2));
+  return true;
+}
+
+function syncMenuMusic(centralUrl) {
+  if (!musicSync) {
+    musicSync = downloadMenuMusic(centralUrl)
+      .then((changed) => { if (changed) send('status-changed'); return changed; })
+      .catch(() => false)
+      .finally(() => { musicSync = null; });
+  }
+  return musicSync;
 }
 
 // --- Roblox Studio --------------------------------------------------------------------
@@ -321,41 +382,6 @@ function runSetupAction(action) {
 
 // --- avatar picture -------------------------------------------------------------------
 
-// The home screen shows the avatar of the Roblox account with the player's
-// username (the same account the web server dresses them in). Returned as a
-// data: URL so the window needs no outside image hosts; null if not found.
-const avatarCache = new Map();
-async function avatarImage(username) {
-  if (!/^[A-Za-z0-9_]{3,20}$/.test(String(username || ''))) return null;
-  const key = username.toLowerCase();
-  if (avatarCache.has(key)) return avatarCache.get(key);
-  try {
-    const users = await fetch('https://users.roblox.com/v1/usernames/users', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ usernames: [username], excludeBannedUsers: false }),
-      signal: AbortSignal.timeout(8000),
-    });
-    const id = users.ok ? ((await users.json()).data || [])[0]?.id : null;
-    if (!id) { avatarCache.set(key, null); return null; }
-    let imageUrl = null;
-    for (let attempt = 0; attempt < 3 && !imageUrl; attempt++) {
-      const thumbs = await fetch(`https://thumbnails.roblox.com/v1/users/avatar?userIds=${id}&size=420x420&format=Png&isCircular=false`, { signal: AbortSignal.timeout(8000) });
-      const entry = thumbs.ok ? ((await thumbs.json()).data || [])[0] : null;
-      if (entry && entry.state === 'Completed') imageUrl = entry.imageUrl;
-      else await new Promise((resolve) => setTimeout(resolve, 1500)); // still rendering
-    }
-    if (!imageUrl) return null;
-    const image = await fetch(imageUrl, { signal: AbortSignal.timeout(8000) });
-    if (!image.ok) return null;
-    const dataUrl = `data:image/png;base64,${Buffer.from(await image.arrayBuffer()).toString('base64')}`;
-    avatarCache.set(key, dataUrl);
-    return dataUrl;
-  } catch (error) {
-    return null; // offline: the home screen shows a silhouette
-  }
-}
-
 // Custom game thumbnails live on the web server (/api/thumbnails/<placeId>,
 // see Webserver/node/lib/gamethumbs.js). The window gets them as data: URLs,
 // cached per place and thumbnail version; null when a place has none.
@@ -439,6 +465,7 @@ function registerIpc() {
     });
     const joining = lib('joining');
     joining.saveConfig(Object.assign({}, joining.loadConfig() || {}, { centralUrl: result.server }));
+    syncMenuMusic(result.server);
     return result;
   });
   ipcMain.handle('games:thumbnail', (event, options) => gameThumbnail(options && options.centralUrl, options && options.placeId, options && options.version));
@@ -462,7 +489,8 @@ function registerIpc() {
       clientConfig: joining.loadConfig(),
       hostConfig: hosting.loadConfig(),
       hasLocalHostKey: Boolean(hosting.localHostKey()),
-      hasMusic: fs.existsSync(path.join(ROOT, 'config', 'menu-music.mp3')),
+      hasMusic: musicStamp() !== null,
+      musicStamp: musicStamp(),
       ...capabilities(),
       needsFiles: !capabilities().canPlay && !capabilities().canHost,
       update: updateStatus,
@@ -477,21 +505,21 @@ function registerIpc() {
     return lib('joining').fetchGames(url);
   });
 
-  ipcMain.handle('play:join', async (event, { centralUrl, username, game }) => {
+  // Joins as the signed-in account, or as a guest ("Guest 1234"): the server
+  // hands out a join ticket that decides who the player is.
+  ipcMain.handle('play:join', async (event, { game, guest }) => {
     if (playSession) throw new Error('The client is already running. Close it first.');
     const joining = lib('joining');
-    const url = lib('proxy').normalizeCentralUrl(centralUrl);
-    if (url === null) throw new Error('That web server address does not look right.');
-    if (!joining.validUsername(username)) throw new Error('The username needs 3-20 letters, digits or _.');
-    joining.saveConfig({ centralUrl: url, username });
+    const url = account.serverUrl();
+    const ticket = await account.joinTicket(url, game && game.id, Boolean(guest));
     const log = logger('play');
-    playSession = await joining.joinGame({ centralUrl: url, username, game, log });
+    playSession = await joining.joinGame({ centralUrl: url, ticket: ticket.ticket, name: ticket.name, game, log });
     send('status-changed');
     playSession.exited.then(() => log('The client closed.'), (error) => log(`Error: ${error.message}`)).finally(() => {
       playSession = null;
       send('status-changed');
     });
-    return true;
+    return { name: ticket.name, guest: Boolean(ticket.guest) };
   });
 
   ipcMain.handle('play:stop', async () => {
@@ -538,7 +566,37 @@ function registerIpc() {
     return true;
   });
   ipcMain.handle('clipboard:write', (event, text) => { clipboard.writeText(String(text)); return true; });
-  ipcMain.handle('avatar:image', (event, username) => avatarImage(username));
+
+  // Accounts, avatars and the catalog (account.js; all on the server in the
+  // launcher's settings).
+  ipcMain.handle('server:set', (event, centralUrl) => {
+    const url = lib('proxy').normalizeCentralUrl(centralUrl);
+    if (url === null) throw new Error('That server address does not look right (use http://host or host:port).');
+    const joining = lib('joining');
+    joining.saveConfig(Object.assign({}, joining.loadConfig() || {}, { centralUrl: url }));
+    syncMenuMusic(url);
+    return url;
+  });
+  ipcMain.handle('auth:current', () => account.current());
+  ipcMain.handle('auth:signin', async (event, options) => {
+    const result = await account.signIn(options || {});
+    syncMenuMusic();
+    return result;
+  });
+  ipcMain.handle('auth:signout', () => account.signOut());
+  ipcMain.handle('avatar:get', () => account.avatar());
+  ipcMain.handle('avatar:save', (event, body) => account.saveAvatar(undefined, body));
+  ipcMain.handle('avatar:copy', () => account.copyAvatar());
+  ipcMain.handle('avatar:guest', () => account.guestAvatar());
+  ipcMain.handle('avatar:upload', (event, { bytes, guest }) => {
+    const buffer = Buffer.from(bytes);
+    if (buffer.length > 2 * 1024 * 1024) throw new Error('picture too big');
+    return account.uploadAvatarImage(undefined, buffer, Boolean(guest));
+  });
+  ipcMain.handle('catalog:search', (event, options) => account.catalog(undefined, options || {}));
+  ipcMain.handle('catalog:bundle', (event, id) => account.bundle(undefined, id));
+  ipcMain.handle('catalog:item', (event, id) => account.item(undefined, id));
+  ipcMain.handle('players:list', () => account.players());
 
   // Place converter (Webserver/node/convert-place.js): pick a newer .rbxlx,
   // write <name>.2017.rbxlx beside it, and optionally host it.
@@ -640,6 +698,7 @@ app.whenReady().then(() => {
     app.quit();
     return;
   }
+  protocol.handle('launcher-net', (request) => account.handleNet(request));
   protocol.handle('launcher-media', (request) => {
     const music = path.join(ROOT, 'config', 'menu-music.mp3');
     if (new URL(request.url).hostname !== 'menu-music' || !fs.existsSync(music)) {
@@ -650,6 +709,7 @@ app.whenReady().then(() => {
   registerIpc();
   createWindow();
   setupUpdates();
+  setTimeout(() => syncMenuMusic(), 3000);
 });
 
 app.on('window-all-closed', () => app.quit());

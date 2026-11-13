@@ -404,7 +404,63 @@
     vignette();
   }
 
-  try { window.backgroundMode = localStorage.getItem('background') || 'neon'; } catch (error) { window.backgroundMode = 'neon'; }
+  // Classic: the console app's calm dark blue, with soft light sweeping
+  // across and a few faint squares drifting up (the default).
+  const squares = [];
+  for (let i = 0; i < 16; i++) {
+    squares.push({ x: rand(), y: rand(), size: 40 + rand() * 150, speed: 0.004 + rand() * 0.01, spin: (rand() - 0.5) * 0.2, angle: rand() * Math.PI, alpha: 0.025 + rand() * 0.05 });
+  }
+  function drawClassic(t, dt) {
+    const sky = ctx.createLinearGradient(0, 0, 0, height);
+    sky.addColorStop(0, '#153049');
+    sky.addColorStop(0.55, '#0f2335');
+    sky.addColorStop(1, '#0a1824');
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, width, height);
+    // A wide glow drifting slowly from side to side.
+    const gx = width * (0.55 + Math.sin(t * 0.07) * 0.18) + mouse.x * 30;
+    const gy = height * (0.3 + Math.cos(t * 0.05) * 0.06) + mouse.y * 20;
+    const glow = ctx.createRadialGradient(gx, gy, 0, gx, gy, Math.max(width, height) * 0.65);
+    glow.addColorStop(0, 'rgba(56, 132, 196, 0.32)');
+    glow.addColorStop(0.5, 'rgba(30, 80, 130, 0.12)');
+    glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, width, height);
+    // Diagonal light bands.
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 3; i++) {
+      const offset = ((t * (8 + i * 5)) % (width + height)) - height;
+      const band = ctx.createLinearGradient(offset, 0, offset + height * 0.6, height);
+      band.addColorStop(0, 'rgba(255, 255, 255, 0)');
+      band.addColorStop(0.5, `rgba(120, 190, 255, ${0.025 + i * 0.008})`);
+      band.addColorStop(1, 'rgba(255, 255, 255, 0)');
+      ctx.fillStyle = band;
+      ctx.fillRect(0, 0, width, height);
+    }
+    ctx.restore();
+    for (const square of squares) {
+      square.y -= square.speed * dt;
+      square.angle += square.spin * dt;
+      if (square.y < -0.25) { square.y = 1.15; square.x = rand(); }
+      ctx.save();
+      ctx.translate(square.x * width + mouse.x * square.size * 0.1, square.y * height + mouse.y * square.size * 0.1);
+      ctx.rotate(square.angle);
+      ctx.strokeStyle = `rgba(160, 210, 255, ${square.alpha * 2})`;
+      ctx.fillStyle = `rgba(120, 180, 240, ${square.alpha})`;
+      ctx.lineWidth = 2;
+      ctx.fillRect(-square.size / 2, -square.size / 2, square.size, square.size);
+      ctx.strokeRect(-square.size / 2, -square.size / 2, square.size, square.size);
+      ctx.restore();
+    }
+    const shade = ctx.createRadialGradient(width / 2, height / 2, Math.min(width, height) * 0.3, width / 2, height / 2, Math.max(width, height) * 0.75);
+    shade.addColorStop(0, 'rgba(0, 0, 0, 0)');
+    shade.addColorStop(1, 'rgba(0, 0, 0, 0.45)');
+    ctx.fillStyle = shade;
+    ctx.fillRect(0, 0, width, height);
+  }
+
+  try { window.backgroundMode = localStorage.getItem('background') || 'classic'; } catch (error) { window.backgroundMode = 'classic'; }
 
   let last = 0;
   let clock = 0;
@@ -419,7 +475,8 @@
     mouse.y += (mouse.ty - mouse.y) * 0.05;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (window.backgroundMode === 'sunset') drawSunset(clock, dt);
-    else drawNeon(clock, dt);
+    else if (window.backgroundMode === 'neon') drawNeon(clock, dt);
+    else drawClassic(clock, dt);
   }
   requestAnimationFrame(frame);
 }());
