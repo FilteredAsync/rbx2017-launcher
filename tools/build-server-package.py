@@ -11,6 +11,7 @@ uploads. Build the launcher first (cd Launcher && npm run package).
 """
 
 import fnmatch
+import json
 import os
 import sys
 import zipfile
@@ -24,6 +25,7 @@ PERSONAL = {'host-key.txt', 'roblox-api-key.txt', '.roblosecurity', 'client.json
             'menu-music.mp3', 'server.pid', 'dedicated.pid'}
 
 entries = {}  # name in the zip -> file on disk
+generated = {}  # name in the zip -> bytes made here
 dirs = set()
 
 
@@ -68,8 +70,14 @@ def main():
         'Webserver/node/data/avatars.json', 'Webserver/node/data/avatar-images'])
     add_tree('Webserver/www', exclude=['Webserver/www/v1/dump', 'Webserver/www/Error/captures'])
     add_tree('Webserver/bin/apache/certificats')
-    for name in ('server.json', 'assets.json', 'README.txt'):
+    for name in ('server.json', 'README.txt'):
         add_file(os.path.join(ROOT, 'config', name), 'config/' + name)
+    # assets.json without "allowNamedJoins": that is for this PC's players
+    # while they update; a new server starts with sign-in required.
+    with open(os.path.join(ROOT, 'config', 'assets.json'), encoding='utf-8-sig') as source:
+        settings = json.load(source)
+    settings.pop('allowNamedJoins', None)
+    generated[PREFIX + 'config/assets.json'] = (json.dumps(settings, indent=4) + chr(10)).encode('utf-8')
     add_file(os.path.join(TEMPLATES, 'dedicated.json'), 'config/dedicated.json')
     for sub in ('assets', 'thumbs', 'avatars'):
         add_tree('cache/' + sub)
@@ -104,7 +112,7 @@ def main():
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with zipfile.ZipFile(OUT + '.new', 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
         written = set()
-        for name in sorted(set(entries) | dirs):
+        for name in sorted(set(entries) | set(generated) | dirs):
             parts = name.rstrip('/').split('/')
             for i in range(1, len(parts)):
                 folder = '/'.join(parts[:i]) + '/'
@@ -115,6 +123,8 @@ def main():
                 if name not in written:
                     archive.writestr(name, b'')
                     written.add(name)
+            elif name in generated:
+                archive.writestr(name, generated[name])
             else:
                 archive.write(entries[name], name)
     os.replace(OUT + '.new', OUT)
