@@ -253,6 +253,7 @@ async function refresh() {
   try {
     const response = await fetch('/api/places', { cache: 'no-store' });
     data = await response.json();
+    if (!$('join-server').value && data.server && data.server.tailscaleUrl) $('join-server').value = data.server.tailscaleUrl;
     renderServer();
     renderPlaces(false);
     $('list-state').textContent = '';
@@ -355,5 +356,111 @@ $('thumb-file').addEventListener('change', () => {
   act(() => change('POST', `/api/thumbnails/${place.placeId}`, file, 'application/octet-stream'), `Setting the thumbnail of "${place.name}"…`);
 });
 
+// --- join code --------------------------------------------------------------------------------
+// "RBX1-" + base64url of {s: server address, k: Tailscale auth key, n: name};
+// made here in the browser, never stored on the server.
+
+$('join-form').addEventListener('submit', (event) => {
+  event.preventDefault();
+  const server = $('join-server').value.trim().replace(/\/$/, '');
+  const key = $('join-key').value.trim();
+  if (!/^https?:\/\/[A-Za-z0-9.[\]:-]+$/.test(server)) {
+    setStatus($('join-state'), 'The server address looks like http://100.x.y.z', 'error');
+    return;
+  }
+  if (!/^tskey-[A-Za-z0-9-]{10,200}$/.test(key)) {
+    setStatus($('join-state'), 'A Tailscale auth key starts with tskey-', 'error');
+    return;
+  }
+  const json = JSON.stringify({ s: server, k: key, n: document.title });
+  const base64url = btoa(unescape(encodeURIComponent(json))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  $('join-output').textContent = `RBX1-${base64url}`;
+  $('join-output').hidden = false;
+  $('join-copy').hidden = false;
+  setStatus($('join-state'), 'Share this code with your players (privately).', 'good');
+});
+
+$('join-copy').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText($('join-output').textContent);
+    setStatus($('join-state'), 'Copied.', 'good');
+  } catch (error) {
+    setStatus($('join-state'), 'Select the code and copy it.', 'error');
+  }
+});
+
+// --- missing assets ------------------------------------------------------------------------
+
+let missing = [];
+let pendingAsset = null;
+
+async function loadMissing() {
+  try {
+    missing = (await (await fetch('/api/assets/missing', { cache: 'no-store' })).json()).assets || [];
+    renderMissing();
+  } catch (error) {
+    $('missing-state').textContent = 'Could not load the list.';
+  }
+}
+
+function renderMissing() {
+  const filter = $('missing-filter').value;
+  const known = ['Audio', 'Image', 'Animation'];
+  const shown = missing.filter((asset) => !filter || (filter === 'other' ? !known.includes(asset.type) : asset.type === filter));
+  const rows = $('missing-rows');
+  rows.textContent = '';
+  const open = missing.filter((asset) => !asset.replaced).length;
+  $('missing-state').textContent = `${open} missing, ${missing.length - open} replaced${missing.some((asset) => !asset.type) ? ' · looking up names…' : ''}`;
+  if (shown.length === 0) {
+    const row = el('tr');
+    const cell = el('td', 'who', 'Nothing here.');
+    cell.colSpan = 5;
+    row.append(cell);
+    rows.append(row);
+    return;
+  }
+  for (const asset of shown) {
+    const row = el('tr');
+    row.append(el('td', '', asset.type || '…'));
+    const name = el('td');
+    name.append(document.createTextNode(asset.name || '(unknown)'));
+    if (asset.creator) name.append(el('div', 'hint', `by ${asset.creator}`));
+    row.append(name, el('td', 'who', asset.id), el('td', 'who', asset.reason));
+    const actions = el('td', 'actions');
+    if (asset.replaced) {
+      actions.append(el('span', 'ok', `Replaced (${asset.replacement})`));
+      actions.append(button('Remove', 'ghost', () => act(async () => {
+        await change('DELETE', `/api/assets/${asset.id}/replacement`);
+        await loadMissing();
+      }, `Removing the replacement for ${asset.name || asset.id}…`)));
+    } else {
+      actions.append(button('Upload replacement', 'ghost', () => {
+        pendingAsset = asset;
+        $('missing-file').value = '';
+        $('missing-file').click();
+      }));
+    }
+    row.append(actions);
+    rows.append(row);
+  }
+}
+
+$('missing-filter').addEventListener('change', renderMissing);
+$('missing-file').addEventListener('change', () => {
+  const file = $('missing-file').files[0];
+  const asset = pendingAsset;
+  if (!file || !asset) return;
+  if (file.size > 20 * 1024 * 1024) {
+    setStatus($('list-state'), 'Replacements can be up to 20 MB.', 'error');
+    return;
+  }
+  act(async () => {
+    await uploadFile(`/api/assets/${asset.id}/replacement`, file);
+    await loadMissing();
+  }, `Uploading a replacement for ${asset.name || asset.id}…`);
+});
+
 refresh();
+loadMissing();
 setInterval(() => { if (!busy) refresh(); }, 5000);
+setInterval(() => { if (!busy) loadMissing(); }, 15000);

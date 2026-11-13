@@ -123,6 +123,8 @@ function applyCapabilities() {
   }
   // Converting places is for hosts (the server's /manage page converts uploads).
   $('convert-panel').classList.add('hidden');
+  // Players join their host's network with a join code.
+  $('join-panel').classList.remove('hidden');
 }
 
 // Without roblox-logo.png (it is not in the git repository) the header shows text.
@@ -450,6 +452,7 @@ $('detail-play').addEventListener('click', async () => {
 async function refreshState() {
   state = await api.state();
   if (!capabilitiesApplied) applyCapabilities();
+  showUpdate(state.update);
   if (!formsFilled) fillForms();
   $('presence-dot').className = `presence-dot${state.web.tailscaleUrl ? ' on' : ''}`;
 
@@ -736,6 +739,53 @@ $('files-download').addEventListener('click', async () => {
   }
 });
 
+// --- join codes (tailscale.js in the main process) --------------------------------------
+
+let joiningNetwork = false;
+$('join-go').addEventListener('click', async () => {
+  if (joiningNetwork) return;
+  const code = $('join-code').value.trim();
+  if (!code) {
+    setStatus('join-status', 'Paste the join code first.', 'error');
+    return;
+  }
+  joiningNetwork = true;
+  $('join-go').disabled = true;
+  try {
+    const result = await api.joinWithCode({ code, username: $('play-username').value.trim() });
+    $('play-server').value = result.server;
+    $('files-server').value = result.server;
+    $('join-code').value = '';
+    setStatus('join-status', result.alreadyConnected ? 'Connected (this PC was already on the network).' : 'Connected to your host\'s network.', 'good');
+    if (state && state.needsFiles) {
+      showFilesPanel(false);
+      $('files-download').click(); // carry on with the game files
+    } else {
+      findGames(true);
+    }
+  } catch (error) {
+    setStatus('join-status', message(error), 'error');
+  } finally {
+    joiningNetwork = false;
+    $('join-go').disabled = false;
+  }
+});
+
+api.onJoinProgress((info) => {
+  const texts = {
+    checking: 'Checking…',
+    'tailscale-verify': 'Checking that the installer is really from Tailscale…',
+    'tailscale-install': 'Installing Tailscale: choose Yes in the Windows prompt…',
+    'tailscale-connect': 'Connecting to your host\'s network…',
+    'reaching-server': 'Waiting for the server to answer…',
+  };
+  if (info.phase === 'tailscale-download') {
+    setStatus('join-status', info.total ? `Downloading Tailscale… ${Math.round(info.received / 1e6)} of ${Math.round(info.total / 1e6)} MB` : 'Downloading Tailscale…');
+  } else if (texts[info.phase]) {
+    setStatus('join-status', texts[info.phase]);
+  }
+});
+
 api.onFilesProgress((info) => {
   const bar = $('files-progress');
   if (info.phase === 'checking') setStatus('files-status', 'Contacting the server…');
@@ -827,6 +877,24 @@ $('open-logs').addEventListener('click', () => api.openFolder('logs'));
 api.onLog(({ area, line, time }) => appendLog(area, line, time));
 api.onStatusChanged(() => refreshState());
 
+// Launcher updates (from the newest GitHub release).
+function showUpdate(status) {
+  const pill = $('update-pill');
+  pill.classList.toggle('hidden', !status || !['downloading', 'ready'].includes(status.state));
+  pill.classList.toggle('ready', Boolean(status && status.state === 'ready'));
+  if (status && status.state === 'downloading') pill.textContent = `Downloading update ${status.version || ''}… ${status.percent || 0}%`;
+  if (status && status.state === 'ready') pill.textContent = `Restart to update to ${status.version}`;
+}
+api.onUpdateStatus(showUpdate);
+$('update-pill').addEventListener('click', async () => {
+  if (!$('update-pill').classList.contains('ready')) return;
+  try {
+    await api.installUpdate();
+  } catch (error) {
+    $('update-pill').textContent = message(error);
+  }
+});
+
 updateBackgroundButton();
 refreshState().then(() => {
   renderHome();
@@ -834,7 +902,8 @@ refreshState().then(() => {
   if (state.needsFiles) {
     // First run after the small Setup.exe: get the game files.
     showView('setup');
-    showFilesPanel(true);
+    showFilesPanel(false);
+    focusEl($('join-code'));
   } else {
     focusEl(firstFocusable('#view-home'));
   }

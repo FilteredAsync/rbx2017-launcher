@@ -68,6 +68,9 @@ def main():
     add_file(os.path.join(TEMPLATES, 'dedicated.json'), 'config/dedicated.json')
     for sub in ('assets', 'thumbs', 'avatars'):
         add_tree('cache/' + sub)
+    # Replacement files for assets Roblox will not hand out (the /manage page).
+    if os.path.isdir(os.path.join(ROOT, 'assets-override')):
+        add_tree('assets-override')
     add_file(os.path.join(ROOT, 'cache', 'roblox-users.json'), 'cache/roblox-users.json')
     add_file(os.path.join(ROOT, 'Client', 'apidump.txt'), 'Client/apidump.txt')
     for name in ('patch-rcc-place-auth.ps1', 'patch-rcc-http-urls.ps1', 'add-hosts-entries.ps1', 'addHostsEntries.bat',

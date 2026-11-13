@@ -15,6 +15,7 @@ const datastore = require('./datastore');
 const games = require('./games');
 const gamethumbs = require('./gamethumbs');
 const placefile = require('./placefile');
+const missingassets = require('./missingassets');
 const places = require('./places');
 const rbxm = require('./rbxm');
 const social = require('./social');
@@ -815,6 +816,8 @@ function placesWithStatus() {
       status: running[place.placeId] || null,
     })),
     runner: runner ? { running: !runner.stale, updatedAt: runner.updatedAt, maxGames: runner.maxGames, problems: runner.problems || [] } : { running: false },
+    // For the join code players paste into their launcher.
+    server: { tailscaleUrl: core.tailscaleIPv4() ? `http://${core.tailscaleIPv4()}` : null },
   };
 }
 
@@ -884,6 +887,29 @@ async function placesApi(ctx, match) {
   return sendJson(ctx, 404, { error: 'unknown places API call' });
 }
 
+// Missing assets and their replacements (lib/missingassets.js), for /manage.
+//   GET    /api/assets/missing                  list (names are looked up in the background)
+//   POST   /api/assets/<id>/replacement          body: the file; X-Host-Key
+//   DELETE /api/assets/<id>/replacement          X-Host-Key
+async function assetsApi(ctx, match) {
+  if (match[1] === undefined) {
+    if (ctx.method !== 'GET' && ctx.method !== 'HEAD') return sendJson(ctx, 405, { error: 'use GET' });
+    const list = missingassets.list();
+    missingassets.lookUpNames(list.map((entry) => entry.id)).catch(() => {});
+    return sendJson(ctx, 200, { assets: list });
+  }
+  if (ctx.method !== 'POST' && ctx.method !== 'DELETE') return sendJson(ctx, 405, { error: 'use POST or DELETE' });
+  const key = ctx.req.headers['x-host-key'] !== undefined ? String(ctx.req.headers['x-host-key']) : '';
+  if (!games.checkHostKey(key)) return sendJson(ctx, 403, { error: 'wrong or missing host key (config/host-key.txt on the server)' });
+  const id = match[1];
+  if (ctx.method === 'DELETE') return sendJson(ctx, 200, { ok: missingassets.removeReplacement(id) });
+  const declared = Number(ctx.req.headers['content-length']);
+  const bytes = await ctx.body();
+  if (Number.isFinite(declared) && declared !== bytes.length) return sendJson(ctx, 400, { error: 'the upload was cut short' });
+  const result = missingassets.saveReplacement(id, bytes);
+  return result.error ? sendJson(ctx, 400, result) : sendJson(ctx, 200, Object.assign({ ok: true }, result));
+}
+
 // Game files for the downloader installer: the launcher from the small
 // Setup.exe downloads the client from here on first run (and offers updates
 // when the version changes). Built by tools/build-client-files.py into
@@ -941,6 +967,7 @@ const ROUTES = [
   [/^api\/places(?:\/(\d{1,15})(?:\/([a-z]+))?)?\/?$/i, placesApi],
   [/^manage(?:\/([a-z.]*))?\/?$/i, managePage],
   [/^download\/(client-files\.(?:zip|json))$/i, downloadsRoute],
+  [/^api\/assets\/(?:missing|(\d{1,15})\/replacement)\/?$/i, assetsApi],
   [new RegExp(`^asset(?:/index\\.php)?/?$`, 'i'), assetEndpoint],
   [/^asset\/bodycolors\.(?:ashx|php)$/i, bodyColors],
   [new RegExp(`^v1\\.1/avatar-fetch${opt}$`, 'i'), avatarFetch],

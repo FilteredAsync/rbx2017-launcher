@@ -21,17 +21,25 @@ protocol.registerSchemesAsPrivileged([
 
 // The RobloxClient folder: the first folder above this app that has the client.
 function findRoot() {
-  let dir = app.isPackaged ? path.dirname(process.execPath) : __dirname;
+  const start = app.isPackaged ? path.dirname(process.execPath) : __dirname;
+  const hasWeb = (dir) => fs.existsSync(path.join(dir, 'Webserver', 'node', 'lib'));
+  let firstWeb = null;
+  let dir = start;
   for (let i = 0; i < 8; i++) {
     // A server-only folder (no Client) works too: it can run the web server
     // and host, just not play.
     const hasGame = fs.existsSync(path.join(dir, 'Client', 'RobloxPlayerBeta.exe')) || fs.existsSync(path.join(dir, 'Server', 'RCCService.exe'));
-    if (hasGame && fs.existsSync(path.join(dir, 'Webserver', 'node'))) return dir;
+    if (hasWeb(dir)) {
+      if (hasGame) return dir;
+      if (firstWeb === null) firstWeb = dir;
+    }
     const parent = path.dirname(dir);
     if (parent === dir) break;
     dir = parent;
   }
-  return null;
+  // A fresh install of the small installer has no game files yet: its own
+  // folder is the root, and the setup screen downloads them into it.
+  return firstWeb;
 }
 
 const ROOT = findRoot();
@@ -346,6 +354,18 @@ async function hostThumbnail({ action, centralUrl, placeId, hostKey }) {
 
 function registerIpc() {
   ipcMain.handle('files:download', (event, centralUrl) => downloadGameFiles(centralUrl));
+  // Join codes (tailscale.js): set up Tailscale with the host's key, remember the server.
+  ipcMain.handle('join:code', async (event, options) => {
+    const result = await require('./tailscale').join({
+      code: options && options.code,
+      username: options && options.username,
+      workDir: path.join(ROOT, 'downloads'),
+      onProgress: (info) => send('join-progress', info),
+    });
+    const joining = lib('joining');
+    joining.saveConfig(Object.assign({}, joining.loadConfig() || {}, { centralUrl: result.server }));
+    return result;
+  });
   ipcMain.handle('games:thumbnail', (event, options) => gameThumbnail(options && options.centralUrl, options && options.placeId, options && options.version));
   // Opens <web server>/manage in the default browser (only that page).
   ipcMain.handle('open:manage', async (event, centralUrl) => {
@@ -370,6 +390,7 @@ function registerIpc() {
       hasMusic: fs.existsSync(path.join(ROOT, 'config', 'menu-music.mp3')),
       ...capabilities(),
       needsFiles: !capabilities().canPlay && !capabilities().canHost,
+      update: updateStatus,
       filesVersion: (installedFiles() || {}).version || null,
     };
   });
@@ -553,6 +574,48 @@ app.whenReady().then(() => {
   });
   registerIpc();
   createWindow();
+  setupUpdates();
 });
 
 app.on('window-all-closed', () => app.quit());
+
+// --- launcher updates -------------------------------------------------------------
+// Installed launchers update themselves from the newest GitHub release
+// (electron-updater reads latest.yml there; tools/publish-release.js uploads
+// it). The update downloads in the background and installs when the launcher
+// closes, or at once with the "Restart to update" button. Builds without
+// app-update.yml (running from source, the server package's launcher) skip this.
+let updateStatus = { state: 'off' };
+
+function setUpdateStatus(status) {
+  updateStatus = status;
+  send('update-status', status);
+}
+
+function setupUpdates() {
+  if (!app.isPackaged || !fs.existsSync(path.join(process.resourcesPath, 'app-update.yml'))) return;
+  let autoUpdater;
+  try {
+    ({ autoUpdater } = require('electron-updater'));
+  } catch (error) {
+    return;
+  }
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  let version = null;
+  autoUpdater.on('update-available', (info) => { version = info.version; setUpdateStatus({ state: 'downloading', version, percent: 0 }); });
+  autoUpdater.on('update-not-available', () => setUpdateStatus({ state: 'current', version: app.getVersion() }));
+  autoUpdater.on('download-progress', (progress) => setUpdateStatus({ state: 'downloading', version, percent: Math.round(progress.percent) }));
+  autoUpdater.on('update-downloaded', (info) => setUpdateStatus({ state: 'ready', version: info.version }));
+  autoUpdater.on('error', (error) => setUpdateStatus({ state: 'error', message: String(error && error.message || error).slice(0, 200) }));
+  ipcMain.handle('update:install', () => {
+    if (playSession) throw new Error('Close the game first.');
+    if (hostSession) throw new Error('Stop hosting first.');
+    if (updateStatus.state !== 'ready') throw new Error('No update is ready yet.');
+    setImmediate(() => autoUpdater.quitAndInstall(true, true));
+    return true;
+  });
+  const check = () => autoUpdater.checkForUpdates().catch(() => {});
+  setTimeout(check, 8000);
+  setInterval(check, 6 * 60 * 60 * 1000);
+}

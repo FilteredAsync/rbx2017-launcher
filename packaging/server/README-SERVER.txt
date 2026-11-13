@@ -49,8 +49,10 @@ Setup (once)
 Players
 -------
 Players install the launcher with RobloxClient-Setup-<version>.exe (from the
-GitHub release, or from you). On its first start it asks for this server's
-address and downloads the game files from here:
+GitHub release, or from you). On its first start they paste the join code
+you gave them (see "Join codes" below), or, if they are already on your
+Tailscale network, enter this server's address; it then downloads the game
+files from here:
   http://<this PC's Tailscale address>       e.g. http://100.101.102.103
 The files it hands out are in downloads\ (client-files.zip, about 85 MB).
 If the game client ever changes, build them again on the PC that has the
@@ -71,6 +73,44 @@ Closing the window stops everything at once without saving players: use
 "stop" or Ctrl+C instead.
 Log: Webserver\node\logs\dedicated.log (web requests: access.log).
 
+
+Join codes (players without invites)
+------------------------------------
+Players can join with one code instead of being invited to Tailscale: their
+launcher installs Tailscale, signs in with a key made for players, and can
+then reach this server only. Set it up once in the Tailscale admin console
+(login.tailscale.com) with the account that owns this server:
+
+1. Access controls: tags for the server and for players, and a rule that lets
+   players reach the server's web server and game ports and nothing else.
+   Add to the policy file:
+
+     "tagOwners": {
+       "tag:rbx-server": ["autogroup:admin"],
+       "tag:rbx-player": ["autogroup:admin"]
+     },
+
+   and in "acls", next to your own rules:
+
+     {"action": "accept", "src": ["tag:rbx-player"], "dst": ["tag:rbx-server:80,53640-53659"]}
+
+   Important: if your policy still has the default rule that lets everyone
+   reach everything ("src": ["*"], "dst": ["*:*"]), change its "src" to
+   ["autogroup:member"]. Otherwise players could reach all your devices.
+
+2. Machines: on this server PC, "Edit ACL tags" and add tag:rbx-server.
+
+3. Settings > Keys > Generate auth key: Reusable on, Ephemeral off,
+   Pre-approved on (if device approval is on), Tags: tag:rbx-player.
+   Copy the key (tskey-auth-...). It works for up to 90 days; players who
+   joined keep working after that, new players need a new key and code.
+
+4. On http://127.0.0.1/manage, "Join code for players": paste the key and
+   press Make join code. Share the code privately (it contains the key).
+   To cut off a code, revoke its key in Settings > Keys.
+
+Players' PCs show up in Machines as rbx-<username>; remove any you do not
+recognize. Tagged players do not count as Tailscale users.
 
 Managing games
 --------------

@@ -13,6 +13,7 @@
     <img class="logo" src="roblox-logo.png" alt="ROBLOX" draggable="false">
     <div class="top-right">
       <span class="presence-dot" id="presence-dot"></span>
+      <button class="update-pill hidden" id="update-pill" title="A new launcher version"></button>
       <span class="clock" id="top-clock"></span>
     </div>
   </header>
@@ -148,6 +149,20 @@
 
   <!-- SETUP -->
   <section class="view" id="view-setup">
+    <div class="panel hidden" id="join-panel">
+      <div class="label">Join with a code</div>
+      <p class="lead">Got a join code from your host? Paste it here. The launcher sets up Tailscale (Windows asks for permission once), connects you to their server and downloads the game files.</p>
+      <div class="grid two">
+        <label>Join code
+          <input id="join-code" placeholder="RBX1-…" spellcheck="false" autocomplete="off">
+          <span class="hint">Already use Tailscale for something else? Joining switches it to your host's network; switch back from the Tailscale icon by the clock.</span>
+        </label>
+      </div>
+      <div class="row">
+        <button class="primary" id="join-go">Join</button>
+        <span class="status" id="join-status"></span>
+      </div>
+    </div>
     <div class="panel hidden" id="files-panel">
       <div class="label">Game files</div>
       <p class="lead" id="files-lead">The game files come from your server (about 85 MB). Connect Tailscale, enter the server address your host gave you, and download them.</p>

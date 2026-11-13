@@ -48,6 +48,25 @@
       <pre class="notes" id="upload-notes" hidden></pre>
     </section>
 
+    <section class="panel">
+      <h2>Join code for players</h2>
+      <p class="lead">One code gets new players in: they paste it into their launcher, which sets up Tailscale and connects them to this server only. No Tailscale account or invite needed. First make a Tailscale auth key for players (README-SERVER.txt, "Join codes"). The code contains that key, so share it only with your players; make a new key and code to cut off old ones.</p>
+      <form id="join-form" class="grid" autocomplete="off">
+        <label>Server address
+          <input id="join-server" placeholder="http://100.x.y.z" spellcheck="false">
+        </label>
+        <label>Tailscale auth key for players
+          <input id="join-key" type="password" placeholder="tskey-auth-…" spellcheck="false">
+        </label>
+        <div class="row wide">
+          <button type="submit">Make join code</button>
+          <button type="button" class="ghost" id="join-copy" hidden>Copy</button>
+          <span class="status" id="join-state"></span>
+        </div>
+      </form>
+      <pre class="notes" id="join-output" hidden></pre>
+    </section>
+
     <section>
       <div class="list-head">
         <h2>Games</h2>
@@ -55,7 +74,31 @@
       </div>
       <div id="places" class="places"></div>
     </section>
+
+    <section class="panel missing-panel">
+      <div class="list-head">
+        <h2>Missing assets</h2>
+        <span class="hint" id="missing-state"></span>
+      </div>
+      <p class="lead">Roblox no longer hands these out: most sounds became private in its 2022 audio privacy change, others were removed for copyright or moderated. Upload a replacement and the server uses it from then on: an OGG, MP3 or WAV for a sound, a PNG or JPG for an image, a .rbxm or .rbxmx for an animation exported from Studio.</p>
+      <div class="row">
+        <label class="inline">Show
+          <select id="missing-filter">
+            <option value="">Everything</option>
+            <option value="Audio" selected>Sounds</option>
+            <option value="Image">Images</option>
+            <option value="Animation">Animations</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
+      </div>
+      <table class="missing">
+        <thead><tr><th>Type</th><th>Name</th><th>Asset ID</th><th>Why it is missing</th><th></th></tr></thead>
+        <tbody id="missing-rows"></tbody>
+      </table>
+    </section>
   </main>
+  <input type="file" id="missing-file" accept=".ogg,.mp3,.wav,.png,.jpg,.jpeg,.rbxm,.rbxmx" hidden>
 
   <input type="file" id="replace-file" accept=".rbxlx,.rbxmx" hidden>
   <input type="file" id="thumb-file" accept=".png,.jpg,.jpeg,.gif,.webp" hidden>

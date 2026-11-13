@@ -78,6 +78,16 @@ progress { width: 220px; }
 .card details { padding: 0 14px 12px; color: var(--muted); }
 .card details pre { margin: 6px 0 0; white-space: pre-wrap; font: 12px/1.5 Consolas, monospace; color: #c3cbd8; max-height: 200px; overflow: auto; }
 .empty { color: var(--muted); padding: 20px 0; }
+.missing-panel { margin-top: 26px; }
+label.inline { flex-direction: row; align-items: center; gap: 8px; }
+select { background: rgba(5, 12, 18, .7); border: 1px solid var(--line); color: var(--text); padding: 6px 8px; font: inherit; }
+table.missing { width: 100%; border-collapse: collapse; margin-top: 14px; }
+table.missing th { text-align: left; color: var(--muted); font-weight: 400; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+table.missing td { padding: 7px 8px; border-bottom: 1px solid rgba(120, 170, 210, .08); vertical-align: middle; }
+table.missing td.who { color: var(--muted); font-size: 12px; }
+table.missing td.actions { text-align: right; white-space: nowrap; }
+table.missing .ok { color: var(--good); margin-right: 8px; }
+@media (max-width: 700px) { table.missing th:nth-child(3), table.missing td:nth-child(3) { display: none; } }
 @media (max-width: 700px) {
   .grid { grid-template-columns: 1fr; }
   .key input { width: 100%; }
