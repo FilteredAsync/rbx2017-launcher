@@ -5,6 +5,9 @@
 // wearing items by ID. Every change shows at once and is saved to the
 // server a moment later; the server checks it again (lib/launcherapi.js).
 //
+// Outfits: saved looks (with the picture drawn when saved); wearing one makes
+// it the avatar again.
+//
 //   const editor = AvatarEditor.create({ api, onSaved })
 //   editor.loadAccount()   editor.showGuest()   editor.activate()   editor.rotate(step)
 //   editor.pictures()  -> { full: Blob, head: Blob } of what is shown
@@ -16,6 +19,7 @@
   const CATEGORIES = [
     { key: 'wearing', label: 'Wearing' },
     { key: 'colors', label: 'Body colors' },
+    { key: 'outfits', label: 'Outfits' },
     { key: 'hats', label: 'Hats', gap: true },
     { key: 'hair', label: 'Hair' },
     { key: 'faces', label: 'Faces' },
@@ -211,9 +215,148 @@
 
     let shownItems = [];
 
+    // --- outfits ----------------------------------------------------------------------------
+
+    let outfitList = null; // [{ id, name, hasImage, ... }]
+    let outfitMax = 30;
+    let outfitBusy = false;
+    let naming = null; // null | { mode: 'save' } | { mode: 'rename', outfit }: the name box is open
+
+    async function loadOutfits() {
+      setCatStatus('Loading your outfits…');
+      try {
+        const data = await api.outfits();
+        outfitList = data.outfits || [];
+        outfitMax = data.max || outfitMax;
+        setCatStatus('');
+      } catch (error) {
+        setCatStatus(message(error), 'error');
+        outfitList = outfitList || [];
+      }
+      if (category === 'outfits') renderOutfits();
+    }
+
+    function blobToBase64(blob) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).replace(/^data:[^,]*,/, ''));
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(blob);
+      });
+    }
+
+    async function saveOutfit(name) {
+      if (outfitBusy || mode !== 'account') return;
+      const suggested = `Outfit ${(outfitList ? outfitList.length : 0) + 1}`;
+      outfitBusy = true;
+      setCatStatus('Saving the outfit…');
+      try {
+        if (saveTimer || saving) await new Promise((resolve) => setTimeout(resolve, 900)); // the last change first
+        const shots = await pictures();
+        const image = shots ? await blobToBase64(shots.full) : '';
+        const data = await api.saveOutfit({ name: name.trim() || suggested, image });
+        outfitList = data.outfits || [];
+        setCatStatus(`Saved "${data.outfit ? data.outfit.name : name}".`, 'good');
+      } catch (error) {
+        setCatStatus(message(error), 'error');
+      } finally {
+        outfitBusy = false;
+        if (category === 'outfits') renderOutfits();
+      }
+    }
+
+    async function outfitAction(outfit, verb, newName) {
+      if (outfitBusy) return;
+      let body = {};
+      if (verb === 'delete' && !window.confirm(`Delete the outfit "${outfit.name}"?`)) return;
+      if (verb === 'rename') {
+        if (!newName || !newName.trim()) return;
+        body = { name: newName.trim() };
+      }
+      outfitBusy = true;
+      setCatStatus(verb === 'wear' ? `Putting on "${outfit.name}"…` : '');
+      try {
+        const data = await api.outfitAction(outfit.id, verb, body);
+        if (verb === 'wear') {
+          avatar = { bodyColors: data.bodyColors, assets: data.assets };
+          await preview();
+          setStatus(`Wearing "${outfit.name}".`, 'good');
+          setCatStatus('');
+          if (onSaved) onSaved(true);
+        } else {
+          outfitList = data.outfits || [];
+          setCatStatus(verb === 'delete' ? `Deleted "${outfit.name}".` : 'Renamed.', 'good');
+        }
+      } catch (error) {
+        setCatStatus(message(error), 'error');
+      } finally {
+        outfitBusy = false;
+        if (category === 'outfits') renderOutfits();
+      }
+    }
+
+    function renderOutfits() {
+      const grid = $('item-grid');
+      $('color-pane').classList.add('hidden');
+      grid.classList.remove('hidden');
+      $('cat-more').classList.add('hidden');
+      grid.textContent = '';
+      if (naming) {
+        const form = el('form', 'outfit-name-form');
+        const input = el('input');
+        input.maxLength = 40;
+        input.spellcheck = false;
+        input.value = naming.mode === 'rename' ? naming.outfit.name : `Outfit ${(outfitList ? outfitList.length : 0) + 1}`;
+        const ok = el('button', 'primary small', naming.mode === 'rename' ? 'Rename' : 'Save outfit');
+        const cancel = el('button', 'ghost small', 'Cancel');
+        cancel.type = 'button';
+        cancel.addEventListener('click', () => { naming = null; renderOutfits(); });
+        form.append(el('span', 'outfit-name-label', naming.mode === 'rename' ? 'New name' : 'Name'), input, ok, cancel);
+        form.addEventListener('submit', (event) => {
+          event.preventDefault();
+          const was = naming;
+          naming = null;
+          if (was.mode === 'rename') outfitAction(was.outfit, 'rename', input.value);
+          else saveOutfit(input.value.trim());
+        });
+        grid.append(form);
+        setTimeout(() => { input.focus(); input.select(); }, 0);
+      }
+      const add = el('button', 'item-tile outfit-new');
+      add.append(el('div', 'outfit-plus', '+'), el('div', 'item-name', 'Save what I\'m wearing'));
+      add.disabled = !outfitList || outfitList.length >= outfitMax;
+      add.title = add.disabled && outfitList ? `You have ${outfitMax} outfits: delete one first.` : 'Save your current look as an outfit';
+      add.addEventListener('click', () => { naming = { mode: 'save' }; renderOutfits(); });
+      grid.append(add);
+      for (const outfit of outfitList || []) {
+        const tile = el('div', 'item-tile outfit-tile');
+        const main = el('button', 'outfit-main');
+        main.title = `Wear "${outfit.name}"`;
+        if (outfit.hasImage && me()) {
+          const img = el('img');
+          img.alt = '';
+          img.loading = 'lazy';
+          img.src = `${NET}/api/launcher/outfit-image/${encodeURIComponent(me().userId)}/${outfit.id}`;
+          img.addEventListener('error', () => { img.style.visibility = 'hidden'; });
+          main.append(img);
+        }
+        main.append(el('div', 'item-name', outfit.name));
+        main.addEventListener('click', () => outfitAction(outfit, 'wear'));
+        const tools = el('div', 'outfit-tools');
+        const rename = el('button', 'outfit-tool', 'Rename');
+        rename.addEventListener('click', () => { naming = { mode: 'rename', outfit }; renderOutfits(); });
+        const remove = el('button', 'outfit-tool', 'Delete');
+        remove.addEventListener('click', () => outfitAction(outfit, 'delete'));
+        tools.append(rename, remove);
+        tile.append(main, tools);
+        grid.append(tile);
+      }
+    }
+
     function renderItems(reset) {
       const grid = $('item-grid');
       if (category === 'colors') return renderColors();
+      if (category === 'outfits') return renderOutfits();
       $('color-pane').classList.add('hidden');
       grid.classList.remove('hidden');
       if (category === 'wearing') {
@@ -291,9 +434,12 @@
       const entry = CATEGORIES.find((item) => item.key === key);
       $('cat-title').textContent = keyword ? `${entry.label}: "${keyword}"` : entry.label;
       document.querySelectorAll('.cat-link').forEach((link) => link.classList.toggle('active', link.dataset.category === key));
-      $('cat-search-form').classList.toggle('hidden', key === 'wearing' || key === 'colors');
+      $('cat-search-form').classList.toggle('hidden', key === 'wearing' || key === 'colors' || key === 'outfits');
       setCatStatus('');
-      if (key === 'wearing' || key === 'colors') renderItems(true);
+      if (key === 'outfits') {
+        renderOutfits();
+        loadOutfits();
+      } else if (key === 'wearing' || key === 'colors') renderItems(true);
       else {
         $('item-grid').textContent = '';
         renderItems(true);
@@ -366,8 +512,13 @@
 
     // --- modes ----------------------------------------------------------------------------------
 
+    let accountShown = null;
+    const me = () => accountShown;
+
     async function loadAccount(account) {
       mode = 'account';
+      accountShown = account || null;
+      outfitList = null;
       $('avatar-guest').classList.add('hidden');
       $('avatar-editor').classList.remove('hidden');
       $('stage-name').textContent = account ? account.name : '';

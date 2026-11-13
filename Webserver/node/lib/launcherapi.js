@@ -16,6 +16,13 @@
 //   GET  friends          (session) friends (and where they play), requests
 //   POST friends/request  (session) {name} or {userId}
 //   POST friends/accept | decline | cancel | remove   (session) {userId}
+//   GET  people           ?search= -> accounts (online first), with where they play
+//   GET  profile/<userId> a player's profile: bio, where they play, friends
+//   POST profile          (session) {bio} -> your profile
+//   GET  outfits          (session) your saved avatars
+//   POST outfits          (session) {name, image: PNG as base64} saves what you wear
+//   POST outfits/<id>/wear | rename {name} | delete   (session)
+//   GET  outfit-image/<userId>/<id>   an outfit's picture
 //
 // The session is the token from login, sent as "Authorization: Bearer ...",
 // the same accounts and sessions Studio uses (lib/accounts.js).
@@ -36,6 +43,7 @@ const avatar = require('./avatar');
 const avatarStore = require('./avatarstore');
 const games = require('./games');
 const friends = require('./friends');
+const outfits = require('./outfits');
 const announcements = require('./announcements');
 const wearables = require('./wearables');
 
@@ -620,7 +628,106 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
       if (result.error) return sendJson(ctx, result.status || 502, { error: result.error });
       return sendJson(ctx, 200, result);
     }
+    const people = await peopleRoute(ctx, action, method);
+    if (people !== false) return people;
     return sendJson(ctx, 404, { error: 'unknown launcher request' });
+  }
+
+  // --- people, profiles and outfits ----------------------------------------------------------
+
+  // A player as the People tab shows them, seen by viewer (an account or null).
+  function personFor(person, viewer, online) {
+    const where = online.find((entry) => entry.userId === person.userId
+      || entry.name.toLowerCase() === person.name.toLowerCase()) || null;
+    const self = Boolean(viewer && viewer.userId === person.userId);
+    return {
+      userId: person.userId,
+      name: person.name,
+      admin: Boolean(person.admin),
+      self,
+      online: where ? { gameId: where.gameId, gameName: where.gameName, placeId: where.placeId } : null,
+      friendStatus: viewer && !self ? friends.status(viewer.userId, person.userId) : null,
+    };
+  }
+
+  // Answers people/profile/outfit requests; false when the action is not one.
+  async function peopleRoute(ctx, action, method) {
+    if (action === 'people' && method === 'GET') {
+      const viewer = account(ctx);
+      const online = onlinePlayers();
+      const found = accounts.search(ctx.queryLower.search || '', 60).map((person) => personFor(person, viewer, online))
+        .sort((a, b) => Number(Boolean(b.online)) - Number(Boolean(a.online)));
+      return sendJson(ctx, 200, { people: found });
+    }
+    const profileMatch = /^profile\/(\d{1,15})$/.exec(action);
+    if (profileMatch && method === 'GET') {
+      const found = accounts.profile(profileMatch[1]);
+      if (!found) return sendJson(ctx, 404, { error: 'Nobody on this server has that user ID.' });
+      const person = personFor(found, account(ctx), onlinePlayers());
+      return sendJson(ctx, 200, Object.assign(person, {
+        bio: found.bio, joinedAt: found.joinedAt,
+        friendCount: friends.friendIds(found.userId).filter((id) => accounts.byUserId(id)).length,
+      }));
+    }
+    if (action === 'profile' && method === 'POST') {
+      const who = needAccount(ctx);
+      if (!who) return undefined;
+      const body = await jsonBody(ctx);
+      if (typeof body.bio !== 'string') return sendJson(ctx, 400, { error: 'Send the bio as text.' });
+      if (body.bio.length > 2000) return sendJson(ctx, 400, { error: `A bio is at most ${accounts.MAX_BIO} characters.` });
+      const saved = accounts.setBio(who.userId, body.bio);
+      return saved ? sendJson(ctx, 200, Object.assign(personFor(saved, who, onlinePlayers()), { bio: saved.bio, joinedAt: saved.joinedAt }))
+        : sendJson(ctx, 404, { error: 'Your account is gone. Sign in again.' });
+    }
+    const image = /^outfit-image\/(\d{1,15})\/([0-9a-f]{12})$/.exec(action);
+    if (image && method === 'GET') {
+      const file = outfits.imagePath(image[1], image[2]);
+      let bytes = null;
+      try { bytes = file ? fs.readFileSync(file) : null; } catch (error) { bytes = null; }
+      if (!bytes) return sendJson(ctx, 404, { error: 'no picture' });
+      return send(ctx, 200, { 'Content-Type': 'image/png', 'Cache-Control': 'max-age=86400' }, bytes);
+    }
+    if (action === 'outfits' && method === 'GET') {
+      const who = needAccount(ctx);
+      if (who) sendJson(ctx, 200, { outfits: outfits.list(who.userId), max: outfits.MAX_OUTFITS });
+      return undefined;
+    }
+    if (action === 'outfits' && method === 'POST') {
+      const who = needAccount(ctx);
+      if (!who) return undefined;
+      const body = await jsonBody(ctx);
+      const wearing = await describeAvatar(who);
+      let picture = null;
+      if (typeof body.image === 'string' && body.image) {
+        picture = Buffer.from(body.image.replace(/^data:image\/png;base64,/, ''), 'base64');
+      }
+      const result = outfits.add(who.userId, { name: body.name, avatar: wearing, image: picture });
+      if (result.error) return sendJson(ctx, 400, { error: result.error });
+      return sendJson(ctx, 200, { outfit: result.outfit, outfits: outfits.list(who.userId), max: outfits.MAX_OUTFITS });
+    }
+    const outfitMatch = /^outfits\/([0-9a-f]{12})\/(wear|rename|delete)$/.exec(action);
+    if (outfitMatch && method === 'POST') {
+      const who = needAccount(ctx);
+      if (!who) return undefined;
+      const [, id, verb] = outfitMatch;
+      const outfit = outfits.get(who.userId, id);
+      if (!outfit) return sendJson(ctx, 404, { error: 'That outfit is gone.' });
+      if (verb === 'delete') {
+        outfits.remove(who.userId, id);
+        return sendJson(ctx, 200, { outfits: outfits.list(who.userId), max: outfits.MAX_OUTFITS });
+      }
+      if (verb === 'rename') {
+        const body = await jsonBody(ctx);
+        outfits.rename(who.userId, id, body.name);
+        return sendJson(ctx, 200, { outfits: outfits.list(who.userId), max: outfits.MAX_OUTFITS });
+      }
+      // Wear: checked again like an edit (items may have stopped working).
+      const cleaned = await cleanAvatar({ bodyColors: outfit.bodyColors, assets: outfit.assets });
+      if (cleaned.error) return sendJson(ctx, 400, { error: cleaned.error });
+      avatarStore.set(who.userId, cleaned.avatar, 'outfit');
+      return sendJson(ctx, 200, Object.assign(await describeAvatar(who), { outfit: outfit.name }));
+    }
+    return false;
   }
 
   return {

@@ -231,6 +231,51 @@ function list() {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+// --- profiles (the launcher's People tab) --------------------------------------------------
+
+const MAX_BIO = 200;
+
+function cleanBio(text) {
+  return String(text || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, '')
+    .split('\n').slice(0, 4).join('\n')
+    .trim()
+    .slice(0, MAX_BIO);
+}
+
+// What anyone may see of an account -> { name, userId, admin, bio, joinedAt } or null.
+function profile(userId) {
+  const data = load();
+  const account = Object.values(data.accounts).find((entry) => String(entry.userId) === String(userId));
+  if (!account) return null;
+  return Object.assign(publicAccount(account), { bio: account.bio || '', joinedAt: account.createdAt || null });
+}
+
+function setBio(userId, text) {
+  const data = load();
+  const account = Object.values(data.accounts).find((entry) => String(entry.userId) === String(userId));
+  if (!account) return null;
+  account.bio = cleanBio(text);
+  save(data);
+  return profile(userId);
+}
+
+// Accounts whose name contains the text (names starting with it first) -> [publicAccount].
+function search(text, limit = 40) {
+  const needle = String(text || '').trim().toLowerCase();
+  const data = load();
+  return Object.values(data.accounts)
+    .filter((account) => !needle || account.name.toLowerCase().includes(needle))
+    .sort((a, b) => {
+      const pa = needle && a.name.toLowerCase().startsWith(needle) ? 0 : 1;
+      const pb = needle && b.name.toLowerCase().startsWith(needle) ? 0 : 1;
+      return pa - pb || a.name.localeCompare(b.name);
+    })
+    .slice(0, limit)
+    .map(publicAccount);
+}
+
 function setAdmin(name, admin) {
   const data = load();
   const account = data.accounts[String(name || '').toLowerCase()];
@@ -293,5 +338,6 @@ function checkEditToken(token) {
 
 module.exports = {
   login, logout, fromToken, fromRequest, cookieToken, bearerToken, byUserId, byName, list, setAdmin, remove,
+  profile, setBio, search, MAX_BIO,
   editToken, checkEditToken, mac, checkMac, NAME_RE, MIN_PASSWORD,
 };

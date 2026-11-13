@@ -413,3 +413,50 @@ button.icon-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColo
 .loading-bar { width: 300px; height: 4px; background: rgba(255, 255, 255, .14); margin-top: 12px; }
 .loading-bar > div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
 .loading-cancel { position: absolute; right: 34px; bottom: 30px; }
+
+/* People: search, profiles, Home's friends ------------------------------------- */
+.people-search input { width: 300px; }
+.player-card .badge-admin { position: absolute; top: 8px; left: 8px; background: #f2b33d; color: #2a1a00; font-size: 11px; font-weight: 800; letter-spacing: 1px; padding: 2px 7px; }
+.profile { position: relative; display: flex; gap: 34px; width: min(980px, 86vw); align-items: flex-start; }
+.profile-pic { width: 36%; aspect-ratio: 1 / 1; flex: none; display: grid; place-items: center; overflow: hidden;
+  background: linear-gradient(180deg, rgba(48, 92, 116, .9), rgba(28, 58, 76, .9)); }
+.profile-pic img { width: 100%; height: 100%; object-fit: contain; }
+.profile-pic svg { height: 60%; fill: rgba(255, 255, 255, .18); }
+.profile-info { flex: 1; display: flex; flex-direction: column; min-width: 0; padding-top: 10px; }
+.profile-name { font-size: 44px; font-weight: 300; line-height: 1.1; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.profile-badge { font-size: 13px; font-weight: 800; letter-spacing: 1px; background: #f2b33d; color: #2a1a00; padding: 3px 9px; }
+.profile-where { font-size: 18px; margin-top: 10px; color: var(--muted); }
+.profile-where.online { color: var(--good); }
+.profile-meta { color: var(--muted); font-size: 15px; margin-top: 6px; }
+.profile-bio { font-size: 16px; line-height: 1.5; margin-top: 16px; white-space: pre-line; overflow-wrap: anywhere; }
+.profile-bio.empty { color: var(--muted); font-style: italic; }
+.profile-bio-form textarea { width: 100%; margin-top: 16px; resize: vertical; background: rgba(0, 0, 0, .3); border: 1px solid var(--line); color: #fff; padding: 10px; font: inherit; }
+.profile-actions { margin-top: 22px; }
+.profile-back { position: absolute; right: 0; top: -54px; }
+.home-friends { margin-bottom: 18px; max-width: 1700px; }
+.home-friends .col-title { margin-bottom: 8px; }
+.friends-strip { display: flex; gap: 16px; overflow-x: auto; padding: 4px 2px 6px; }
+.friend-bubble { flex: none; width: 80px; background: none; border: 0; color: inherit; cursor: pointer; padding: 0; text-align: center; }
+.friend-bubble .bubble-pic { width: 68px; height: 68px; margin: 0 auto; border-radius: 50%; overflow: hidden; display: grid; place-items: center;
+  background: linear-gradient(180deg, rgba(48, 92, 116, .9), rgba(28, 58, 76, .9)); border: 3px solid rgba(255, 255, 255, .12); }
+.friend-bubble .bubble-pic img { width: 100%; height: 100%; object-fit: cover; }
+.friend-bubble .bubble-pic svg { height: 60%; fill: rgba(255, 255, 255, .18); }
+.friend-bubble.online .bubble-pic { border-color: var(--good); }
+.friend-bubble .bubble-name { font-size: 13px; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.friend-bubble .bubble-where { font-size: 11px; color: var(--good); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.friend-bubble:focus-visible { outline: none; }
+.friend-bubble:focus-visible .bubble-pic, .friend-bubble:hover .bubble-pic { border-color: #fff; }
+
+/* Outfits (Avatar tab) ---------------------------------------------------------- */
+.outfit-new { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.outfit-new:disabled { opacity: .45; cursor: default; }
+.outfit-plus { font-size: 46px; font-weight: 300; line-height: 1; color: var(--accent); }
+.outfit-tile { display: flex; flex-direction: column; padding: 0; }
+.outfit-main { flex: 1; display: flex; flex-direction: column; align-items: center; background: none; border: 0; color: inherit; cursor: pointer; padding: 6px 6px 0; min-height: 0; }
+.outfit-main img { width: 100%; aspect-ratio: 1 / 1; object-fit: contain; }
+.outfit-tools { display: flex; }
+.outfit-tool { flex: 1; background: rgba(255, 255, 255, .07); border: 0; color: var(--muted); font-size: 11px; padding: 5px 0; cursor: pointer; }
+.outfit-tool:hover { background: rgba(255, 255, 255, .16); color: #fff; }
+.outfit-name-form { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center; padding: 8px 0; }
+.outfit-name-form input { flex: 1; min-width: 0; max-width: 300px; }
+.outfit-name-label { color: var(--muted); font-size: 13px; }

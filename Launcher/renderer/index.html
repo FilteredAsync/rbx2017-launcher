@@ -60,13 +60,17 @@
       <button class="tab-link active" data-view="home">Home</button>
       <button class="tab-link" data-view="avatar">Avatar</button>
       <button class="tab-link" data-view="games">Games</button>
-      <button class="tab-link" data-view="players">Friends<span class="tab-badge hidden" id="friends-badge"></span></button>
+      <button class="tab-link" data-view="players">People<span class="tab-badge hidden" id="friends-badge"></span></button>
       <button class="tab-link" data-view="settings">Settings</button>
     </nav>
 
     <!-- HOME -->
     <section class="view active" id="view-home">
       <div class="news hidden" id="news"></div>
+      <div class="home-friends hidden" id="home-friends">
+        <div class="col-title">FRIENDS <span class="section-note" id="home-friends-note"></span></div>
+        <div class="friends-strip" id="friends-strip"></div>
+      </div>
       <div class="home-grid">
         <div class="col col-me">
           <div class="col-title" id="home-username">GUEST</div>
@@ -154,26 +158,30 @@
       <div class="all-games" id="all-games"></div>
     </section>
 
-    <!-- FRIENDS (and everyone playing now) -->
+    <!-- PEOPLE: find players, friends, requests -->
     <section class="view" id="view-players">
+      <form class="toolbar people-search" id="people-search-form" autocomplete="off">
+        <input id="people-search" placeholder="Find a player" maxlength="20" spellcheck="false">
+        <button class="icon-btn accent" id="people-search-go" title="Search" aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg></button>
+        <button type="button" class="ghost" id="people-everyone">Everyone</button>
+        <span class="status" id="friends-status"></span>
+      </form>
+      <div class="hidden" id="people-results">
+        <div class="section-title" id="people-title">PLAYERS</div>
+        <div class="player-grid" id="people-grid"></div>
+      </div>
       <div class="friends-guest hidden" id="friends-guest">
         <div class="guest-title">Friends need an account</div>
         <p class="lead">Guests can't add friends, like in 2016. Sign up to add friends, see where they're playing and join them.</p>
         <button class="primary" id="friends-signin">Sign in or sign up</button>
       </div>
       <div id="friends-area">
-        <form class="toolbar add-friend" id="add-friend-form">
-          <input id="add-friend-name" placeholder="Username" maxlength="20" spellcheck="false" autocomplete="off">
-          <button class="primary" id="add-friend-go">Add friend</button>
-          <span class="status" id="friends-status"></span>
-        </form>
         <div class="section-title hidden" id="requests-title">FRIEND REQUESTS</div>
         <div class="player-grid" id="request-grid"></div>
         <div class="section-title" id="friends-title">FRIENDS</div>
         <div class="player-grid" id="friend-grid"></div>
       </div>
-      <div class="section-title">PLAYING NOW <span class="section-note" id="players-status"></span></div>
-      <div class="player-grid" id="player-grid"></div>
+      <span class="hidden" id="players-status"></span>
     </section>
 
     <!-- SETTINGS -->
@@ -387,6 +395,29 @@
       <div class="loading-bar hidden" id="loading-bar"><div id="loading-bar-fill"></div></div>
     </div>
     <button class="ghost loading-cancel" id="loading-cancel">Cancel</button>
+  </div>
+
+  <!-- A player's profile -->
+  <div class="overlay hidden" id="profile-overlay">
+    <div class="profile">
+      <div class="profile-pic" id="profile-pic"></div>
+      <div class="profile-info">
+        <div class="profile-name"><span id="profile-name"></span><span class="profile-badge hidden" id="profile-admin">ADMIN</span></div>
+        <div class="profile-where" id="profile-where"></div>
+        <div class="profile-meta" id="profile-meta"></div>
+        <div class="profile-bio" id="profile-bio"></div>
+        <form class="profile-bio-form hidden" id="profile-bio-form">
+          <textarea id="profile-bio-text" maxlength="200" rows="4" placeholder="Say something about yourself (200 characters)"></textarea>
+          <div class="row">
+            <button class="primary" id="profile-bio-save">Save</button>
+            <button type="button" class="ghost" id="profile-bio-cancel">Cancel</button>
+          </div>
+        </form>
+        <div class="row profile-actions" id="profile-actions"></div>
+        <div class="status" id="profile-status"></div>
+      </div>
+      <button class="ghost profile-back" id="profile-back">Back</button>
+    </div>
   </div>
 
   <!-- Game details -->

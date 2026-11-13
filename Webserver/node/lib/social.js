@@ -6,9 +6,22 @@
 // so group membership comes from groups.roblox.com (public; cached for ten
 // minutes). IsFriendsWith answers from this server's friends (lib/friends.js).
 // Any lookup problem answers "not in the group" rather than an error.
+// Roblox's admin group (1200769) is this server's admins instead: the 2017
+// player list gives its members the admin star (PlayerPermissionsModule).
 
 const assets = require('./assets');
 const friends = require('./friends');
+
+const ROBLOX_ADMINS = '1200769';
+
+function isServerAdmin(userId) {
+  try {
+    const account = require('./accounts').byUserId(userId);
+    return Boolean(account && account.admin);
+  } catch (error) {
+    return false;
+  }
+}
 
 const CACHE_MS = 10 * 60 * 1000;
 const cache = new Map(); // userId -> { at, groups: Map(groupId -> { rank, role }) }
@@ -44,7 +57,11 @@ const int = (value) => `<Value Type="integer">${Math.trunc(value) || 0}</Value>`
 async function answer(method, query) {
   const playerId = /^\d{1,15}$/.test(String(query.playerid || '')) ? String(query.playerid) : null;
   const groupId = /^\d{1,15}$/.test(String(query.groupid || '')) ? String(query.groupid) : null;
-  const membership = async () => (playerId && groupId ? (await groupsOf(playerId)).get(groupId) : undefined);
+  const membership = async () => {
+    if (!playerId || !groupId) return undefined;
+    if (groupId === ROBLOX_ADMINS) return isServerAdmin(playerId) ? { rank: 255, role: 'Admin' } : undefined;
+    return (await groupsOf(playerId)).get(groupId);
+  };
   switch (String(method || '')) {
     case 'IsInGroup':
       return { contentType: 'application/xml', body: bool(await membership()) };

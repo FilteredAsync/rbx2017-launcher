@@ -420,6 +420,7 @@ function focusEl(node) {
 
 // What the arrows and the stick move between on the current screen.
 function navPool() {
+  if (!$('profile-overlay').classList.contains('hidden')) return focusables('#profile-overlay');
   if (!$('overlay').classList.contains('hidden')) return focusables('#overlay');
   if (screen === 'start') return [$('start-press')];
   if (screen === 'account') return focusables('#screen-account');
@@ -461,6 +462,7 @@ function move(dx, dy) {
 
 function goBack() {
   if (loading) return;
+  if (!$('profile-overlay').classList.contains('hidden')) { closeProfile(); return; }
   if (!$('overlay').classList.contains('hidden')) { closeDetail(); return; }
   if (screen === 'account') { showScreen('start'); return; }
   if (screen !== 'shell') return;
@@ -634,6 +636,7 @@ function onlineMatch(entry) {
 let onlinePlayers = [];
 
 function renderHome() {
+  renderFriendsStrip();
   const rows = [
     ['Server', serverAddress() ? hostOf(serverAddress()) : 'Not set'],
     ['Games online', String(lastGames.length)],
@@ -968,10 +971,11 @@ api.onStudioProgress((info) => {
 });
 $('play-close').addEventListener('click', () => api.stopClient());
 
-// --- friends and players --------------------------------------------------------------------
+// --- people: friends, search, profiles --------------------------------------------------------
 
 let refreshingPlayers = false;
 let friendData = null; // { friends, incoming, outgoing } for the signed-in account
+let peopleResults = null; // the last search: { title, people }
 
 async function refreshOnlinePlayers(quiet) {
   if (refreshingPlayers || !serverAddress()) return;
@@ -983,13 +987,13 @@ async function refreshOnlinePlayers(quiet) {
     ]);
     onlinePlayers = Array.isArray(data.players) ? data.players : [];
     friendData = mine;
-    setStatus('players-status', onlinePlayers.length ? `${onlinePlayers.length} in games` : 'nobody right now');
   } catch (error) {
-    if (!quiet) setStatus('players-status', message(error), 'error');
+    if (!quiet) setStatus('friends-status', message(error), 'error');
   } finally {
     refreshingPlayers = false;
     updateFriendsBadge();
     if (view === 'players') renderPlayers();
+    renderFriendsStrip();
   }
 }
 
@@ -1001,34 +1005,40 @@ function updateFriendsBadge() {
 
 const SILHOUETTE = '<svg viewBox="0 0 100 120" aria-hidden="true"><rect x="34" y="8" width="32" height="30" rx="4"/><rect x="26" y="42" width="48" height="44" rx="3"/><rect x="12" y="44" width="12" height="38" rx="3"/><rect x="76" y="44" width="12" height="38" rx="3"/><rect x="28" y="88" width="20" height="30" rx="3"/><rect x="52" y="88" width="20" height="30" rx="3"/></svg>';
 
-// A card: picture, name and where they are; clicking it opens their game.
-// actions: [[label, verb, className]], buttons under it.
+// The player's picture (the one their launcher drew), or the silhouette.
+function personPicture(box, userId, size = 150) {
+  box.innerHTML = SILHOUETTE;
+  if (userId === null || userId === undefined || Number(userId) <= 0) return;
+  const img = el('img');
+  img.alt = '';
+  img.src = `launcher-net://server/avatar-thumbnail/image?userId=${encodeURIComponent(userId)}&width=${size}&height=${size}`;
+  img.addEventListener('load', () => { box.textContent = ''; box.append(img); });
+}
+
+function onlineGame(person) {
+  const gameId = person.gameId || (person.online && person.online.gameId) || null;
+  return gameId ? lastGames.find((game) => game.id === gameId) || null : null;
+}
+
+// A card: picture, name and where they are; clicking it opens their profile.
+// actions: [[label, verb, className]], buttons under it ('join' joins their game).
 function personCard(person, where, actions = []) {
   const card = el('div', 'player-card');
   const main = el('button', 'card-main nav-target');
   main.dataset.player = person.name;
   if (me && me.account.name.toLowerCase() === person.name.toLowerCase()) card.classList.add('you');
-  const gameId = person.gameId || (person.online && person.online.gameId) || null;
-  if (gameId) card.classList.add('online');
+  if (person.gameId || person.online) card.classList.add('online');
   const pic = el('div', 'player-pic');
-  pic.innerHTML = SILHOUETTE;
-  if (person.userId !== null && person.userId !== undefined) {
-    const img = el('img');
-    img.alt = '';
-    img.src = `launcher-net://server/avatar-thumbnail/image?userId=${encodeURIComponent(person.userId)}&width=150&height=150`;
-    img.addEventListener('load', () => { pic.textContent = ''; pic.append(img); });
-  }
+  personPicture(pic, person.userId);
   main.append(pic, el('div', 'player-name', person.name), el('div', 'player-where', where));
-  main.addEventListener('click', () => {
-    const game = lastGames.find((item) => item.id === gameId);
-    if (game) openDetail(game);
-  });
+  if (person.admin) main.append(el('span', 'badge-admin', 'ADMIN'));
+  main.addEventListener('click', () => openProfile(person));
   card.append(main);
   if (actions.length) {
     const row = el('div', 'card-actions');
     for (const [label, verb, kind] of actions) {
       const button = el('button', kind || 'ghost', label);
-      button.addEventListener('click', () => friendAction(verb, person));
+      button.addEventListener('click', () => (verb === 'join' ? joinPerson(person) : friendAction(verb, person)));
       row.append(button);
     }
     card.append(row);
@@ -1036,42 +1046,106 @@ function personCard(person, where, actions = []) {
   return card;
 }
 
-async function friendAction(verb, person) {
-  if (verb === 'remove' && !window.confirm(`Remove ${person.name} from your friends?`)) return;
-  setStatus('friends-status', '');
+const FRIEND_TEXTS = {
+  request: (r) => (r.became === 'friends' ? `You and ${r.name} are now friends!` : `Friend request sent to ${r.name}.`),
+  accept: (r) => `You and ${r.name} are now friends!`,
+  decline: (r) => `Declined ${r.name}'s request.`,
+  cancel: (r) => `Took back your request to ${r.name}.`,
+  remove: (r) => `${r.name} is no longer your friend.`,
+};
+
+// -> true when it worked
+async function friendAction(verb, person, statusId = 'friends-status') {
+  if (verb === 'remove' && !window.confirm(`Remove ${person.name} from your friends?`)) return false;
+  setStatus(statusId, '');
+  let ok = false;
   try {
     const result = await api.friendAction(verb, { name: person.name });
     friendData = result;
-    const texts = {
-      request: result.became === 'friends' ? `You and ${result.name} are now friends!` : `Friend request sent to ${result.name}.`,
-      accept: `You and ${result.name} are now friends!`,
-      decline: `Declined ${result.name}'s request.`,
-      cancel: `Took back your request to ${result.name}.`,
-      remove: `${result.name} is no longer your friend.`,
-    };
-    setStatus('friends-status', texts[verb], 'good');
+    setStatus(statusId, FRIEND_TEXTS[verb](result), 'good');
+    ok = true;
   } catch (error) {
-    setStatus('friends-status', message(error), 'error');
+    setStatus(statusId, message(error), 'error');
   }
   updateFriendsBadge();
   renderPlayers();
+  renderFriendsStrip();
+  if (ok && peopleResults) searchPeople(peopleResults.search, true);
+  return ok;
 }
 
-$('add-friend-form').addEventListener('submit', (event) => {
+function joinPerson(person) {
+  const game = onlineGame(person);
+  if (!game) {
+    setStatus('friends-status', `${person.name}'s game is not in the game list right now.`, 'error');
+    return;
+  }
+  closeProfile();
+  openDetail(game);
+  $('detail-play').click();
+}
+
+// Where someone is, and how you two relate.
+function relation(person) {
+  const status = person.friendStatus;
+  if (status === 'Friend') return ' · friend';
+  if (status === 'FriendRequestSent') return ' · request sent';
+  if (status === 'FriendRequestReceived') return ' · wants to be your friend';
+  return '';
+}
+
+function whereText(person) {
+  const game = person.online || (person.gameId ? { gameName: person.gameName } : null);
+  return game ? `in ${game.gameName}` : 'offline';
+}
+
+async function searchPeople(search, quiet) {
+  const text = String(search || '').trim();
+  if (!quiet) setStatus('friends-status', text ? `Looking for "${text}"…` : 'Loading everyone…');
+  try {
+    const data = await api.people(text);
+    peopleResults = { search: text, people: data.people || [] };
+    if (!quiet) setStatus('friends-status', '');
+  } catch (error) {
+    setStatus('friends-status', message(error), 'error');
+    return;
+  }
+  renderPlayers();
+}
+
+$('people-search-form').addEventListener('submit', (event) => {
   event.preventDefault();
-  const name = $('add-friend-name').value.trim();
-  if (!/^[A-Za-z0-9_]{3,20}$/.test(name)) { setStatus('friends-status', 'Type their username (3-20 letters, digits or _).', 'error'); return; }
-  $('add-friend-name').value = '';
-  friendAction('request', { name });
+  const text = $('people-search').value.trim();
+  if (text && !/^[A-Za-z0-9_]{1,20}$/.test(text)) { setStatus('friends-status', 'Names have letters, digits and _ only.', 'error'); return; }
+  searchPeople(text);
 });
+$('people-everyone').addEventListener('click', () => { $('people-search').value = ''; searchPeople(''); });
 $('friends-signin').addEventListener('click', () => { setAccountMode('signup'); showScreen('account'); });
 
 function renderPlayers() {
   const focusedName = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.player : null;
   $('friends-guest').classList.toggle('hidden', Boolean(me));
   $('friends-area').classList.toggle('hidden', !me);
-  const friendIds = new Set(me && friendData ? friendData.friends.map((friend) => friend.userId) : []);
-  const pending = new Set(me && friendData ? [...friendData.incoming, ...friendData.outgoing].map((person) => person.userId) : []);
+
+  // Search results.
+  $('people-results').classList.toggle('hidden', !peopleResults);
+  if (peopleResults) {
+    const grid = $('people-grid');
+    grid.textContent = '';
+    const { search, people } = peopleResults;
+    const playing = people.filter((person) => person.online).length;
+    $('people-title').textContent = search
+      ? `PLAYERS NAMED "${search.toUpperCase()}" (${people.length})`
+      : `EVERYONE ON THIS SERVER (${people.length}${playing ? `, ${playing} playing` : ''})`;
+    for (const person of people) {
+      const actions = [];
+      if (person.online && onlineGame(person) && !person.self) actions.push(['Join', 'join', 'primary']);
+      if (me && !person.self && person.friendStatus === 'NotFriend') actions.push(['Add friend', 'request']);
+      if (me && person.friendStatus === 'FriendRequestReceived') actions.push(['Accept', 'accept', 'primary']);
+      grid.append(personCard(person, `${whereText(person)}${relation(person)}`, actions));
+    }
+    if (!people.length) grid.append(el('div', 'empty-note', search ? `Nobody here is called anything like "${search}".` : 'Nobody has an account here yet.'));
+  }
 
   if (me) {
     const requests = $('request-grid');
@@ -1092,25 +1166,145 @@ function renderPlayers() {
     const playing = mine.filter((friend) => friend.online).length;
     $('friends-title').textContent = mine.length ? `FRIENDS (${playing} of ${mine.length} playing)` : 'FRIENDS';
     for (const friend of mine) {
-      list.append(personCard(friend, friend.online ? `in ${friend.online.gameName}` : 'offline', [['Unfriend', 'remove']]));
+      list.append(personCard(friend, whereText(friend), friend.online && onlineGame(friend) ? [['Join', 'join', 'primary']] : []));
     }
-    if (!mine.length) list.append(el('div', 'empty-note', 'No friends yet. Add someone by name, or from the players below.'));
-  }
-
-  const grid = $('player-grid');
-  grid.textContent = '';
-  if (!onlinePlayers.length) grid.append(el('div', 'empty-note', 'Nobody is in a game right now.'));
-  for (const player of onlinePlayers) {
-    const self = me && me.account.name.toLowerCase() === player.name.toLowerCase();
-    const canAdd = me && !self && player.userId > 0 && !player.guest && !friendIds.has(player.userId) && !pending.has(player.userId);
-    const note = friendIds.has(player.userId) ? ' · friend' : (pending.has(player.userId) ? ' · request pending' : '');
-    grid.append(personCard(player, `in ${player.gameName}${note}`, canAdd ? [['Add friend', 'request']] : []));
+    if (!mine.length) list.append(el('div', 'empty-note', 'No friends yet. Find someone above, open their profile and add them.'));
   }
   if (focusedName) {
     const again = [...document.querySelectorAll('#view-players .card-main')].find((node) => node.dataset.player === focusedName);
     if (again) again.focus({ preventScroll: true });
   }
 }
+
+// Home: friends, the ones in a game first.
+function renderFriendsStrip() {
+  const box = $('home-friends');
+  const mine = me && friendData ? friendData.friends : [];
+  box.classList.toggle('hidden', !me);
+  if (!me) return;
+  const strip = $('friends-strip');
+  strip.textContent = '';
+  const playing = mine.filter((friend) => friend.online).length;
+  $('home-friends-note').textContent = mine.length ? `${playing} of ${mine.length} playing` : '';
+  for (const friend of mine.slice(0, 24)) {
+    const bubble = el('button', `friend-bubble nav-target${friend.online ? ' online' : ''}`);
+    const pic = el('div', 'bubble-pic');
+    personPicture(pic, friend.userId, 150);
+    bubble.append(pic, el('div', 'bubble-name', friend.name));
+    if (friend.online) bubble.append(el('div', 'bubble-where', friend.online.gameName));
+    bubble.title = friend.online ? `${friend.name}: in ${friend.online.gameName}` : `${friend.name}: offline`;
+    bubble.addEventListener('click', () => openProfile(friend));
+    strip.append(bubble);
+  }
+  if (!mine.length) {
+    const find = el('button', 'friend-bubble nav-target');
+    const pic = el('div', 'bubble-pic');
+    pic.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" style="height:46%;fill:none;stroke:#fff;stroke-width:2.4;stroke-linecap:round"><path d="M12 5v14M5 12h14"/></svg>';
+    find.append(pic, el('div', 'bubble-name', 'Find friends'));
+    find.addEventListener('click', () => { showView('players', true); searchPeople(''); });
+    strip.append(find);
+  }
+}
+
+// --- profile overlay ---------------------------------------------------------------------------
+
+let profilePerson = null; // the profile shown
+
+function closeProfile() {
+  profilePerson = null;
+  $('profile-overlay').classList.add('hidden');
+  const first = firstFocusable(`#view-${view}`);
+  if (first) focusEl(first);
+}
+
+function profileButton(label, kind, onClick) {
+  const button = el('button', kind, label);
+  button.addEventListener('click', onClick);
+  return button;
+}
+
+function renderProfile(person) {
+  $('profile-name').textContent = person.name;
+  $('profile-admin').classList.toggle('hidden', !person.admin);
+  const game = onlineGame(person);
+  $('profile-where').textContent = person.online ? `Playing ${person.online.gameName}` : 'Offline';
+  $('profile-where').classList.toggle('online', Boolean(person.online));
+  const meta = [];
+  if (person.joinedAt) meta.push(`Joined ${new Date(person.joinedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}`);
+  if (Number.isFinite(person.friendCount)) meta.push(`${person.friendCount} friend${person.friendCount === 1 ? '' : 's'}`);
+  $('profile-meta').textContent = meta.join(' · ');
+  const bio = $('profile-bio');
+  bio.textContent = person.bio || (person.self ? 'You have no bio yet.' : 'No bio yet.');
+  bio.classList.toggle('empty', !person.bio);
+  $('profile-bio-form').classList.add('hidden');
+  bio.classList.remove('hidden');
+
+  const actions = $('profile-actions');
+  actions.textContent = '';
+  if (person.online && game && !person.self) actions.append(profileButton('Join', 'primary', () => joinPerson(person)));
+  if (person.self) {
+    actions.append(profileButton('Edit bio', 'ghost', () => {
+      $('profile-bio-text').value = person.bio || '';
+      $('profile-bio-form').classList.remove('hidden');
+      bio.classList.add('hidden');
+      focusEl($('profile-bio-text'));
+    }));
+  } else if (me) {
+    const act = (verb) => async () => {
+      if (await friendAction(verb, person, 'profile-status')) openProfile(person, true);
+    };
+    const status = person.friendStatus;
+    if (status === 'Friend') actions.append(profileButton('Unfriend', 'ghost', act('remove')));
+    else if (status === 'FriendRequestSent') actions.append(profileButton('Take back request', 'ghost', act('cancel')));
+    else if (status === 'FriendRequestReceived') {
+      actions.append(profileButton('Accept friend request', 'primary', act('accept')), profileButton('Decline', 'ghost', act('decline')));
+    } else actions.append(profileButton('Add friend', person.online ? 'ghost' : 'primary', act('request')));
+  }
+}
+
+async function openProfile(person, keepStatus) {
+  if (!person || !(Number(person.userId) > 0)) {
+    setStatus('friends-status', `${person ? person.name : 'That player'} is a guest: guests have no profile.`, 'error');
+    return;
+  }
+  profilePerson = person;
+  if (!keepStatus) setStatus('profile-status', 'Loading…');
+  if ($('profile-overlay').classList.contains('hidden')) {
+    personPicture($('profile-pic'), person.userId, 420);
+    renderProfile(Object.assign({ bio: '', friendStatus: null }, person, { self: Boolean(me && me.account.userId === person.userId) }));
+    $('profile-overlay').classList.remove('hidden');
+    focusEl($('profile-back'));
+  }
+  try {
+    const full = await api.profile(person.userId);
+    if (profilePerson !== person) return;
+    renderProfile(full);
+    if (!keepStatus) setStatus('profile-status', '');
+    const first = $('profile-actions').querySelector('button');
+    if (first && document.activeElement === $('profile-back')) focusEl(first);
+  } catch (error) {
+    if (profilePerson === person) setStatus('profile-status', message(error), 'error');
+  }
+}
+
+$('profile-back').addEventListener('click', closeProfile);
+$('profile-bio-cancel').addEventListener('click', () => {
+  $('profile-bio-form').classList.add('hidden');
+  $('profile-bio').classList.remove('hidden');
+});
+$('profile-bio-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  setStatus('profile-status', 'Saving…');
+  try {
+    const saved = await api.saveBio($('profile-bio-text').value);
+    renderProfile(Object.assign({}, saved, { friendCount: undefined }));
+    setStatus('profile-status', 'Saved.', 'good');
+    if (profilePerson) openProfile(profilePerson, true);
+  } catch (error) {
+    setStatus('profile-status', message(error), 'error');
+  }
+});
+$('profile-overlay').addEventListener('click', (event) => { if (event.target === $('profile-overlay')) closeProfile(); });
 
 // --- host --------------------------------------------------------------------------------
 

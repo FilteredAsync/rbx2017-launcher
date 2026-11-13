@@ -15,7 +15,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const SERVER_PATHS = /^(?:asset\/?|asset-thumbnail\/image|bundle-thumbnail\/image|avatar-thumbnail\/image|headshot-thumbnail\/image|api\/launcher\/item\/\d{1,19}|api\/thumbnails\/\d{1,15})$/i;
+const SERVER_PATHS = /^(?:asset\/?|asset-thumbnail\/image|bundle-thumbnail\/image|avatar-thumbnail\/image|headshot-thumbnail\/image|api\/launcher\/item\/\d{1,19}|api\/launcher\/outfit-image\/\d{1,15}\/[0-9a-f]{12}|api\/thumbnails\/\d{1,15})$/i;
 // The ROBLOX logo comes from the server (the public download has none) and
 // is kept in config/ so it shows offline too.
 const LOGO_PATH = /^download\/(roblox-logo(?:-tagline)?\.png)$/i;
@@ -144,6 +144,14 @@ module.exports = function accountModule({ ROOT, lib }) {
   async function authed(centralUrl, method, route, options = {}) {
     const { url, token } = withSession(centralUrl);
     return request(url, method, route, Object.assign({ token }, options));
+  }
+
+  // With the session when there is one (the server then says how you and
+  // others relate), without it for guests.
+  async function maybeAuthed(centralUrl, method, route, options = {}) {
+    const url = serverUrl(centralUrl);
+    const entry = session(url);
+    return request(url, method, route, Object.assign({ token: entry ? entry.token : null }, options));
   }
 
   async function open(centralUrl, method, route, options = {}) {
@@ -296,6 +304,15 @@ module.exports = function accountModule({ ROOT, lib }) {
     players: (centralUrl) => open(centralUrl, 'GET', 'players', { timeoutMs: 8000 }),
     announcements: (centralUrl) => open(centralUrl, 'GET', 'announcements', { timeoutMs: 8000 }),
     friends: (centralUrl) => authed(centralUrl, 'GET', 'friends', { timeoutMs: 8000 }),
+    people: (centralUrl, search) => maybeAuthed(centralUrl, 'GET', `people?search=${encodeURIComponent(String(search || '').slice(0, 20))}`, { timeoutMs: 8000 }),
+    profile: (centralUrl, userId) => maybeAuthed(centralUrl, 'GET', `profile/${encodeURIComponent(String(userId))}`, { timeoutMs: 8000 }),
+    saveBio: (centralUrl, bio) => authed(centralUrl, 'POST', 'profile', { body: { bio: String(bio || '') } }),
+    outfits: (centralUrl) => authed(centralUrl, 'GET', 'outfits'),
+    saveOutfit: (centralUrl, body) => authed(centralUrl, 'POST', 'outfits', { body, timeoutMs: 40000 }),
+    outfitAction: (centralUrl, id, verb, body) => {
+      if (!/^[0-9a-f]{12}$/.test(String(id)) || !['wear', 'rename', 'delete'].includes(verb)) throw new Error('unknown outfit action');
+      return authed(centralUrl, 'POST', `outfits/${id}/${verb}`, { body: body || {}, timeoutMs: 40000 });
+    },
     friendAction: (centralUrl, verb, body) => {
       if (!['request', 'accept', 'decline', 'cancel', 'remove'].includes(verb)) throw new Error('unknown friends action');
       return authed(centralUrl, 'POST', `friends/${verb}`, { body });

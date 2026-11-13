@@ -732,6 +732,12 @@ function registerIpc() {
   ipcMain.handle('announcements:list', () => listAnnouncements());
   ipcMain.handle('friends:list', () => account.friends());
   ipcMain.handle('friends:action', (event, { verb, body }) => account.friendAction(undefined, verb, body || {}));
+  ipcMain.handle('people:search', (event, search) => account.people(undefined, search));
+  ipcMain.handle('people:profile', (event, userId) => account.profile(undefined, userId));
+  ipcMain.handle('profile:bio', (event, bio) => account.saveBio(undefined, bio));
+  ipcMain.handle('outfits:list', () => account.outfits());
+  ipcMain.handle('outfits:save', (event, body) => account.saveOutfit(undefined, body || {}));
+  ipcMain.handle('outfits:action', (event, { id, verb, body }) => account.outfitAction(undefined, id, verb, body));
 
   // Place converter (Webserver/node/convert-place.js): pick a newer .rbxlx,
   // write <name>.2017.rbxlx beside it, and optionally host it.

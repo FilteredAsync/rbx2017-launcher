@@ -5,10 +5,11 @@ A launcher, web server and hosting tools for playing a 2017-era Roblox client
 
 - **Launcher** (`Launcher/`, Electron): laid out like the 2016-2017 Xbox One
   app, with a "press A" start screen, sign-in (accounts on your server, or
-  play as a guest), Home with your avatar, recently played and online games,
-  a 3D avatar editor (hats, faces, clothes, packages and body colors from
-  the Roblox catalog), friends (and which game they are in), menu music and
-  controller support. Joins games (a local proxy and UDP relay let the 2017 client
+  play as a guest), Home with your avatar, friends, recently played and
+  online games, a 3D avatar editor (hats, faces, clothes, packages and body
+  colors from the Roblox catalog, and saved outfits), People (find players,
+  profiles with a bio, friends and which game they are in, join them), a
+  loading screen, menu music and controller support. Joins games (a local proxy and UDP relay let the 2017 client
   reach servers on other PCs), opens Roblox Studio, hosts games, runs the
   web server, and converts places.
 - **Web server** (`Webserver/node/`, Node.js, no dependencies): accounts,
