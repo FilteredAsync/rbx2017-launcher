@@ -125,6 +125,11 @@ hair, faces, heads, shirts, pants, t-shirts, packages, body colors). A new
 account starts with what the Roblox account with the same name wears. The
 avatars and their pictures are kept in Webserver\node\data\avatars.json and
 data\avatar-images\; the catalog comes from Roblox (this PC needs internet).
+Friends: players add each other in the launcher's Friends tab (by name, or
+from the players in games right now) or with "Send Friend Request" in a
+game's player list, and see which game their friends are in. Games that check
+friendship (IsFriendsWith, GetFriendsAsync) use these friends; they are kept
+in Webserver\node\data\friends.json.
 Older launchers (1.3.0 and before) join as guests until they update; while
 everyone updates, "allowNamedJoins": true in config\assets.json lets them in
 under their typed name again.

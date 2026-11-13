@@ -1,7 +1,7 @@
 {
   "name": "robloxclient-launcher",
   "productName": "RobloxClient Launcher",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Play, host and run the web server for the RobloxClient 2017 bundle.",
   "author": "rbx2017-launcher",
   "main": "main.js",
@@ -36,7 +36,7 @@
       "account.js",
       "package.json",
       "renderer/**/*",
-      "!renderer/roblox-logo.png"
+      "!renderer/roblox-logo*.png"
     ],
     "extraFiles": [
       {

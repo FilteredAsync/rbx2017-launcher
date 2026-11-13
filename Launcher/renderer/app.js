@@ -73,9 +73,19 @@ function serverAddress() {
   return (state && state.clientConfig && state.clientConfig.centralUrl) || $('play-server').value.trim() || '';
 }
 
-// Without roblox-logo.png (it is not in the git repository) the logo is text.
+// The ROBLOX logo (the 2015-2017 one, as on the Xbox One app) is Roblox's
+// art, so it is not in the git repository or the public download: a launcher
+// without it asks its server for it (account.js keeps a copy in config/),
+// and shows the word if neither has it.
 document.querySelectorAll('.logo-img').forEach((logo) => {
+  const file = logo.getAttribute('src');
+  let triedServer = false;
   const fallback = () => {
+    if (!triedServer) {
+      triedServer = true;
+      logo.src = `launcher-net://server/download/${file}`;
+      return;
+    }
     const text = el('div', `${logo.className.replace('logo-img', '')} logo-text`.trim(), 'ROBLOX');
     logo.replaceWith(text);
   };
@@ -242,6 +252,8 @@ async function signedIn(current, created) {
   storage('lastName', current.account.name);
   updateIdentity();
   enterShell();
+  friendData = null;
+  refreshOnlinePlayers(true);
   const data = await editor.loadAccount(current.account);
   if (created) setStatus('play-status', `Welcome, ${current.account.name}!`, 'good');
   refreshPictures(Boolean(data && !data.hasImage), false);
@@ -260,6 +272,8 @@ async function signOut() {
   await api.signOut().catch(() => {});
   me = null;
   guest = false;
+  friendData = null;
+  updateFriendsBadge();
   editor.clear();
   $('avatar-img').classList.add('hidden');
   $('avatar-silhouette').classList.remove('hidden');
@@ -370,7 +384,7 @@ function firstFocusable(scope) {
   return focusables(scope)[0] || null;
 }
 
-const TILE_CLASSES = ['game-tile', 'avatar-panel', 'more', 'item-tile', 'player-card'];
+const TILE_CLASSES = ['game-tile', 'avatar-panel', 'more', 'item-tile', 'card-main'];
 function focusEl(node) {
   if (!node) return;
   document.querySelectorAll('.focused').forEach((other) => other.classList.remove('focused'));
@@ -457,7 +471,7 @@ document.querySelectorAll('.tab-link').forEach((link) => link.addEventListener('
 document.querySelectorAll('[data-goto]').forEach((node) => node.addEventListener('click', () => showView(node.dataset.goto, true)));
 $('settings-hint').addEventListener('click', openSettings);
 document.addEventListener('mouseover', (event) => {
-  const tile = event.target.closest && event.target.closest('.game-tile.nav-target, .avatar-panel, .more, .player-card');
+  const tile = event.target.closest && event.target.closest('.game-tile.nav-target, .avatar-panel, .more, .card-main');
   if (tile) focusEl(tile);
 });
 
@@ -589,6 +603,7 @@ function renderHome() {
     ['Server', serverAddress() ? hostOf(serverAddress()) : 'Not set'],
     ['Games online', String(lastGames.length)],
     ['Players online', String(onlinePlayers.length)],
+    ...(me && friendData ? [['Friends playing', `${friendData.friends.filter((friend) => friend.online).length} of ${friendData.friends.length}`]] : []),
   ];
   if (state && state.canHost) {
     rows.push(['Web server', state.web.running ? 'Running' : 'Stopped']);
@@ -841,53 +856,147 @@ api.onStudioProgress((info) => {
 });
 $('play-close').addEventListener('click', () => api.stopClient());
 
-// --- players ------------------------------------------------------------------------------
+// --- friends and players --------------------------------------------------------------------
 
 let refreshingPlayers = false;
+let friendData = null; // { friends, incoming, outgoing } for the signed-in account
+
 async function refreshOnlinePlayers(quiet) {
   if (refreshingPlayers || !serverAddress()) return;
   refreshingPlayers = true;
   try {
-    const data = await api.onlinePlayers();
+    const [data, mine] = await Promise.all([
+      api.onlinePlayers(),
+      me ? api.friends().catch(() => friendData) : Promise.resolve(null),
+    ]);
     onlinePlayers = Array.isArray(data.players) ? data.players : [];
-    if (!quiet || view === 'players') setStatus('players-status', onlinePlayers.length ? `${onlinePlayers.length} playing now.` : 'Nobody is playing right now.');
+    friendData = mine;
+    setStatus('players-status', onlinePlayers.length ? `${onlinePlayers.length} in games` : 'nobody right now');
   } catch (error) {
     if (!quiet) setStatus('players-status', message(error), 'error');
   } finally {
     refreshingPlayers = false;
+    updateFriendsBadge();
     if (view === 'players') renderPlayers();
   }
 }
 
+function updateFriendsBadge() {
+  const count = friendData && me ? friendData.incoming.length : 0;
+  $('friends-badge').textContent = String(count);
+  $('friends-badge').classList.toggle('hidden', count === 0);
+}
+
 const SILHOUETTE = '<svg viewBox="0 0 100 120" aria-hidden="true"><rect x="34" y="8" width="32" height="30" rx="4"/><rect x="26" y="42" width="48" height="44" rx="3"/><rect x="12" y="44" width="12" height="38" rx="3"/><rect x="76" y="44" width="12" height="38" rx="3"/><rect x="28" y="88" width="20" height="30" rx="3"/><rect x="52" y="88" width="20" height="30" rx="3"/></svg>';
 
-function renderPlayers() {
-  const grid = $('player-grid');
-  const focusedName = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.player : null;
-  grid.textContent = '';
-  if (!onlinePlayers.length) {
-    grid.append(el('div', 'empty-note', 'Nobody is in a game right now.'));
-    return;
+// A card: picture, name and where they are; clicking it opens their game.
+// actions: [[label, verb, className]], buttons under it.
+function personCard(person, where, actions = []) {
+  const card = el('div', 'player-card');
+  const main = el('button', 'card-main nav-target');
+  main.dataset.player = person.name;
+  if (me && me.account.name.toLowerCase() === person.name.toLowerCase()) card.classList.add('you');
+  const gameId = person.gameId || (person.online && person.online.gameId) || null;
+  if (gameId) card.classList.add('online');
+  const pic = el('div', 'player-pic');
+  pic.innerHTML = SILHOUETTE;
+  if (person.userId !== null && person.userId !== undefined) {
+    const img = el('img');
+    img.alt = '';
+    img.src = `launcher-net://server/avatar-thumbnail/image?userId=${encodeURIComponent(person.userId)}&width=150&height=150`;
+    img.addEventListener('load', () => { pic.textContent = ''; pic.append(img); });
   }
-  for (const player of onlinePlayers) {
-    const card = el('button', 'player-card nav-target');
-    card.dataset.player = player.name;
-    if (me && me.account.name.toLowerCase() === player.name.toLowerCase()) card.classList.add('you');
-    const pic = el('div', 'player-pic');
-    pic.innerHTML = SILHOUETTE;
-    if (player.userId !== null && player.userId !== undefined) {
-      const img = el('img');
-      img.alt = '';
-      img.src = `launcher-net://server/avatar-thumbnail/image?userId=${encodeURIComponent(player.userId)}&width=150&height=150`;
-      img.addEventListener('load', () => { pic.textContent = ''; pic.append(img); });
+  main.append(pic, el('div', 'player-name', person.name), el('div', 'player-where', where));
+  main.addEventListener('click', () => {
+    const game = lastGames.find((item) => item.id === gameId);
+    if (game) openDetail(game);
+  });
+  card.append(main);
+  if (actions.length) {
+    const row = el('div', 'card-actions');
+    for (const [label, verb, kind] of actions) {
+      const button = el('button', kind || 'ghost', label);
+      button.addEventListener('click', () => friendAction(verb, person));
+      row.append(button);
     }
-    card.append(pic, el('div', 'player-name', player.name), el('div', 'player-where', `in ${player.gameName}`));
-    card.addEventListener('click', () => {
-      const game = lastGames.find((item) => item.id === player.gameId);
-      if (game) openDetail(game);
-    });
-    grid.append(card);
-    if (focusedName === player.name) card.focus({ preventScroll: true });
+    card.append(row);
+  }
+  return card;
+}
+
+async function friendAction(verb, person) {
+  if (verb === 'remove' && !window.confirm(`Remove ${person.name} from your friends?`)) return;
+  setStatus('friends-status', '');
+  try {
+    const result = await api.friendAction(verb, { name: person.name });
+    friendData = result;
+    const texts = {
+      request: result.became === 'friends' ? `You and ${result.name} are now friends!` : `Friend request sent to ${result.name}.`,
+      accept: `You and ${result.name} are now friends!`,
+      decline: `Declined ${result.name}'s request.`,
+      cancel: `Took back your request to ${result.name}.`,
+      remove: `${result.name} is no longer your friend.`,
+    };
+    setStatus('friends-status', texts[verb], 'good');
+  } catch (error) {
+    setStatus('friends-status', message(error), 'error');
+  }
+  updateFriendsBadge();
+  renderPlayers();
+}
+
+$('add-friend-form').addEventListener('submit', (event) => {
+  event.preventDefault();
+  const name = $('add-friend-name').value.trim();
+  if (!/^[A-Za-z0-9_]{3,20}$/.test(name)) { setStatus('friends-status', 'Type their username (3-20 letters, digits or _).', 'error'); return; }
+  $('add-friend-name').value = '';
+  friendAction('request', { name });
+});
+$('friends-signin').addEventListener('click', () => { setAccountMode('signup'); showScreen('account'); });
+
+function renderPlayers() {
+  const focusedName = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.player : null;
+  $('friends-guest').classList.toggle('hidden', Boolean(me));
+  $('friends-area').classList.toggle('hidden', !me);
+  const friendIds = new Set(me && friendData ? friendData.friends.map((friend) => friend.userId) : []);
+  const pending = new Set(me && friendData ? [...friendData.incoming, ...friendData.outgoing].map((person) => person.userId) : []);
+
+  if (me) {
+    const requests = $('request-grid');
+    requests.textContent = '';
+    const incoming = friendData ? friendData.incoming : [];
+    const outgoing = friendData ? friendData.outgoing : [];
+    for (const person of incoming) {
+      requests.append(personCard(person, 'wants to be your friend', [['Accept', 'accept', 'primary'], ['Decline', 'decline']]));
+    }
+    for (const person of outgoing) {
+      requests.append(personCard(person, 'request sent', [['Take back', 'cancel']]));
+    }
+    $('requests-title').classList.toggle('hidden', incoming.length + outgoing.length === 0);
+
+    const list = $('friend-grid');
+    list.textContent = '';
+    const mine = friendData ? friendData.friends : [];
+    const playing = mine.filter((friend) => friend.online).length;
+    $('friends-title').textContent = mine.length ? `FRIENDS (${playing} of ${mine.length} playing)` : 'FRIENDS';
+    for (const friend of mine) {
+      list.append(personCard(friend, friend.online ? `in ${friend.online.gameName}` : 'offline', [['Unfriend', 'remove']]));
+    }
+    if (!mine.length) list.append(el('div', 'empty-note', 'No friends yet. Add someone by name, or from the players below.'));
+  }
+
+  const grid = $('player-grid');
+  grid.textContent = '';
+  if (!onlinePlayers.length) grid.append(el('div', 'empty-note', 'Nobody is in a game right now.'));
+  for (const player of onlinePlayers) {
+    const self = me && me.account.name.toLowerCase() === player.name.toLowerCase();
+    const canAdd = me && !self && player.userId > 0 && !player.guest && !friendIds.has(player.userId) && !pending.has(player.userId);
+    const note = friendIds.has(player.userId) ? ' · friend' : (pending.has(player.userId) ? ' · request pending' : '');
+    grid.append(personCard(player, `in ${player.gameName}${note}`, canAdd ? [['Add friend', 'request']] : []));
+  }
+  if (focusedName) {
+    const again = [...document.querySelectorAll('#view-players .card-main')].find((node) => node.dataset.player === focusedName);
+    if (again) again.focus({ preventScroll: true });
   }
 }
 

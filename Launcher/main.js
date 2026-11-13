@@ -597,6 +597,8 @@ function registerIpc() {
   ipcMain.handle('catalog:bundle', (event, id) => account.bundle(undefined, id));
   ipcMain.handle('catalog:item', (event, id) => account.item(undefined, id));
   ipcMain.handle('players:list', () => account.players());
+  ipcMain.handle('friends:list', () => account.friends());
+  ipcMain.handle('friends:action', (event, { verb, body }) => account.friendAction(undefined, verb, body || {}));
 
   // Place converter (Webserver/node/convert-place.js): pick a newer .rbxlx,
   // write <name>.2017.rbxlx beside it, and optionally host it.

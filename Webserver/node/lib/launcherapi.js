@@ -13,6 +13,9 @@
 //   POST avatar/image     (session, or ?guest=1) PNG the launcher drew of the avatar
 //   GET  catalog          ?category=&keyword=&cursor= -> items (featured list without a keyword)
 //   GET  bundle/<id>      the items in a package
+//   GET  friends          (session) friends (and where they play), requests
+//   POST friends/request  (session) {name} or {userId}
+//   POST friends/accept | decline | cancel | remove   (session) {userId}
 //
 // The session is the token from login, sent as "Authorization: Bearer ...",
 // the same accounts and sessions Studio uses (lib/accounts.js).
@@ -32,6 +35,7 @@ const accounts = require('./accounts');
 const avatar = require('./avatar');
 const avatarStore = require('./avatarstore');
 const games = require('./games');
+const friends = require('./friends');
 const wearables = require('./wearables');
 
 const TICKET_MS = 5 * 60 * 1000;
@@ -125,10 +129,25 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
   }
 
   // Who a placelauncher request joins as: the ticket's player, or a new guest.
-  function joinIdentity(ticket) {
+  // The address it came from is remembered: the game client's own web
+  // requests (friend buttons) carry no sign-in, so that address stands for
+  // the player until another join from it.
+  const players = new Map(); // remote address -> { name, userId, guest, at }
+  const PLAYER_MS = 24 * 60 * 60 * 1000;
+  // A client on the server PC may come in over IPv4 or IPv6 loopback.
+  const addressKey = (remote) => (/^(?:127\.|::1$|::ffff:127\.)/.test(String(remote || '')) ? 'loopback' : String(remote || ''));
+
+  function joinIdentity(ticket, remote) {
     pruneTickets();
     const entry = /^[0-9a-f]{32}$/.test(String(ticket || '')) ? tickets.get(ticket) : null;
-    return entry ? { name: entry.name, userId: entry.userId, guest: entry.guest } : guestIdentity();
+    const who = entry ? { name: entry.name, userId: entry.userId, guest: entry.guest } : guestIdentity();
+    if (remote) players.set(addressKey(remote), Object.assign({ at: Date.now() }, who));
+    return who;
+  }
+
+  function playerAt(remote) {
+    const entry = players.get(addressKey(remote));
+    return entry && entry.at > Date.now() - PLAYER_MS && !entry.guest && entry.userId > 0 ? entry : null;
   }
 
   // join.php gets the name and ID in its address, with this signature so they
@@ -379,6 +398,108 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
     return result;
   }
 
+  // --- friends ---------------------------------------------------------------------------------
+
+  function friendSummary(who) {
+    const online = onlinePlayers();
+    const where = (userId, name) => online.find((player) => player.userId === userId
+      || player.name.toLowerCase() === String(name || '').toLowerCase()) || null;
+    const person = (userId) => {
+      const account = accounts.byUserId(userId);
+      const name = account ? account.name : `User ${userId}`;
+      const place = where(userId, name);
+      return { userId, name, online: place ? { gameId: place.gameId, gameName: place.gameName, placeId: place.placeId } : null };
+    };
+    const list = friends.friendIds(who.userId).filter((id) => accounts.byUserId(id)).map(person)
+      .sort((a, b) => (Number(Boolean(b.online)) - Number(Boolean(a.online))) || a.name.localeCompare(b.name));
+    return {
+      friends: list,
+      incoming: friends.incoming(who.userId).filter((r) => accounts.byUserId(r.from)).map((r) => Object.assign(person(r.from), { at: r.at })),
+      outgoing: friends.outgoing(who.userId).filter((r) => accounts.byUserId(r.to)).map((r) => Object.assign(person(r.to), { at: r.at })),
+      max: friends.MAX_FRIENDS,
+    };
+  }
+
+  function friendTarget(body) {
+    if (body.name !== undefined) return accounts.byName(String(body.name).trim());
+    return accounts.byUserId(String(body.userId || ''));
+  }
+
+  async function friendsRoute(ctx, who, verb) {
+    if (!verb) return sendJson(ctx, 200, friendSummary(who));
+    const body = await jsonBody(ctx);
+    const other = friendTarget(body);
+    if (!other) {
+      const typed = body.name !== undefined ? String(body.name).trim() : '';
+      return sendJson(ctx, 404, { error: typed ? `Nobody on this server is called "${typed}".` : 'No such player.' });
+    }
+    let result;
+    if (verb === 'request') result = friends.request(who.userId, other.userId);
+    else if (verb === 'accept') result = friends.accept(who.userId, other.userId);
+    else if (verb === 'decline' || verb === 'cancel') result = friends.dropRequest(who.userId, other.userId);
+    else if (verb === 'remove') result = friends.unfriend(who.userId, other.userId);
+    else return sendJson(ctx, 404, { error: 'unknown friends request' });
+    if (result.error) return sendJson(ctx, 400, { error: result.error });
+    return sendJson(ctx, 200, Object.assign({ became: result.became || null, name: other.name }, friendSummary(who)));
+  }
+
+  // --- the 2017 client's and RCC's friend calls ------------------------------------------
+  // Client (Player:RequestFriendship / RevokeFriendship, the player list):
+  //   user/request-friendship?recipientUserId=  user/accept-friend-request?requesterUserId=
+  //   user/decline-friend-request?requesterUserId=  user/unfriend?friendUserId=
+  //   user/get-friendship-count[?userId=]  friends/filter-requests?otherUserIds=
+  // RCC (FriendService) and Players:GetFriendsAsync:
+  //   users/filter-friends?userId=&otherUserIds=  user/multiget-friend-requests?userId=&otherUserIds=
+  //   users/<id>/friends?page=
+
+  function idList(text) {
+    return String(text || '').split(',').map((part) => Number(part.trim())).filter((id) => Number.isInteger(id) && id > 0).slice(0, 200);
+  }
+
+  function gameFriendRoute(kind) {
+    return (ctx, match) => {
+      const q = ctx.queryLower;
+      const reply = (value) => sendJson(ctx, 200, value);
+      if (kind === 'filter-friends') {
+        const mine = new Set(friends.friendIds(Number(q.userid)));
+        return reply(idList(q.otheruserids).filter((id) => mine.has(id)).map((id) => ({ Id: id })));
+      }
+      if (kind === 'multiget-requests') {
+        const me = Number(q.userid);
+        const others = new Set(idList(q.otheruserids));
+        const list = [...friends.incoming(me), ...friends.outgoing(me)]
+          .filter((r) => others.size === 0 || others.has(r.from) || others.has(r.to))
+          .map((r) => ({ SenderId: r.from, RecipientId: r.to }));
+        return reply(list);
+      }
+      if (kind === 'friend-list') {
+        const page = Math.max(1, Number(q.page) || 1);
+        const online = onlinePlayers();
+        const list = friends.friendIds(match[1]).map((id) => accounts.byUserId(id)).filter(Boolean)
+          .map((account) => ({ Id: account.userId, Username: account.name, IsOnline: online.some((p) => p.userId === account.userId), IsBestFriend: false }));
+        return reply(page === 1 ? list : []);
+      }
+      const me = playerAt(ctx.remote);
+      if (kind === 'count') {
+        const userId = q.userid !== undefined ? Number(q.userid) : (me ? me.userId : 0);
+        return reply({ success: true, count: userId > 0 ? friends.friendIds(userId).length : 0 });
+      }
+      if (!me) return reply({ success: false, message: 'Only signed-in players have friends.' });
+      if (kind === 'filter-requests') {
+        const others = new Set(idList(q.otheruserids));
+        return reply({ success: true, FriendRequestsToUser: friends.incoming(me.userId).map((r) => r.from).filter((id) => others.has(id)) });
+      }
+      const target = Number(q.recipientuserid || q.requesteruserid || q.frienduserid);
+      if (!(target > 0) || !accounts.byUserId(target)) return reply({ success: false, message: 'That player cannot have friends.' });
+      let result = { error: 'unknown friend request' };
+      if (kind === 'request') result = friends.request(me.userId, target);
+      else if (kind === 'accept') result = friends.accept(me.userId, target);
+      else if (kind === 'decline') result = friends.dropRequest(me.userId, target);
+      else if (kind === 'unfriend') result = friends.unfriend(me.userId, target);
+      return reply(result.error ? { success: false, message: result.error } : { success: true, message: 'Success' });
+    };
+  }
+
   // --- routes ------------------------------------------------------------------------------
 
   async function route(ctx, match) {
@@ -409,6 +530,12 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
       if (!who && !body.guest) return sendJson(ctx, 401, { error: 'Your sign-in ran out. Sign in again, or play as a guest.' });
       const identity = who ? { name: who.name, userId: who.userId, guest: false } : guestIdentity();
       return sendJson(ctx, 200, Object.assign({ ticket: newTicket(identity) }, identity));
+    }
+    const friendsMatch = /^friends(?:\/(request|accept|decline|cancel|remove))?$/.exec(action);
+    if (friendsMatch && (friendsMatch[1] ? method === 'POST' : method === 'GET')) {
+      const who = needAccount(ctx);
+      if (who) await friendsRoute(ctx, who, friendsMatch[1] || null);
+      return;
     }
     if (action === 'players' && method === 'GET') {
       return sendJson(ctx, 200, { players: onlinePlayers() });
@@ -477,7 +604,18 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
   }
 
   return {
-    routes: [[/^api\/launcher\/([a-z0-9/-]+?)\/?$/i, route]],
+    routes: [
+      [/^api\/launcher\/([a-z0-9/-]+?)\/?$/i, route],
+      [/^user\/request-friendship\/?$/i, gameFriendRoute('request')],
+      [/^user\/accept-friend-request\/?$/i, gameFriendRoute('accept')],
+      [/^user\/decline-friend-request\/?$/i, gameFriendRoute('decline')],
+      [/^user\/unfriend\/?$/i, gameFriendRoute('unfriend')],
+      [/^user\/get-friendship-count\/?$/i, gameFriendRoute('count')],
+      [/^friends\/filter-requests\/?$/i, gameFriendRoute('filter-requests')],
+      [/^users\/filter-friends\/?$/i, gameFriendRoute('filter-friends')],
+      [/^user\/multiget-friend-requests\/?$/i, gameFriendRoute('multiget-requests')],
+      [/^users\/(\d{1,15})\/friends\/?$/i, gameFriendRoute('friend-list')],
+    ],
     joinIdentity,
     joinSignature,
     checkJoinSignature,

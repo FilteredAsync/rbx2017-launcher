@@ -815,7 +815,6 @@ pcall(function() history:SetEnabled(true) end)
     [/^universes\/(\d{1,15})\/addcloudeditor\/?$/i, cloudEditorChange(true)],
     [/^universes\/(\d{1,15})\/removecloudeditor\/?$/i, cloudEditorChange(false)],
     [/^users\/get-by-username\/?$/i, userByName],
-    [/^users\/(\d{1,15})\/friends\/?$/i, (ctx) => sendJson(ctx, 200, [])],
     [/^(?:v1\/)?users?\/(\d{1,15})\/canmanage\/(\d{1,15})\/?$/i, canManage],
     [/^users\/(\d{1,15})\/?$/i, userById],
     [/^ide\/publish\/uploadfromcloudedit\/?$/i, uploadFromCloudEdit],

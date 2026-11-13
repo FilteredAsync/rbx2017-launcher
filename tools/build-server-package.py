@@ -67,7 +67,7 @@ def main():
         # this PC; the server makes its own (people log in there again).
         'Webserver/node/data/accounts.json', 'Webserver/node/data/studio-secret.txt',
         # Players' avatars and pictures go with their accounts.
-        'Webserver/node/data/avatars.json', 'Webserver/node/data/avatar-images'])
+        'Webserver/node/data/avatars.json', 'Webserver/node/data/avatar-images', 'Webserver/node/data/friends.json'])
     add_tree('Webserver/www', exclude=['Webserver/www/v1/dump', 'Webserver/www/Error/captures'])
     add_tree('Webserver/bin/apache/certificats')
     for name in ('server.json', 'README.txt'):
@@ -91,6 +91,10 @@ def main():
                  'autostartServer.bat', 'convertPlace.bat', 'Launcher.bat'):
         add_file(os.path.join(ROOT, name), name)
     add_tree('Launcher/dist/RobloxClient Launcher-win32-x64')
+    # The ROBLOX logo players' launchers download from the server.
+    for name in ('roblox-logo.png', 'roblox-logo-tagline.png'):
+        if os.path.isfile(os.path.join(ROOT, 'Launcher', 'renderer', name)):
+            add_file(os.path.join(ROOT, 'Launcher', 'renderer', name), 'Launcher/renderer/' + name)
     add_file(os.path.join(TEMPLATES, 'README-SERVER.txt'), 'README-SERVER.txt')
     # The game files the server hands to new players (tools/build-client-files.py).
     if os.path.isfile(os.path.join(ROOT, 'downloads', 'client-files.zip')):

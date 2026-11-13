@@ -246,6 +246,8 @@ function remove(name) {
   const data = load();
   const key = String(name || '').toLowerCase();
   if (!data.accounts[key]) return false;
+  // Its friendships go with it (required here: friends.js needs no accounts).
+  try { require('./friends').forget(data.accounts[key].userId); } catch (error) { /* no friends file */ }
   delete data.accounts[key];
   for (const [hash, session] of Object.entries(data.sessions)) {
     if (session.name === key) delete data.sessions[hash];

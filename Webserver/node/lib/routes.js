@@ -448,7 +448,7 @@ async function placeLauncher(ctx) {
     const activeUser = avatar.activeUsername();
     username = q.username !== undefined ? q.username : (q.user !== undefined ? q.user : (activeUser !== null ? activeUser : 'Player'));
   } else {
-    const who = launcher.joinIdentity(q.ticket);
+    const who = launcher.joinIdentity(q.ticket, ctx.remote);
     userId = String(who.userId);
     username = who.name;
   }
@@ -992,6 +992,15 @@ function downloadsRoute(ctx, match) {
   sendFile(ctx, file, { 'Content-Type': DOWNLOADS[name], 'Cache-Control': name.endsWith('.json') ? 'no-cache' : 'public, max-age=3600' });
 }
 
+// The ROBLOX logo for launchers (Launcher/renderer/roblox-logo*.png on this
+// PC): the public launcher download leaves Roblox's art out, so launchers
+// fetch it from their server, like the menu music.
+function launcherLogoRoute(ctx, match) {
+  const file = core.rootPath('Launcher', 'renderer', match[1].toLowerCase());
+  if (!core.isFile(file)) return sendJson(ctx, 404, { error: 'this server has no launcher logo' });
+  sendFile(ctx, file, { 'Content-Type': 'image/png', 'Cache-Control': 'no-cache' });
+}
+
 // The host's menu music (config/menu-music.mp3 on this PC): launchers
 // download it into their own config folder, so every player hears it.
 function menuMusicRoute(ctx) {
@@ -1053,6 +1062,7 @@ const ROUTES = [
   [/^manage(?:\/([a-z.]*))?\/?$/i, managePage],
   [/^download\/((?:client|studio)-files\.(?:zip|json))$/i, downloadsRoute],
   [/^download\/menu-music\.mp3$/i, menuMusicRoute],
+  [/^download\/(roblox-logo(?:-tagline)?\.png)$/i, launcherLogoRoute],
   [/^api\/assets\/(?:missing|(\d{1,15})\/replacement)\/?$/i, assetsApi],
   [new RegExp(`^asset(?:/index\\.php)?/?$`, 'i'), assetEndpoint],
   [/^asset\/bodycolors\.(?:ashx|php)$/i, bodyColors],

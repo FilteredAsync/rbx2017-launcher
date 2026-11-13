@@ -40,15 +40,15 @@ button, input, select { font: inherit; color: inherit; }
   font-weight: 900; font-size: 44px; letter-spacing: 1px; color: #fff; transform: rotate(-2deg);
   text-shadow: -2px -2px 0 #e2231a, 2px -2px 0 #e2231a, -2px 2px 0 #e2231a, 2px 2px 0 #e2231a, 0 4px 0 #9b120c;
 }
-.logo-img { user-select: none; -webkit-user-drag: none; filter: drop-shadow(0 5px 12px rgba(0, 0, 0, .6)); }
+.logo-img { user-select: none; -webkit-user-drag: none; filter: drop-shadow(0 3px 8px rgba(0, 0, 0, .35)); }
 
 /* Start screen ----------------------------------------------------------------- */
 .screen { position: fixed; inset: 0 0 74px 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-.start-logo { width: min(620px, 56vw); height: auto; animation: logo-in .8s cubic-bezier(.2, .9, .3, 1.2); }
+.start-logo { width: min(606px, 56vw); height: auto; animation: logo-in .8s cubic-bezier(.2, .9, .3, 1.2); }
 .start-logo.logo-text { font-size: 110px; }
 @keyframes logo-in { from { opacity: 0; transform: scale(.85); } to { opacity: 1; transform: none; } }
 .start-press {
-  margin-top: 70px; background: none; border: 0; color: #fff; font-size: 30px; font-weight: 300; letter-spacing: .5px;
+  margin-top: 64px; background: none; border: 0; color: #fff; font-size: 30px; font-weight: 300; letter-spacing: .5px;
   display: flex; align-items: center; gap: 4px; cursor: pointer; animation: pulse 2.2s ease-in-out infinite;
 }
 .start-press .btn { width: 40px; height: 40px; border-radius: 50%; font-size: 20px; }
@@ -81,7 +81,7 @@ button.link:focus-visible { outline: 2px solid #fff; }
 
 /* Header and tabs ------------------------------------------------------------ */
 .top { position: fixed; top: 0; left: 0; right: 0; height: 104px; display: flex; align-items: center; justify-content: space-between; padding: 22px 6.5vw 0; }
-.logo { height: 64px; width: auto; display: block; }
+.logo { height: 56px; width: auto; display: block; }
 .top-right { display: flex; align-items: center; gap: 16px; font-size: 20px; color: var(--muted); }
 .update-pill { background: rgba(0, 162, 255, .18); border: 1px solid rgba(0, 162, 255, .6); color: #fff; font-size: 14px; padding: 5px 12px; cursor: default; }
 .update-pill.ready { background: var(--good); border-color: var(--good); color: #062b16; font-weight: 600; cursor: pointer; }
@@ -142,8 +142,8 @@ button.link:focus-visible { outline: 2px solid #fff; }
   outline: 4px solid transparent; outline-offset: 0; transition: transform .12s ease, outline-color .12s ease;
   background: var(--tile);
 }
-.nav-target:focus-visible, .game-tile:focus-visible, .avatar-panel:focus-visible, .more:focus-visible, .item-tile:focus-visible, .player-card:focus-visible,
-.game-tile.focused, .avatar-panel.focused, .more.focused, .item-tile.focused, .player-card.focused { outline-color: var(--select); transform: scale(1.03); z-index: 2; }
+.nav-target:focus-visible, .game-tile:focus-visible, .avatar-panel:focus-visible, .more:focus-visible, .item-tile:focus-visible, .card-main:focus-visible,
+.game-tile.focused, .avatar-panel.focused, .more.focused, .item-tile.focused, .card-main.focused { outline-color: var(--select); transform: scale(1.03); z-index: 2; }
 .cover { position: absolute; inset: 0; }
 .cover-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; }
 .cover.has-image::before, .cover.has-image::after, .cover.has-image .cover-title { display: none; }
@@ -229,10 +229,11 @@ button.link:focus-visible { outline: 2px solid #fff; }
 .swatch.current { box-shadow: 0 0 0 3px var(--accent); }
 
 /* Players ------------------------------------------------------------------------ */
-.player-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; margin-top: 14px; max-width: 1500px; }
-.player-card {
-  position: relative; background: rgba(36, 72, 90, .6); border: 0; padding: 0; cursor: pointer; text-align: left; color: #fff;
-  outline: 4px solid transparent; transition: transform .12s ease, outline-color .12s ease; display: flex; flex-direction: column;
+.player-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; margin-top: 12px; max-width: 1500px; }
+.player-card { position: relative; background: rgba(36, 72, 90, .6); display: flex; flex-direction: column; }
+.card-main {
+  background: none; border: 0; padding: 0; cursor: pointer; text-align: left; color: #fff; display: flex; flex-direction: column;
+  outline: 4px solid transparent; transition: transform .12s ease, outline-color .12s ease;
 }
 .player-pic { aspect-ratio: 1 / 1; background: linear-gradient(180deg, rgba(48, 92, 116, .9), rgba(28, 58, 76, .9)); display: grid; place-items: center; overflow: hidden; }
 .player-pic img { width: 100%; height: 100%; object-fit: contain; }
@@ -240,6 +241,17 @@ button.link:focus-visible { outline: 2px solid #fff; }
 .player-name { font-size: 20px; font-weight: 600; padding: 8px 12px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .player-where { font-size: 14px; color: var(--muted); padding: 0 12px 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .player-card.you .player-name::after { content: " (you)"; color: var(--muted); font-weight: 400; }
+.player-card.online .player-where { color: var(--good); }
+.card-actions { display: flex; gap: 6px; padding: 0 10px 10px; }
+.card-actions button { flex: 1; padding: 6px 8px; font-size: 13px; }
+.section-title { font-size: 19px; letter-spacing: .5px; margin: 22px 0 0; }
+.section-note { font-size: 15px; color: var(--muted); letter-spacing: 0; margin-left: 8px; }
+.add-friend input { width: 260px; }
+.friends-guest { background: var(--panel); border: 1px solid var(--line); padding: 26px; max-width: 620px; margin-bottom: 8px; }
+.tab-badge {
+  display: inline-grid; place-items: center; min-width: 26px; height: 26px; padding: 0 6px; margin-left: 8px; vertical-align: super;
+  border-radius: 13px; background: #e2231a; color: #fff; font-size: 15px; font-weight: 700;
+}
 .empty-note { color: rgba(255, 255, 255, .55); font-size: 20px; padding: 30px 0; }
 
 /* Settings ------------------------------------------------------------------------ */

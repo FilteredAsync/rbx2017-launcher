@@ -29,8 +29,9 @@
 !/Launcher/package-lock.json
 !/Launcher/build/
 !/Launcher/renderer/
-# Roblox's logo: keep your own copy locally (the launcher shows text without it).
-/Launcher/renderer/roblox-logo.png
+# Roblox's logo: keep your own copy locally (launchers without it get it from
+# their server, or show the word).
+/Launcher/renderer/roblox-logo*.png
 
 !/Webserver/
 /Webserver/*

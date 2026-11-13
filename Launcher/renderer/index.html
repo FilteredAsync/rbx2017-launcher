@@ -11,7 +11,7 @@
 
   <!-- START: press A, like the console app -->
   <section class="screen" id="screen-start">
-    <img class="start-logo logo-img" src="roblox-logo.png" alt="ROBLOX" draggable="false">
+    <img class="start-logo logo-img" src="roblox-logo-tagline.png" alt="ROBLOX" draggable="false">
     <button class="start-press" id="start-press"><b class="btn btn-a">A</b><span>Press to start</span></button>
     <div class="start-foot" id="start-foot"></div>
   </section>
@@ -60,7 +60,7 @@
       <button class="tab-link active" data-view="home">Home</button>
       <button class="tab-link" data-view="avatar">Avatar</button>
       <button class="tab-link" data-view="games">Games</button>
-      <button class="tab-link" data-view="players">Players</button>
+      <button class="tab-link" data-view="players">Friends<span class="tab-badge hidden" id="friends-badge"></span></button>
       <button class="tab-link" data-view="settings">Settings</button>
     </nav>
 
@@ -154,11 +154,25 @@
       <details class="log-box"><summary>Log</summary><pre class="log" id="log-play"></pre></details>
     </section>
 
-    <!-- PLAYERS -->
+    <!-- FRIENDS (and everyone playing now) -->
     <section class="view" id="view-players">
-      <div class="toolbar">
-        <span class="status" id="players-status"></span>
+      <div class="friends-guest hidden" id="friends-guest">
+        <div class="guest-title">Friends need an account</div>
+        <p class="lead">Guests can't add friends, like in 2016. Sign up to add friends, see where they're playing and join them.</p>
+        <button class="primary" id="friends-signin">Sign in or sign up</button>
       </div>
+      <div id="friends-area">
+        <form class="toolbar add-friend" id="add-friend-form">
+          <input id="add-friend-name" placeholder="Username" maxlength="20" spellcheck="false" autocomplete="off">
+          <button class="primary" id="add-friend-go">Add friend</button>
+          <span class="status" id="friends-status"></span>
+        </form>
+        <div class="section-title hidden" id="requests-title">FRIEND REQUESTS</div>
+        <div class="player-grid" id="request-grid"></div>
+        <div class="section-title" id="friends-title">FRIENDS</div>
+        <div class="player-grid" id="friend-grid"></div>
+      </div>
+      <div class="section-title">PLAYING NOW <span class="section-note" id="players-status"></span></div>
       <div class="player-grid" id="player-grid"></div>
     </section>
 

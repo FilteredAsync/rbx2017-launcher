@@ -7,12 +7,12 @@ A launcher, web server and hosting tools for playing a 2017-era Roblox client
   app, with a "press A" start screen, sign-in (accounts on your server, or
   play as a guest), Home with your avatar, recently played and online games,
   a 3D avatar editor (hats, faces, clothes, packages and body colors from
-  the Roblox catalog), who is playing where, menu music and controller
-  support. Joins games (a local proxy and UDP relay let the 2017 client
+  the Roblox catalog), friends (and which game they are in), menu music and
+  controller support. Joins games (a local proxy and UDP relay let the 2017 client
   reach servers on other PCs), opens Roblox Studio, hosts games, runs the
   web server, and converts places.
 - **Web server** (`Webserver/node/`, Node.js, no dependencies): accounts,
-  guests and each account's avatar, assets
+  guests, friends and each account's avatar, assets
   (with mesh conversion, thumbnails and `rbxgameasset://` names),
   DataStore saves, the chat filter, LuaWebService (group and friend checks),
   join scripts, the game list and the place library.

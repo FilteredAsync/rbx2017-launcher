@@ -29,7 +29,7 @@ module.exports = {
   ...base,
   // Roblox's logo stays out of the public downloader (the launcher shows the
   // word instead); this private edition has it if you keep a copy locally.
-  files: base.files.filter((entry) => entry !== '!renderer/roblox-logo.png'),
+  files: base.files.filter((entry) => entry !== '!renderer/roblox-logo*.png'),
   extraFiles,
   nsis: { ...base.nsis, artifactName: 'RobloxClient-Setup-Full-${version}.${ext}' },
 };
