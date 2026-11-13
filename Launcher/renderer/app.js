@@ -686,16 +686,21 @@ function closeDetail() {
 }
 
 $('detail-back').addEventListener('click', closeDetail);
+// Set while Play waits, so a game files update shows its progress here.
+let playStarting = false;
 $('detail-play').addEventListener('click', async () => {
   if (!detailGame) return;
   $('detail-play').disabled = true;
   $('detail-note').textContent = 'Starting the client…';
+  playStarting = true;
   try {
     const joined = await api.join({ game: detailGame, guest: !me });
+    playStarting = false;
     rememberPlayed(detailGame);
     $('detail-note').textContent = joined.guest ? `Have fun, ${joined.name}!` : 'Have fun!';
     setTimeout(() => { closeDetail(); renderHome(); }, 1100);
   } catch (error) {
+    playStarting = false;
     $('detail-note').textContent = message(error);
     $('detail-play').disabled = false;
     if (/sign in/i.test(message(error)) && me) {
@@ -1243,6 +1248,13 @@ api.onFilesProgress((info) => {
   if (info.phase === 'unpack') {
     bar.removeAttribute('value');
     setStatus('files-status', 'Unpacking…');
+  }
+  if (playStarting) {
+    const note = $('detail-note');
+    if (info.phase === 'checking') note.textContent = 'The server has new game files. Updating…';
+    if (info.phase === 'download') note.textContent = `Updating the game files… ${Math.round(info.received / 1e6)} of ${Math.round(info.total / 1e6)} MB`;
+    if (info.phase === 'unpack') note.textContent = 'Installing the game files update…';
+    if (info.phase === 'done') note.textContent = 'Game files updated. Starting the client…';
   }
 });
 

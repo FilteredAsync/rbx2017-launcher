@@ -176,6 +176,26 @@ function filesUpdate(centralUrl) {
   return gameFiles().update(centralUrl);
 }
 
+// Before each game, a player install takes the server's newer game files
+// (client fixes and flags reach everyone without a visit to Setup). Progress
+// goes out as 'files-progress'. A host install plays from its own Client/.
+async function updateFilesBeforePlay(centralUrl, log) {
+  const { canPlay, canHost } = capabilities();
+  if (canHost || !canPlay) return;
+  const files = gameFiles();
+  if (files.isBusy()) throw new Error('The game files are downloading. Try again when that is done.');
+  const update = await files.update(centralUrl);
+  if (!update) return;
+  log(`Updating the game files to version ${update.available} (${Math.round(update.size / 1e6)} MB)...`);
+  try {
+    await files.download(centralUrl);
+  } catch (error) {
+    throw new Error(`Could not update the game files: ${error.message}`);
+  }
+  log(`Game files updated to version ${update.available}.`);
+  send('status-changed');
+}
+
 // --- menu music ----------------------------------------------------------------------
 // The host's music (config/menu-music.mp3 on the server PC) is downloaded from
 // its web server into this launcher's config folder, and fetched again when
@@ -588,8 +608,11 @@ function registerIpc() {
     if (playSession) throw new Error('The client is already running. Close it first.');
     const joining = lib('joining');
     const url = account.serverUrl();
-    const ticket = await account.joinTicket(url, game && game.id, Boolean(guest));
     const log = logger('play');
+    await updateFilesBeforePlay(url, log);
+    if (playSession) throw new Error('The client is already running. Close it first.');
+    // The ticket comes after any update, so a long download cannot outlast it.
+    const ticket = await account.joinTicket(url, game && game.id, Boolean(guest));
     playSession = await joining.joinGame({ centralUrl: url, ticket: ticket.ticket, name: ticket.name, game, log });
     send('status-changed');
     playSession.exited.then(() => log('The client closed.'), (error) => log(`Error: ${error.message}`)).finally(() => {
