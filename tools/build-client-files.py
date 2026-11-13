@@ -2,6 +2,8 @@
 
     python tools/build-client-files.py            the game client
     python tools/build-client-files.py studio     Roblox Studio
+    python tools/build-client-files.py --edited-corescripts
+        the game client with this PC's edited CoreScripts (see ORIGINALS)
 
 Writes downloads/client-files.zip (this folder's Client/, as Client/...)
 and downloads/client-files.json (version, size, SHA-256); with "studio",
@@ -53,8 +55,23 @@ def check_studio_key(exe):
             sys.exit('Studio does not trust the server key yet: run python tools/patch-studio-key.py first.')
 
 
+# CoreScripts edited on this PC for in-game friend status (not yet verified
+# in game): until they are, players get the originals kept in
+# Client/corescripts-original. --edited-corescripts packs the edited ones.
+ORIGINALS = {
+    'Client/content/scripts/CoreScripts/CoreScripts/BlockPlayerPrompt.lua': 'BlockPlayerPrompt.lua',
+    'Client/content/scripts/CoreScripts/CoreScripts/FriendPlayerPrompt.lua': 'FriendPlayerPrompt.lua',
+    'Client/content/scripts/CoreScripts/CoreScripts/Topbar.lua': 'Topbar.lua',
+    'Client/content/scripts/CoreScripts/Modules/PlayerDropDown.lua': 'PlayerDropDown.lua',
+    'Client/content/scripts/CoreScripts/Modules/PlayerlistModule.lua': 'PlayerlistModule.lua',
+    'Client/content/scripts/CoreScripts/Modules/Settings/Pages/Players.lua': 'Players.lua',
+}
+
+
 def main():
-    kind_name = sys.argv[1].lower() if len(sys.argv) > 1 else 'client'
+    args = [arg for arg in sys.argv[1:] if not arg.startswith('--')]
+    edited = '--edited-corescripts' in sys.argv
+    kind_name = args[0].lower() if args else 'client'
     if kind_name not in KINDS:
         sys.exit(f'usage: python tools/build-client-files.py [{"|".join(KINDS)}]')
     kind = KINDS[kind_name]
@@ -75,9 +92,17 @@ def main():
                 files.append(rel)
     os.makedirs(OUT_DIR, exist_ok=True)
     zip_path = os.path.join(OUT_DIR, f'{kind["name"]}.zip')
+    originals = 0
     with zipfile.ZipFile(zip_path + '.new', 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
         for rel in files:
-            archive.write(os.path.join(ROOT, *rel.split('/')), rel)
+            source = os.path.join(ROOT, *rel.split('/'))
+            original = os.path.join(ROOT, 'Client', 'corescripts-original', ORIGINALS[rel]) if rel in ORIGINALS else None
+            if original and not edited and os.path.isfile(original):
+                source = original
+                originals += 1
+            archive.write(source, rel)
+    if originals:
+        print(f'note: packed the {originals} original CoreScripts from Client/corescripts-original (--edited-corescripts packs the edited ones)')
     os.replace(zip_path + '.new', zip_path)
 
     digest = hashlib.sha256()

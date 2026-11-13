@@ -12,7 +12,8 @@
 // nor access to GitHub is enough to change a server's code.
 //
 // A package is gzip of: "RBXUPD1\n", a 4-byte header length, the header
-// (JSON: kind, build, label, notes, files with path, size and SHA-256), a
+// (JSON: kind, build, label, notes, files with path, size and SHA-256, and
+// "delete": files to remove, e.g. a script that was renamed), a
 // 64-byte Ed25519 signature of the header, then the files one after another.
 //
 // Installing: dedicated.js stages a package in updates/staged/<kind>-<build>/,
@@ -68,14 +69,21 @@ function buildLabel(build) {
   return /^\d{14}$/.test(text) ? `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6, 8)} ${text.slice(8, 10)}:${text.slice(10, 12)} UTC` : text;
 }
 
-// header: { kind, build, label, notes, ... }, files: [{ path, data }], privateKey: KeyObject or PEM -> Buffer
+// header: { kind, build, label, notes, delete: [paths], ... }, files: [{ path, data }],
+// privateKey: KeyObject or PEM -> Buffer
 function pack(header, files, privateKey) {
   const list = files.map((file) => {
     const clean = cleanPath(file.path);
     if (!clean) throw new Error(`an update may not contain ${file.path}`);
     return { path: clean, size: file.data.length, sha256: sha256(file.data) };
   });
-  const full = Object.assign({}, header, { format: 1, files: list });
+  const remove = (header.delete || []).map((name) => {
+    const clean = cleanPath(name);
+    if (!clean) throw new Error(`an update may not delete ${name}`);
+    if (list.some((file) => file.path.toLowerCase() === clean.toLowerCase())) throw new Error(`${name} is both added and deleted`);
+    return clean;
+  });
+  const full = Object.assign({}, header, { format: 1, files: list, delete: remove });
   const headerBytes = Buffer.from(JSON.stringify(full), 'utf8');
   const signature = crypto.sign(null, headerBytes, privateKey);
   const length = Buffer.alloc(4);
@@ -102,8 +110,12 @@ function unpack(buffer, publicKey = PUBLIC_KEY) {
     throw new Error('this update is not signed with the project\'s key, so it was not installed');
   }
   const header = JSON.parse(headerBytes.toString('utf8'));
-  if (header.format !== 1 || !KINDS.has(header.kind) || !/^\d{14}$/.test(String(header.build)) || !Array.isArray(header.files)) {
+  if (header.format !== 1 || !KINDS.has(header.kind) || !/^\d{14}$/.test(String(header.build)) || !Array.isArray(header.files)
+    || (header.delete !== undefined && !Array.isArray(header.delete))) {
     throw new Error('this update was made by a newer or broken update builder');
+  }
+  for (const name of header.delete || []) {
+    if (typeof name !== 'string' || !cleanPath(name)) throw new Error(`the update wants to delete ${name}, which updates may not touch`);
   }
   const files = [];
   for (const entry of header.files) {
@@ -125,6 +137,7 @@ function summary(header) {
     label: header.label || buildLabel(header.build),
     notes: String(header.notes || '').slice(0, 2000),
     files: Array.isArray(header.files) ? header.files.length : 0,
+    deletes: Array.isArray(header.delete) ? header.delete.length : 0,
     commit: header.commit || null,
   };
 }

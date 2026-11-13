@@ -4,8 +4,8 @@
 // file to updates/, writes updates/apply.json, saves the players, stops the
 // games and the web server, starts this and exits. This then:
 //   1. waits for the old server (and its startServer window) to be gone,
-//   2. backs up every file it replaces (updates/backup/<time>/) and copies
-//      the new ones in, checking each against the package's SHA-256,
+//   2. backs up every file it replaces or deletes (updates/backup/<time>/)
+//      and copies the new ones in, checking each against the package's SHA-256,
 //   3. records the versions in server-version.json,
 //   4. starts the server again through Explorer (as a double-click does),
 //   5. waits for the web server and the always-on server to report in; if
@@ -108,7 +108,10 @@ function writeResult(result) {
 function restore(changed) {
   for (const item of changed.slice().reverse()) {
     try {
-      if (item.backup) fs.copyFileSync(item.backup, item.target);
+      if (item.backup) {
+        fs.mkdirSync(path.dirname(item.target), { recursive: true });
+        fs.copyFileSync(item.backup, item.target);
+      }
       else fs.rmSync(item.target, { force: true });
     } catch (error) { log(`could not put back ${item.target}: ${error.message}`); }
   }
@@ -159,6 +162,16 @@ async function main() {
         changed.push({ target, backup });
         fs.mkdirSync(path.dirname(target), { recursive: true });
         fs.writeFileSync(target, data);
+      }
+      // Files the update removes (e.g. a script that was renamed): backed up first.
+      for (const name of header.delete || []) {
+        const target = path.join(root, ...name.split('/'));
+        if (!fs.existsSync(target) || !fs.statSync(target).isFile()) continue;
+        const backup = path.join(backupDir, ...name.split('/'));
+        fs.mkdirSync(path.dirname(backup), { recursive: true });
+        fs.copyFileSync(target, backup);
+        changed.push({ target, backup });
+        fs.rmSync(target, { force: true });
       }
       versions[header.kind] = Number(header.build);
       versions[`${header.kind}Label`] = header.label || String(header.build);

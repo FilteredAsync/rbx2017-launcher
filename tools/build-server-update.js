@@ -13,6 +13,8 @@
 //       game-server content). Makes share/RobloxServer-private-update-<build>.rbxupd:
 //       upload it on the server's /manage page (Server > Install an update file).
 //       Never publish it.
+//   --delete <path>  (repeatable) removes that file on the server, e.g. a
+//       script that was renamed (backed up first, put back on a rollback).
 //   --exe  also makes share/RobloxServer-Update-<build>.exe, which installs the
 //       same files on the server PC without /manage: it stops the server
 //       (players saved first), copies the files and starts it again. For servers
@@ -248,7 +250,12 @@ function main() {
   const flags = new Set(args.filter((arg) => arg === '--worktree' || arg === '--exe'));
   const notesAt = args.indexOf('--notes');
   const notes = notesAt > 0 ? String(args[notesAt + 1] || '') : '';
-  const positional = args.slice(1).filter((arg, index, all) => !arg.startsWith('--') && all[index - 1] !== '--notes');
+  const takesValue = new Set(['--notes', '--delete']);
+  const positional = args.slice(1).filter((arg, index, all) => !arg.startsWith('--') && !takesValue.has(all[index - 1]));
+  const deletes = args.filter((arg, index) => args[index - 1] === '--delete').map((name) => name.replace(/\\/g, '/'));
+  for (const name of deletes) {
+    if (!updates.cleanPath(name)) fail(`an update may not delete ${name}`);
+  }
   const key = signingKey();
   const { build, local } = stamp();
   const commit = git(['rev-parse', '--short', 'HEAD']).toString().trim();
@@ -288,7 +295,7 @@ function main() {
   }
 
   const label = kind === 'public' ? `${local} (${commit}${fromDisk ? ', not committed' : ''})` : local;
-  const header = { kind, build, label, notes, commit: kind === 'public' ? commit : null, fromDisk };
+  const header = { kind, build, label, notes, commit: kind === 'public' ? commit : null, fromDisk, delete: deletes };
   const bytes = updates.pack(header, files, key);
   updates.unpack(bytes); // check it the way a server will
   fs.mkdirSync(SHARE, { recursive: true });
@@ -296,7 +303,7 @@ function main() {
   const out = path.join(SHARE, name);
   fs.writeFileSync(out, bytes);
   const total = files.reduce((sum, file) => sum + file.data.length, 0);
-  console.log(`${path.relative(ROOT, out)}: ${kind} update ${label}, ${files.length} files, ${(total / 1048576).toFixed(1)} MB -> ${(bytes.length / 1048576).toFixed(1)} MB`);
+  console.log(`${path.relative(ROOT, out)}: ${kind} update ${label}, ${files.length} files${deletes.length ? ` (deletes ${deletes.length})` : ''}, ${(total / 1048576).toFixed(1)} MB -> ${(bytes.length / 1048576).toFixed(1)} MB`);
 
   if (flags.has('--exe')) {
     const exe = path.join(SHARE, `RobloxServer-Update-${build}.exe`);

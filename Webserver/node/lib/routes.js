@@ -766,6 +766,31 @@ const RCC_STRINGS = {
   FilterTextSubdomain: 'www',
 };
 
+// The client's flags (Setting/QuietGet/ClientAppSettings): the 2017 (0.299)
+// set, the same as Client/ClientSettings/ClientAppSettings.json. Only flags
+// this build knows; everything else stays at the build's own 2017 value.
+// - DebugLocalRccServerConnection: without it joining fails with "ROBLOX
+//   version is out of date".
+// - SoundServiceGameConfigurerConfigureRunServiceRun: after joining, the
+//   client sets RunService running. Every Sound:Play() checks for that, so
+//   without it the whole game is silent.
+// - The player-script flags must match RCC's (Server/ClientSettings), or
+//   characters get no sounds (Sound.server.lua / Sound/LocalSound.client.lua)
+//   and a wrong camera.
+const CLIENT_APP_SETTINGS = {
+  FFlagDebugLocalRccServerConnection: true,
+  FFlagSoundServiceGameConfigurerConfigureRunServiceRun: true,
+  FFlagLoadPlayerScriptsFromLua: true,
+  FFlagNewNamingForPlayerScripts: true,
+  FFlagUseLuaCameraAndControl: true,
+  FFlagServerNotifyPlayerScriptsStatus: true,
+  FFlagPlayerAcceptPlayerScriptsStatus: true,
+};
+
+function clientAppSettings(ctx) {
+  send(ctx, 200, jsonNoStore, JSON.stringify(CLIENT_APP_SETTINGS));
+}
+
 // www/Setting/QuietGet/RCCServiceRCCService/index.php
 function rccSettings(ctx) {
   const settings = {
@@ -1201,6 +1226,7 @@ const ROUTES = [
   // object or array at root"), so every settings group answers JSON: RCC's
   // flags for its own groups (e.g. /Setting/QuietGet/RCCService/), {} otherwise.
   [/^setting\/quietget\/rccservice[^/]*\/?$/i, rccSettings],
+  [/^setting\/quietget\/clientappsettings\/?$/i, clientAppSettings],
   [/^setting\/quietget\/[^/]+\/?$/i, fixed('application/json; charset=utf-8', '{}', { 'Cache-Control': 'no-store' })],
   [new RegExp(`^device/initialize${opt}$`, 'i'), deviceInitialize],
   [new RegExp(`^v1\\.1/game-start-info${opt}$`, 'i'), gameStartInfo],
