@@ -108,3 +108,8 @@ label.inline select { text-transform: none; letter-spacing: 0; }
   .key input { width: 100%; }
   main, .top { padding-left: 16px; padding-right: 16px; }
 }
+
+/* Locked until the host key or an admin's manage token is accepted. */
+.lock-note { display: none; max-width: 640px; margin: 32px auto; }
+body.locked .lock-note { display: block; }
+body.locked main { display: none; }

@@ -222,6 +222,20 @@ function startCall(placeId, port, domain, scriptTimeout, cloudEdit = false) {
   return `start(${args.join(', ')})`;
 }
 
+// game.CreatorId and CreatorType for a library place (places.creatorOf): its
+// Studio owner, or the imported game's original Roblox creator, so scripts
+// that check the creator (admin commands, "is this the real game") see the
+// same one as the client (game/join.php). Nothing for other places.
+function creatorCall(placeId) {
+  let creator = null;
+  try {
+    const places = require('./places');
+    if (places.exists()) creator = places.creatorOf(places.load().places[String(placeId)]);
+  } catch (error) { /* no place library on this PC */ }
+  if (!creator || !(creator.id > 0)) return '';
+  return `pcall(function() game:SetCreatorID(${Math.floor(creator.id)}, Enum.CreatorType.${creator.type === 'Group' ? 'Group' : 'User'}) end)\r\n`;
+}
+
 // Runs after start(): dresses each character in the player's avatar.
 // RCC's own appearance loading never runs here: it builds its avatar-fetch
 // URL without a host and blocks it ("HTTP 0 (http: Trust check failed)").
@@ -254,7 +268,7 @@ async function startGameJob(placeId, port, domain, scriptTimeout, log, soapPort 
     source = source.split(stock).join(`game:SetServerSaveUrl(${JSON.stringify(cloudEdit.saveUrl)})`);
   }
   // No characters on a Team Create server, so no avatar code.
-  const script = `${source}\r\n${startCall(placeId, port, domain, scriptTimeout, Boolean(cloudEdit))}\r\n${cloudEdit ? '' : appearanceHook()}\r\n`;
+  const script = `${source}\r\n${creatorCall(placeId)}${startCall(placeId, port, domain, scriptTimeout, Boolean(cloudEdit))}\r\n${cloudEdit ? '' : appearanceHook()}\r\n`;
   soap('Execute', executeEnvelope('GameServer', script), 0, soapPort).then((result) => {
     if (result.status < 200 || result.status >= 300) log(`RCC answered the game job with HTTP ${result.status}`);
   }, (error) => log(`game job connection ended: ${error.code || error.message}`));

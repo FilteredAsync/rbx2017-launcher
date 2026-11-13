@@ -176,10 +176,17 @@ Log: Webserver\node\logs\studio.log.
 
 Managing games
 --------------
-Open http://<this PC's Tailscale address>/manage in a browser (on this PC:
-http://127.0.0.1/manage), or press "Manage games" in the launcher. Anyone
-can look; changes need the host key from config\host-key.txt on this PC
-(type it into the page once; give it only to people who may manage games).
+Only admins manage games. Admins press "Manage games" in the launcher (1.5.4
+and newer; the button shows only for admin accounts): the page opens
+unlocked for 12 hours. Or open http://<this PC's Tailscale address>/manage
+(on this PC: http://127.0.0.1/manage) and type the host key from
+config\host-key.txt once; give the key only to people who may manage games.
+Without either the page stays locked. Who is an admin: /manage, "Studio
+accounts" (the first account made on this PC is one).
+  - Creator ("By ..." in the game's loading screen and the launcher): for a
+    game made in Studio its owner; for an imported Roblox game the original
+    creator, looked up from its Roblox universe ID. Type another name in the
+    game's Edit form, or set the universe ID there.
   - Upload a game: pick a .rbxlx, give it a name. It gets the next free
     place ID (2000, 2001, ...), and that ID is permanent: saves and the
     thumbnail stay with it, and it is never given to another game. Places

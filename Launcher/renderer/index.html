@@ -145,14 +145,13 @@
     <!-- GAMES -->
     <section class="view" id="view-games">
       <div class="toolbar">
-        <button class="primary" id="play-refresh">Refresh</button>
-        <button class="ghost" id="play-studio">Open Studio</button>
-        <button class="ghost" id="play-manage">Manage games</button>
+        <button class="icon-btn accent" id="play-refresh" title="Refresh the game list" aria-label="Refresh the game list"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.35-5.65"/><path d="M20 4v6h-6"/></svg></button>
+        <button class="icon-btn" id="play-studio" title="Open Roblox Studio" aria-label="Open Roblox Studio"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 3.5l7 7-3 3-7-7z"/><path d="M12 9L3.5 17.5l3 3L15 12"/></svg></button>
+        <button class="ghost hidden" id="play-manage">Manage games</button>
         <span class="status" id="play-status"></span>
         <button class="ghost hidden" id="play-close">Close the client</button>
       </div>
       <div class="all-games" id="all-games"></div>
-      <details class="log-box"><summary>Log</summary><pre class="log" id="log-play"></pre></details>
     </section>
 
     <!-- FRIENDS (and everyone playing now) -->
@@ -368,11 +367,26 @@
                 <button class="ghost" id="open-logs">Open logs</button>
               </div>
             </div>
+            <details class="log-box"><summary>Game log (joining, game files, Studio)</summary><pre class="log" id="log-play"></pre></details>
           </div>
 
         </div>
       </div>
     </section>
+  </div>
+
+  <!-- Loading screen: from Play until the game's own window takes over -->
+  <div class="loading-screen hidden" id="loading-screen" role="dialog" aria-live="polite" aria-label="Loading the game">
+    <div class="loading-backdrop" id="loading-backdrop"></div>
+    <div class="loading-center">
+      <div class="loading-cover" id="loading-cover"></div>
+      <div class="loading-name" id="loading-name"></div>
+      <div class="loading-by" id="loading-by"></div>
+      <div class="loading-spinner" aria-hidden="true"></div>
+      <div class="loading-status" id="loading-status"></div>
+      <div class="loading-bar hidden" id="loading-bar"><div id="loading-bar-fill"></div></div>
+    </div>
+    <button class="ghost loading-cancel" id="loading-cancel">Cancel</button>
   </div>
 
   <!-- Game details -->

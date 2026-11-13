@@ -24,6 +24,7 @@ const path = require('path');
 const zlib = require('zlib');
 const core = require('./core');
 const accounts = require('./accounts');
+const admin = require('./admin');
 const games = require('./games');
 const places = require('./places');
 
@@ -713,19 +714,14 @@ pcall(function() history:SetEnabled(true) end)
     send(ctx, 200, headers, String(updated.version));
   }
 
-  // --- /manage (host key) ---------------------------------------------------------------
+  // --- /manage (host key or an admin's manage token, lib/admin.js) ---------------------
   //   GET    /api/studio/accounts             every account
   //   POST   /api/studio/accounts/<name>      {admin: true|false}
   //   DELETE /api/studio/accounts/<name>      delete it (how a password is reset)
   //   POST   /api/places/<id>/access          {owner: "name" | "", editors: ["name", ...]}
 
-  function hostKeyOk(ctx) {
-    const key = ctx.req.headers['x-host-key'] !== undefined ? String(ctx.req.headers['x-host-key']) : '';
-    return games.checkHostKey(key);
-  }
-
   async function manageAccounts(ctx, match) {
-    if (!hostKeyOk(ctx)) return sendJson(ctx, 403, { error: 'wrong or missing host key (config/host-key.txt on the server)' });
+    if (!admin.allowed(ctx)) return sendJson(ctx, 403, admin.DENIED);
     const name = match[1] ? decodeURIComponent(match[1]) : null;
     if (name === null) {
       if (ctx.method !== 'GET') return sendJson(ctx, 405, { error: 'use GET' });
@@ -742,7 +738,7 @@ pcall(function() history:SetEnabled(true) end)
 
   async function manageAccess(ctx, match) {
     if (ctx.method !== 'POST') return sendJson(ctx, 405, { error: 'use POST' });
-    if (!hostKeyOk(ctx)) return sendJson(ctx, 403, { error: 'wrong or missing host key (config/host-key.txt on the server)' });
+    if (!admin.allowed(ctx)) return sendJson(ctx, 403, admin.DENIED);
     const place = places.get(match[1]);
     if (!place) return sendJson(ctx, 404, { error: 'no such place' });
     const body = await jsonBody(ctx);

@@ -1,7 +1,9 @@
 'use strict';
 
 // Server management page: the place library (GET /api/places) and the changes
-// a host may make with the host key (see Webserver/node/lib/routes.js).
+// a host may make (see Webserver/node/lib/routes.js). The page stays locked
+// until the server accepts the host key or a manage token (lib/admin.js): the
+// launcher's Manage games button opens it as /manage#token=... for admins.
 
 const $ = (id) => document.getElementById(id);
 let data = null;
@@ -16,6 +18,29 @@ function storedKey() {
 }
 function storeKey(value) {
   try { if (value) localStorage.setItem('hostKey', value); else localStorage.removeItem('hostKey'); } catch (error) { /* private window */ }
+}
+function storedToken() {
+  try { return localStorage.getItem('manageToken') || ''; } catch (error) { return ''; }
+}
+function storeToken(value) {
+  try { if (value) localStorage.setItem('manageToken', value); else localStorage.removeItem('manageToken'); } catch (error) { /* private window */ }
+}
+
+// A token from the launcher (#token=...) is kept, and taken out of the address.
+function takeTokenFromAddress() {
+  const match = /(?:^#|&)token=([0-9a-f]{64})/.exec(location.hash);
+  if (!match) return false;
+  storeToken(match[1]);
+  history.replaceState(null, '', location.pathname + location.search);
+  return true;
+}
+takeTokenFromAddress();
+
+function authHeaders(extra) {
+  const headers = Object.assign({}, extra || {});
+  if (storedKey()) headers['X-Host-Key'] = storedKey();
+  if (storedToken()) headers['X-Manage-Token'] = storedToken();
+  return headers;
 }
 
 function el(tag, className, text) {
@@ -55,42 +80,37 @@ function when(iso) {
 }
 
 function needKey() {
-  const key = storedKey();
-  if (!key) {
+  const ok = Boolean(storedKey() || storedToken());
+  if (!ok) {
     $('key-state').textContent = 'Enter the host key first.';
     $('host-key').focus();
   }
-  return key;
+  return ok;
 }
 
-// Sends a change with the host key -> parsed JSON, or throws with the server's message.
+// Sends a change with the host key or token -> parsed JSON, or throws with the server's message.
 async function change(method, url, body, contentType) {
-  const key = needKey();
-  if (!key) throw new Error('Enter the host key first.');
-  const response = await fetch(url, { method, headers: { 'X-Host-Key': key, 'Content-Type': contentType || 'application/json' }, body });
+  if (!needKey()) throw new Error('Enter the host key first.');
+  const response = await fetch(url, { method, headers: authHeaders({ 'Content-Type': contentType || 'application/json' }), body });
   const result = await response.json().catch(() => ({}));
-  if (response.status === 403) $('key-state').textContent = 'The server did not accept this key.';
+  if (response.status === 403) unlock();
   if (!response.ok) throw new Error(result.error || `The server answered HTTP ${response.status}.`);
-  $('key-state').textContent = 'Key accepted.';
   return result;
 }
 
 // Uploads a file with progress (fetch has none) -> parsed JSON, or throws.
 function uploadFile(url, file, progress) {
   return new Promise((resolve, reject) => {
-    const key = needKey();
-    if (!key) return reject(new Error('Enter the host key first.'));
+    if (!needKey()) return reject(new Error('Enter the host key first.'));
     const request = new XMLHttpRequest();
     request.open('POST', url);
-    request.setRequestHeader('X-Host-Key', key);
-    request.setRequestHeader('Content-Type', 'application/octet-stream');
+    for (const [name, value] of Object.entries(authHeaders({ 'Content-Type': 'application/octet-stream' }))) request.setRequestHeader(name, value);
     request.upload.onprogress = (event) => { if (progress && event.lengthComputable) progress(Math.round((event.loaded / event.total) * 100)); };
     request.onload = () => {
       let result = {};
       try { result = JSON.parse(request.responseText || '{}'); } catch (error) { result = {}; }
-      if (request.status === 403) $('key-state').textContent = 'The server did not accept this key.';
+      if (request.status === 403) unlock();
       if (request.status >= 200 && request.status < 300) {
-        $('key-state').textContent = 'Key accepted.';
         resolve(result);
       } else {
         reject(new Error(result.error || `The server answered HTTP ${request.status}.`));
@@ -159,8 +179,12 @@ function placeCard(place) {
     const editing = server && Array.isArray(server.editors) ? server.editors : [];
     info.append(el('div', 'pid', `Team Create on${server ? ` · ${server.state === 'running' ? `${editing.length} editing${editing.length ? ` (${editing.join(', ')})` : ''}` : server.state}` : ''}`));
   }
+  const creator = place.creator;
+  info.append(el('div', 'pid', creator
+    ? `By ${creator.name}${creator.source === 'roblox' ? ' (from Roblox)' : creator.source === 'owner' ? ' (its Studio owner)' : ''}${creator.type === 'Group' ? ' · group' : ''}`
+    : `Creator: unknown${place.universeId ? ' (looking it up on Roblox…)' : ' (set the Roblox universe, or type one under Edit)'}`));
   if (place.owner || place.editors.length) {
-    const who = [place.owner ? `By ${place.owner.name}` : 'No owner (admins only)'];
+    const who = [place.owner ? `Owner ${place.owner.name}` : 'No owner (admins only)'];
     if (place.editors.length) who.push(`editors: ${place.editors.map((e) => e.name).join(', ')}`);
     info.append(el('div', 'pid', `Studio: ${who.join(' · ')}`));
   }
@@ -195,11 +219,11 @@ function placeCard(place) {
   const details = el('details');
   details.append(el('summary', '', 'Details'));
   const lines = [
-    `File: Server\\content\\${place.file.replace(/\//g, '\\')}`,
+    `File: Server\\content\\${String(place.file || '?').replace(/\//g, '\\')}`,
     `Uploaded from: ${place.uploadedFrom || '?'} · added ${when(place.createdAt)} · changed ${when(place.updatedAt)}`,
     place.universeId ? `Roblox universe for its images: ${place.universeId}` : 'Roblox universe: not set',
   ];
-  if (place.notes.length) lines.push('', 'Conversion notes:', ...place.notes);
+  if (place.notes && place.notes.length) lines.push('', 'Conversion notes:', ...place.notes);
   details.append(el('pre', '', lines.join('\n')));
   card.append(details);
   return card;
@@ -222,8 +246,16 @@ function editForm(place) {
   nameLabel.append(name);
   const descriptionLabel = el('label', '', 'Description');
   descriptionLabel.append(description);
-  const universeLabel = el('label', '', 'Roblox universe for rbxgameasset images');
+  const universeLabel = el('label', '', 'Roblox universe (its images, and who made it)');
   universeLabel.append(universe);
+  const creator = el('input');
+  creator.maxLength = 60;
+  const ownedHere = place.creator && place.creator.source === 'owner';
+  creator.value = place.creator && !ownedHere ? place.creator.name : '';
+  creator.placeholder = ownedHere ? `${place.creator.name} (its Studio owner)` : 'Found from the Roblox universe, or type a name';
+  creator.disabled = ownedHere;
+  const creatorLabel = el('label', '', 'Creator ("By ..." in the game and the launcher)');
+  creatorLabel.append(creator);
   const owner = el('input');
   owner.value = place.owner ? place.owner.name : '';
   owner.placeholder = 'Studio account name (empty: admins only)';
@@ -243,11 +275,13 @@ function editForm(place) {
   const save = el('button', '', 'Save');
   save.type = 'submit';
   row.append(save, button('Cancel', 'ghost', () => { editing.delete(id); renderPlaces(true); }));
-  form.append(nameLabel, descriptionLabel, universeLabel, ownerLabel, editorsLabel, teamCreateLabel, row);
+  form.append(nameLabel, descriptionLabel, universeLabel, creatorLabel, ownerLabel, editorsLabel, teamCreateLabel, row);
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     act(async () => {
-      await change('POST', `/api/places/${id}`, JSON.stringify({ name: name.value, description: description.value, universeId: universe.value.trim(), teamCreate: teamCreate.checked }));
+      const fields = { name: name.value, description: description.value, universeId: universe.value.trim(), teamCreate: teamCreate.checked };
+      if (!ownedHere) fields.creator = creator.value.trim();
+      await change('POST', `/api/places/${id}`, JSON.stringify(fields));
       const editorNames = editors.value.split(',').map((n) => n.trim()).filter(Boolean);
       await change('POST', `/api/places/${id}/access`, JSON.stringify({ owner: owner.value.trim(), editors: editorNames }));
       editing.delete(id);
@@ -278,7 +312,7 @@ function renderPlaces(force) {
 
 async function refresh() {
   try {
-    const response = await fetch('/api/places', { cache: 'no-store' });
+    const response = await fetch('/api/places', { headers: authHeaders(), cache: 'no-store' });
     data = await response.json();
     if (!$('join-server').value && data.server && data.server.tailscaleUrl) $('join-server').value = data.server.tailscaleUrl;
     renderServer();
@@ -314,12 +348,13 @@ $('host-key').value = storedKey();
 $('key-form').addEventListener('submit', (event) => {
   event.preventDefault();
   storeKey($('host-key').value.trim());
-  $('key-state').textContent = storedKey() ? 'Saved in this browser.' : '';
+  unlock();
 });
 $('key-forget').addEventListener('click', () => {
   storeKey('');
+  storeToken('');
   $('host-key').value = '';
-  $('key-state').textContent = 'Forgotten.';
+  lock('Forgotten.');
 });
 
 $('upload-form').addEventListener('submit', async (event) => {
@@ -423,7 +458,7 @@ let pendingAsset = null;
 
 async function loadMissing() {
   try {
-    missing = (await (await fetch('/api/assets/missing', { cache: 'no-store' })).json()).assets || [];
+    missing = (await (await fetch('/api/assets/missing', { headers: authHeaders(), cache: 'no-store' })).json()).assets || [];
     renderMissing();
   } catch (error) {
     $('missing-state').textContent = 'Could not load the list.';
@@ -490,15 +525,14 @@ $('missing-file').addEventListener('change', () => {
 // --- Studio accounts -----------------------------------------------------------------------
 
 async function loadAccounts() {
-  const key = storedKey();
   const rows = $('account-rows');
-  if (!key) {
+  if (!storedKey() && !storedToken()) {
     $('accounts-state').textContent = 'Enter the host key to see them.';
     rows.textContent = '';
     return;
   }
   try {
-    const response = await fetch('/api/studio/accounts', { headers: { 'X-Host-Key': key }, cache: 'no-store' });
+    const response = await fetch('/api/studio/accounts', { headers: authHeaders(), cache: 'no-store' });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
     renderAccounts(result.accounts);
@@ -730,11 +764,10 @@ $('srv-upload').addEventListener('change', async () => {
 });
 
 $('srv-log-show').addEventListener('click', async () => {
-  const key = needKey();
-  if (!key) return;
+  if (!needKey()) return;
   const out = $('srv-log');
   try {
-    const response = await fetch(`/api/server/logs?name=${encodeURIComponent($('srv-log-name').value)}&lines=300`, { headers: { 'X-Host-Key': key }, cache: 'no-store' });
+    const response = await fetch(`/api/server/logs?name=${encodeURIComponent($('srv-log-name').value)}&lines=300`, { headers: authHeaders(), cache: 'no-store' });
     const text = await response.text();
     if (!response.ok) {
       let message = text;
@@ -749,12 +782,51 @@ $('srv-log-show').addEventListener('click', async () => {
   }
 });
 
-refresh();
-loadNews();
-loadServerPanel();
-setInterval(() => { if (!busy) loadServerPanel(); }, 15000);
-loadMissing();
-loadAccounts();
-setInterval(() => { if (!busy) loadAccounts(); }, 15000);
-setInterval(() => { if (!busy) refresh(); }, 5000);
-setInterval(() => { if (!busy) loadMissing(); }, 15000);
+// --- lock -------------------------------------------------------------------------------
+// Nothing shows until the server accepts the host key or a manage token.
+
+let unlocked = false;
+let started = false;
+
+function lock(message) {
+  unlocked = false;
+  document.body.classList.add('locked');
+  $('server-line').textContent = 'Locked: for admins only';
+  $('key-state').textContent = message || '';
+}
+
+async function unlock() {
+  if (!storedKey() && !storedToken()) return lock('');
+  let response;
+  try {
+    response = await fetch('/api/manage/whoami', { headers: authHeaders(), cache: 'no-store' });
+  } catch (error) {
+    return lock('Cannot reach the web server.');
+  }
+  if (!response.ok) {
+    const hadToken = Boolean(storedToken());
+    storeToken('');
+    if (storedKey()) return lock('The server did not accept this key.');
+    return lock(hadToken ? 'That link has run out: open Manage games from the launcher again.' : '');
+  }
+  const who = await response.json().catch(() => ({}));
+  unlocked = true;
+  document.body.classList.remove('locked');
+  $('key-state').textContent = who.via === 'account' ? `Signed in as ${who.name} (admin).` : 'Host key accepted.';
+  if (started) return refresh();
+  started = true;
+  refresh();
+  loadNews();
+  loadServerPanel();
+  loadMissing();
+  loadAccounts();
+  setInterval(() => { if (!busy && unlocked) loadServerPanel(); }, 15000);
+  setInterval(() => { if (!busy && unlocked) loadAccounts(); }, 15000);
+  setInterval(() => { if (!busy && unlocked) refresh(); }, 5000);
+  setInterval(() => { if (!busy && unlocked) loadMissing(); }, 15000);
+  return undefined;
+}
+
+unlock();
+// The same page opened again from the launcher, with a new token.
+window.addEventListener('hashchange', () => { if (takeTokenFromAddress()) unlock(); });

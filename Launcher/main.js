@@ -176,6 +176,26 @@ function filesUpdate(centralUrl) {
   return gameFiles().update(centralUrl);
 }
 
+// A /manage token from this PC's host key (config/host-key.txt: the server
+// PC, or one it was moved from), or null.
+async function hostKeyManageToken(url) {
+  let key = null;
+  try {
+    key = fs.readFileSync(path.join(ROOT, 'config', 'host-key.txt'), 'utf8').split(/\r?\n/).map((line) => line.trim()).find((line) => line && line[0] !== '#') || null;
+  } catch (error) {
+    return null;
+  }
+  if (!key) return null;
+  try {
+    const response = await fetch(`${url}/api/manage/token`, { method: 'POST', headers: { 'X-Host-Key': key }, signal: AbortSignal.timeout(8000) });
+    if (!response.ok) return null;
+    const data = await response.json();
+    return /^[0-9a-f]{64}$/.test(String(data.token || '')) ? data.token : null;
+  } catch (error) {
+    return null;
+  }
+}
+
 // Before each game, a player install takes the server's newer game files
 // (client fixes and flags reach everyone without a visit to Setup). Progress
 // goes out as 'files-progress'. A host install plays from its own Client/.
@@ -567,10 +587,16 @@ function registerIpc() {
   });
   ipcMain.handle('games:thumbnail', (event, options) => gameThumbnail(options && options.centralUrl, options && options.placeId, options && options.version));
   // Opens <web server>/manage in the default browser (only that page).
+  // Opens the server's /manage page already unlocked: on the server PC with
+  // its host key, elsewhere with a token for the signed-in admin account
+  // (Webserver/node/lib/admin.js). Not an admin: the server says why.
   ipcMain.handle('open:manage', async (event, centralUrl) => {
     const url = lib('proxy').normalizeCentralUrl(centralUrl);
     if (url === null) throw new Error('Enter the web server address first.');
-    await shell.openExternal(`${url}/manage`);
+    let token = await hostKeyManageToken(url);
+    const local = /^http:\/\/(127\.0\.0\.1|localhost\.?|\[::1\])(:\d+)?$/i.test(url);
+    if (!token && !local) token = await account.manageToken(url);
+    await shell.openExternal(`${url}/manage${token ? `#token=${token}` : ''}`);
     return true;
   });
   ipcMain.handle('host:thumbnail', (event, options) => hostThumbnail(options || {}));

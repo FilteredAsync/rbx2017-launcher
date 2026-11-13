@@ -19,8 +19,10 @@ A launcher, web server and hosting tools for playing a 2017-era Roblox client
 - **Always-on server** (`Webserver/node/dedicated.js`, `startServer.bat`):
   runs every online game from the place library, restarts crashed or stuck
   games, restarts daily after saving players, and is managed in a browser
-  at `http://<server>/manage` (upload games, which get permanent place IDs,
-  turn them on or off, update, rename, delete).
+  at `http://<server>/manage` by its admins (upload games, which get
+  permanent place IDs, turn them on or off, update, rename, delete). The
+  page needs the host key or an admin account (the launcher's Manage games
+  opens it for admins).
 - **Place converter** (`Webserver/node/convert-place.js`): makes places saved
   by a newer Roblox Studio load in the 2017 engine.
 - **RCC fixes in memory** (`patch-rcc-*.ps1`): local place authorization,

@@ -6,7 +6,7 @@
   <title>Server management</title>
   <link rel="stylesheet" href="/manage/manage.css">
 </head>
-<body>
+<body class="locked">
   <header class="top">
     <div class="brand">
       <div class="title">Server management</div>
@@ -20,6 +20,10 @@
       <span class="hint" id="key-state"></span>
     </form>
   </header>
+  <section class="lock-note panel">
+    <h2>Locked</h2>
+    <p>Only admins manage this server. Enter the host key (<code>config\host-key.txt</code> on the server PC), or open <b>Manage games</b> from the launcher while signed in to an admin account.</p>
+  </section>
 
   <main>
     <section class="panel" id="upload-panel">

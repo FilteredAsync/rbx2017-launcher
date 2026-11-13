@@ -101,6 +101,32 @@ function filePath(place) {
   return path.join(CONTENT, ...String(place.file).split('/'));
 }
 
+// Who made a game -> { id, name, type: 'User' | 'Group', source } or null:
+// the Studio owner for games made here ("owner"); for imported Roblox games
+// the original creator, looked up from the universe ID by lib/creators.js
+// ("roblox"), or a name typed on /manage ("manual"). An empty typed name
+// means "nobody": no lookup, and the client shows no creator.
+function creatorOf(place) {
+  if (!place) return null;
+  if (place.owner && place.owner.userId) {
+    // The account's name now (it may have been renamed since).
+    let name = String(place.owner.name || '');
+    try {
+      const account = require('./accounts').byUserId(place.owner.userId);
+      if (account && account.name) name = account.name;
+    } catch (error) { /* no accounts here */ }
+    return { id: Number(place.owner.userId), name, type: 'User', source: 'owner' };
+  }
+  const creator = place.creator;
+  if (!creator || !creator.name) return null;
+  return {
+    id: Number(creator.id) || 0,
+    name: String(creator.name),
+    type: creator.type === 'Group' ? 'Group' : 'User',
+    source: creator.source === 'roblox' ? 'roblox' : 'manual',
+  };
+}
+
 // Library entries as the API shows them.
 function describe(placeId, place) {
   let size = null;
@@ -122,6 +148,8 @@ function describe(placeId, place) {
     // else may edit it. Places uploaded on /manage have no owner: only admins.
     owner: place.owner && place.owner.userId ? { userId: Number(place.owner.userId), name: String(place.owner.name || '') } : null,
     editors: Array.isArray(place.editors) ? place.editors.map((e) => ({ userId: Number(e.userId), name: String(e.name || '') })) : [],
+    // Who made it, as the game client and the launcher show it (creatorOf).
+    creator: creatorOf(place),
     // Team Create: Studio opens it on a shared cloud edit server.
     teamCreate: Boolean(place.teamCreate),
     // Where the current version came from: "teamcreate" (autosaves of a
@@ -198,7 +226,7 @@ function replaceFile(placeId, { bytes, notes, universeId, from, source }) {
   place.version = (place.version || 1) + 1;
   place.updatedAt = now();
   place.uploadedFrom = cleanText(from, 60) || place.uploadedFrom;
-  if (placeKey(universeId)) place.universeId = placeKey(universeId);
+  if (placeKey(universeId)) setUniverse(place, placeKey(universeId));
   place.notes = Array.isArray(notes) ? notes.slice(0, 60) : [];
   place.versionSource = source || 'upload';
   save(library);
@@ -213,9 +241,34 @@ function update(placeId, fields) {
   if (fields.name !== undefined) place.name = cleanText(fields.name, 60) || place.name;
   if (fields.description !== undefined) place.description = cleanText(fields.description, 1000);
   if (fields.enabled !== undefined) place.enabled = Boolean(fields.enabled);
-  if (fields.universeId !== undefined) place.universeId = placeKey(fields.universeId) || '';
+  if (fields.universeId !== undefined) setUniverse(place, placeKey(fields.universeId) || '');
   if (fields.teamCreate !== undefined) place.teamCreate = Boolean(fields.teamCreate);
+  // A typed creator name (/manage); empty means "nobody".
+  if (fields.creator !== undefined && fields.creator !== null) {
+    const name = cleanText(fields.creator, 60);
+    const current = creatorOf(place);
+    // Unchanged (or still empty) leaves a looked-up creator, or the lookup, alone.
+    if (current ? (current.source !== 'owner' && name !== current.name) : name !== '') place.creator = { name, source: 'manual' };
+  }
   place.updatedAt = now();
+  save(library);
+  return describe(id, place);
+}
+
+// A new universe ID: a creator looked up from the old one is looked up again.
+function setUniverse(place, universeId) {
+  if (universeId !== (place.universeId || '') && place.creator && place.creator.source === 'roblox') delete place.creator;
+  place.universeId = universeId;
+}
+
+// The creator lib/creators.js found on Roblox. Only fills a place that has
+// none (a typed name or an owner wins); does not count as an edit.
+function setLookedUpCreator(placeId, creator) {
+  const id = placeKey(placeId);
+  const library = load();
+  const place = id === null ? null : library.places[id];
+  if (!place || place.creator !== undefined || !creator || !creator.name) return null;
+  place.creator = { id: Number(creator.id) || 0, name: cleanText(creator.name, 60), type: creator.type === 'Group' ? 'Group' : 'User', source: 'roblox' };
   save(library);
   return describe(id, place);
 }
@@ -304,6 +357,7 @@ function writeRunnerStatus(status) {
 
 module.exports = {
   load, exists, ensure, list, get, create, replaceFile, update, setAccess, remove, filePath, placeKey,
+  creatorOf, setLookedUpCreator,
   requestRestart, requestCloudEdit, requestServer, readRequests, runnerStatus, writeRunnerStatus,
   LIBRARY, CONTROL, STATUS,
 };

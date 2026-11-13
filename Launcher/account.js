@@ -150,6 +150,25 @@ module.exports = function accountModule({ ROOT, lib }) {
     return request(serverUrl(centralUrl), method, route, options);
   }
 
+  // A token that opens the server's /manage page for an admin account
+  // (Webserver/node/lib/admin.js); throws with the server's reason otherwise.
+  async function manageToken(centralUrl) {
+    const { url, token } = withSession(centralUrl);
+    let response;
+    try {
+      response = await fetch(`${url}/api/manage/token`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15000) });
+    } catch (error) {
+      throw new Error('Could not reach your server.');
+    }
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.error || (response.status === 404
+        ? 'Your server is too old for this: its host needs the newest server files.'
+        : `Your server answered HTTP ${response.status}.`));
+    }
+    return String(data.token || '');
+  }
+
   // Join ticket for the client: the account's, or a guest's.
   async function joinTicket(centralUrl, gameId, guest) {
     const url = serverUrl(centralUrl);
@@ -257,6 +276,7 @@ module.exports = function accountModule({ ROOT, lib }) {
     signOut,
     current,
     joinTicket,
+    manageToken,
     handleNet,
     avatar: (centralUrl) => authed(centralUrl, 'GET', 'avatar'),
     saveAvatar: (centralUrl, body) => authed(centralUrl, 'POST', 'avatar', { body }),

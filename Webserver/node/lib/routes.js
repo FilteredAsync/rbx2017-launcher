@@ -12,7 +12,9 @@ const core = require('./core');
 const assets = require('./assets');
 const avatar = require('./avatar');
 const avatarStore = require('./avatarstore');
+const creators = require('./creators');
 const accounts = require('./accounts');
+const admin = require('./admin');
 const announcements = require('./announcements');
 const updates = require('./updates');
 const datastore = require('./datastore');
@@ -516,6 +518,10 @@ function join(ctx) {
   // was once forced to 1818 here, so any other place ID gave the client and
   // RCC different place IDs and the client crashed right after loading.
   payload = payload.replace(/"IsRobloxPlace":(?:true|false)/, '"IsRobloxPlace":true');
+  // game.CreatorId and CreatorType, the same as on the game server (hosting.js).
+  const creator = places.exists() ? places.creatorOf(places.load().places[placeid]) : null;
+  payload = payload.replace(/"CreatorId":\d+,"CreatorTypeEnum":"\w+"/,
+    `"CreatorId":${creator ? creator.id : 0},"CreatorTypeEnum":"${creator ? creator.type : 'User'}"`);
   payload = payload.replace(/[ \t\n\r\0\x0B]+$/, '');
   if (payload.endsWith('}')) {
     payload = payload.slice(0, -1)
@@ -691,6 +697,17 @@ const LOCAL_PRODUCTS = {
   25386995: 'Local Money Pack 4', 25387075: 'Local Money Pack 5', 25387014: 'Local Money Pack 6',
 };
 
+// Creator of things that are not library places: ROBLOX (user 1), as on
+// the 2017 site for catalog items.
+const ROBLOX_CREATOR = { Id: 1, Name: 'ROBLOX', CreatorType: 'User' };
+
+// A library place's creator as productinfo shows it.
+function placeCreator(place) {
+  const creator = places.creatorOf(place);
+  if (!creator) return { Id: 0, Name: '', CreatorType: 'User' };
+  return { Id: creator.id, Name: creator.name, CreatorType: creator.type };
+}
+
 // www/marketplace/productDetails.php
 function productDetails(ctx) {
   const productId = core.phpInt(ctx.query.productId);
@@ -698,7 +715,7 @@ function productDetails(ctx) {
   send(ctx, 200, { 'Content-Type': 'application/json; charset=utf-8' }, core.phpJson({
     TargetId: productId, ProductType: 'Developer Product', AssetId: 0, ProductId: productId, Name: name,
     Description: 'Local developer product.', AssetTypeId: 0,
-    Creator: { Id: 1, Name: 'henumeramon08', CreatorType: 'User' },
+    Creator: ROBLOX_CREATOR,
     IconImageAssetId: 0, Created: '2015-01-01T00:00:00Z', Updated: '2017-01-01T00:00:00Z', PriceInRobux: 0,
     IsForSale: false, IsLimited: false, IsLimitedUnique: false, Remaining: null, MinimumMembershipLevel: 0, ContentRatingTypeId: 0,
   }));
@@ -707,14 +724,15 @@ function productDetails(ctx) {
 // www/marketplace/productinfo.php
 function productInfo(ctx) {
   const assetId = core.phpInt(ctx.query.assetId);
-  // A library place: its own name and its Studio owner (Studio shows both,
-  // and Team Create checks the owner).
+  // A library place: its own name and creator (the game's loading screen
+  // shows "By ..."; Studio shows both, and Team Create checks the owner).
   const place = places.exists() ? places.get(assetId) : null;
+  if (place) creators.fillMissing();
   send(ctx, 200, { 'Content-Type': 'application/json; charset=utf-8' }, core.phpJson({
     TargetId: assetId, ProductType: 'User Product', AssetId: assetId, ProductId: 0,
     Name: place ? place.name : (assetId === 1818 ? 'Lumber Tycoon 2' : `Local Asset ${assetId}`),
     Description: place && place.description ? place.description : 'Served by the local game server.', AssetTypeId: 9,
-    Creator: place && place.owner ? { Id: place.owner.userId, Name: place.owner.name, CreatorType: 'User' } : { Id: 1, Name: 'henumeramon08', CreatorType: 'User' },
+    Creator: place ? placeCreator(place) : ROBLOX_CREATOR,
     IconImageAssetId: 0, Created: '2015-01-01T00:00:00Z', Updated: '2017-01-01T00:00:00Z', PriceInRobux: null,
     IsForSale: false, IsLimited: false, IsLimitedUnique: false, Remaining: null, MinimumMembershipLevel: 0, ContentRatingTypeId: 0,
   }));
@@ -860,9 +878,20 @@ async function gamesApi(ctx, match) {
     // Library places show their library name and description (renames apply
     // at once, without restarting the game).
     const library = places.exists() ? places.load().places : {};
+    creators.fillMissing();
+    // Players in each game, from the always-on server's last check (null:
+    // not known, e.g. a game hosted from another PC).
+    const runner = places.runnerStatus();
+    const running = runner && !runner.stale && runner.games ? runner.games : {};
     const list = games.list().map((game) => {
       const place = library[game.placeId];
-      return Object.assign(game, place ? { name: place.name, description: place.description || '' } : {}, { thumbnail: gamethumbs.version(game.placeId) });
+      const creator = place ? places.creatorOf(place) : null;
+      const status = running[game.placeId];
+      return Object.assign(game, place ? { name: place.name, description: place.description || '' } : {}, {
+        creator: creator ? creator.name : '',
+        playing: status && Array.isArray(status.players) ? status.players.length : null,
+        thumbnail: gamethumbs.version(game.placeId),
+      });
     });
     return sendJson(ctx, 200, { games: list });
   }
@@ -896,11 +925,19 @@ async function gamesApi(ctx, match) {
 //   DELETE /api/places/<id>                   remove (saves, thumbnail and ID stay reserved)
 // Changes need the host key (X-Host-Key).
 
-function placesWithStatus() {
+// Fields of a library place only admins see.
+const ADMIN_PLACE_FIELDS = ['file', 'uploadedFrom', 'notes'];
+function forViewer(place, isAdmin) {
+  if (!isAdmin) for (const field of ADMIN_PLACE_FIELDS) delete place[field];
+  return place;
+}
+
+function placesWithStatus(isAdmin) {
   const runner = places.runnerStatus();
   const running = runner && !runner.stale && runner.games ? runner.games : {};
+  creators.fillMissing();
   return {
-    places: places.list().map((place) => Object.assign(place, {
+    places: places.list().map((place) => Object.assign(forViewer(place, isAdmin), {
       thumbnail: gamethumbs.version(place.placeId),
       status: running[place.placeId] || null,
       cloudEdit: runner && !runner.stale && runner.cloudEdit ? runner.cloudEdit[place.placeId] || null : null,
@@ -934,14 +971,13 @@ async function placesApi(ctx, match) {
   const placeId = match[1] || null;
   const action = match[2] ? match[2].toLowerCase() : null;
   const query = ctx.queryLower;
-  if ((ctx.method === 'GET' || ctx.method === 'HEAD') && placeId === null) return sendJson(ctx, 200, placesWithStatus());
+  if ((ctx.method === 'GET' || ctx.method === 'HEAD') && placeId === null) return sendJson(ctx, 200, placesWithStatus(admin.allowed(ctx)));
   if (ctx.method === 'GET' && placeId !== null && action === null) {
     const place = places.get(placeId);
-    return place ? sendJson(ctx, 200, { place }) : sendJson(ctx, 404, { error: 'no such place' });
+    return place ? sendJson(ctx, 200, { place: forViewer(place, admin.allowed(ctx)) }) : sendJson(ctx, 404, { error: 'no such place' });
   }
   if (ctx.method !== 'POST' && ctx.method !== 'DELETE') return sendJson(ctx, 405, { error: 'use GET, POST or DELETE' });
-  const key = ctx.req.headers['x-host-key'] !== undefined ? String(ctx.req.headers['x-host-key']) : '';
-  if (!games.checkHostKey(key)) return sendJson(ctx, 403, { error: 'wrong or missing host key (config/host-key.txt on the server)' });
+  if (!admin.allowed(ctx)) return sendJson(ctx, 403, admin.DENIED);
   const from = ctx.remote;
 
   if (placeId === null) {
@@ -971,7 +1007,7 @@ async function placesApi(ctx, match) {
   }
   if (action === null) {
     const body = await jsonBody(ctx);
-    const place = places.update(placeId, { name: body.name, description: body.description, enabled: body.enabled, universeId: body.universeId, teamCreate: body.teamCreate });
+    const place = places.update(placeId, { name: body.name, description: body.description, enabled: body.enabled, universeId: body.universeId, teamCreate: body.teamCreate, creator: body.creator });
     return sendJson(ctx, 200, { place });
   }
   return sendJson(ctx, 404, { error: 'unknown places API call' });
@@ -984,13 +1020,13 @@ async function placesApi(ctx, match) {
 async function assetsApi(ctx, match) {
   if (match[1] === undefined) {
     if (ctx.method !== 'GET' && ctx.method !== 'HEAD') return sendJson(ctx, 405, { error: 'use GET' });
+    if (!admin.allowed(ctx)) return sendJson(ctx, 403, admin.DENIED);
     const list = missingassets.list();
     missingassets.lookUpNames(list.map((entry) => entry.id)).catch(() => {});
     return sendJson(ctx, 200, { assets: list });
   }
   if (ctx.method !== 'POST' && ctx.method !== 'DELETE') return sendJson(ctx, 405, { error: 'use POST or DELETE' });
-  const key = ctx.req.headers['x-host-key'] !== undefined ? String(ctx.req.headers['x-host-key']) : '';
-  if (!games.checkHostKey(key)) return sendJson(ctx, 403, { error: 'wrong or missing host key (config/host-key.txt on the server)' });
+  if (!admin.allowed(ctx)) return sendJson(ctx, 403, admin.DENIED);
   const id = match[1];
   if (ctx.method === 'DELETE') return sendJson(ctx, 200, { ok: missingassets.removeReplacement(id) });
   const declared = Number(ctx.req.headers['content-length']);
@@ -1046,8 +1082,7 @@ function menuMusicRoute(ctx) {
 async function announcementsApi(ctx, match) {
   if ((ctx.method === 'GET' || ctx.method === 'HEAD') && !match[1]) return sendJson(ctx, 200, { announcements: announcements.list() });
   if (ctx.method !== (match[1] ? 'DELETE' : 'POST')) return sendJson(ctx, 405, { error: match[1] ? 'use DELETE' : 'use GET or POST' });
-  const key = ctx.req.headers['x-host-key'] !== undefined ? String(ctx.req.headers['x-host-key']) : '';
-  if (!games.checkHostKey(key)) return sendJson(ctx, 403, { error: 'wrong or missing host key (config/host-key.txt on the server)' });
+  if (!admin.allowed(ctx)) return sendJson(ctx, 403, admin.DENIED);
   if (match[1]) {
     return announcements.remove(match[1].toLowerCase()) ? sendJson(ctx, 200, { ok: true }) : sendJson(ctx, 404, { error: 'no such announcement' });
   }
@@ -1103,8 +1138,7 @@ async function serverApi(ctx, match) {
       runner: runner ? { running: !runner.stale, updatedAt: runner.updatedAt, updates: runner.updates || null } : { running: false },
     }));
   }
-  const key = ctx.req.headers['x-host-key'] !== undefined ? String(ctx.req.headers['x-host-key']) : '';
-  if (!games.checkHostKey(key)) return sendJson(ctx, 403, { error: 'wrong or missing host key (config/host-key.txt on the server)' });
+  if (!admin.allowed(ctx)) return sendJson(ctx, 403, admin.DENIED);
   if (action === 'logs') {
     if (ctx.method !== 'GET') return sendJson(ctx, 405, { error: 'use GET' });
     const parts = SERVER_LOGS[String(ctx.queryLower.name || 'server').toLowerCase()];
@@ -1163,8 +1197,7 @@ async function thumbnailsApi(ctx, match) {
     return sendFile(ctx, found.file, { 'Content-Type': found.type, 'Cache-Control': 'no-cache' });
   }
   if (ctx.method !== 'POST' && ctx.method !== 'DELETE') return sendJson(ctx, 405, { error: 'use GET, POST or DELETE' });
-  const key = ctx.req.headers['x-host-key'] !== undefined ? String(ctx.req.headers['x-host-key']) : '';
-  if (!games.checkHostKey(key)) return sendJson(ctx, 403, { error: 'wrong or missing host key (config/host-key.txt on the web server)' });
+  if (!admin.allowed(ctx)) return sendJson(ctx, 403, admin.DENIED);
   if (ctx.method === 'DELETE') {
     gamethumbs.remove(placeId);
     return sendJson(ctx, 200, { ok: true, thumbnail: null });
@@ -1199,6 +1232,7 @@ const ROUTES = [
   [/^download\/(roblox-logo(?:-tagline)?\.png)$/i, launcherLogoRoute],
   [/^api\/assets\/(?:missing|(\d{1,15})\/replacement)\/?$/i, assetsApi],
   [/^api\/announcements(?:\/([0-9a-f]{12}))?\/?$/i, announcementsApi],
+  [/^api\/manage\/(token|whoami)\/?$/i, (ctx, match) => admin.route(ctx, match, sendJson)],
   [/^api\/server\/(status|update\/check|update\/install|update\/upload|update\/discard|restart|logs)\/?$/i, serverApi],
   [new RegExp(`^asset(?:/index\\.php)?/?$`, 'i'), assetEndpoint],
   [/^asset\/bodycolors\.(?:ashx|php)$/i, bodyColors],

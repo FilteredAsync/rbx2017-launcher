@@ -124,9 +124,26 @@ function cover(game) {
   return node;
 }
 
+// Players in an online game: the server's count (its always-on server checks
+// every game), or the launchers that said they joined it.
+function playersIn(game) {
+  if (!game) return 0;
+  if (Number.isFinite(game.playing)) return game.playing;
+  return onlinePlayers.filter((player) => player.gameId === game.id).length;
+}
+
+const PERSON_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="7.5" r="4.5"/><path d="M3 22c0-5 4-8 9-8s9 3 9 8z"/></svg>';
+
 function gameTile(game, options = {}) {
   const tile = el('button', 'game-tile nav-target');
   tile.append(cover(game));
+  if (Number.isFinite(options.players)) {
+    const ccu = el('span', `tile-ccu${options.players > 0 ? ' live' : ''}`);
+    ccu.innerHTML = PERSON_ICON;
+    ccu.append(document.createTextNode(String(options.players)));
+    ccu.title = `${options.players} playing`;
+    tile.append(ccu);
+  }
   if (options.badge) tile.append(el('span', `tile-badge${options.live ? ' live' : ''}`, options.badge));
   if (options.caption) tile.append(el('div', 'caption', options.caption));
   tile.addEventListener('click', () => openDetail(game));
@@ -296,6 +313,8 @@ function updateIdentity() {
     : 'Guests join as "Guest" with a number and the guest look. Sign up to pick your own name, dress your avatar and use Roblox Studio.';
   $('account-signin').classList.toggle('hidden', Boolean(me));
   $('account-signout').classList.toggle('hidden', !me);
+  // Managing the server is for its admins (set on its Manage games page).
+  $('play-manage').classList.toggle('hidden', !(me && me.account.admin));
 }
 
 $('account-signin').addEventListener('click', () => { setAccountMode('signin'); showScreen('account'); });
@@ -409,6 +428,7 @@ function navPool() {
 
 // Spatial navigation: the nearest focusable control in the pressed direction.
 function move(dx, dy) {
+  if (loading) return;
   const pool = navPool();
   const current = document.activeElement && pool.includes(document.activeElement) ? document.activeElement : null;
   if (!current) { focusEl(pool.find((node) => node.classList.contains('tab-link') && node.classList.contains('active')) || pool[0]); return; }
@@ -440,6 +460,7 @@ function move(dx, dy) {
 }
 
 function goBack() {
+  if (loading) return;
   if (!$('overlay').classList.contains('hidden')) { closeDetail(); return; }
   if (screen === 'account') { showScreen('start'); return; }
   if (screen !== 'shell') return;
@@ -462,6 +483,7 @@ function select() {
 }
 
 function switchTab(step) {
+  if (loading) return;
   if (screen !== 'shell') return;
   const next = VIEWS[(VIEWS.indexOf(view) + step + VIEWS.length) % VIEWS.length];
   showView(next);
@@ -469,6 +491,7 @@ function switchTab(step) {
 }
 
 function openSettings() {
+  if (loading) return;
   if (screen !== 'shell') return;
   showView('settings', true);
 }
@@ -483,6 +506,12 @@ document.addEventListener('mouseover', (event) => {
 
 document.addEventListener('keydown', (event) => {
   const typing = event.target && (event.target.tagName === 'INPUT' || event.target.tagName === 'SELECT');
+  // The loading screen has one button (Cancel); nothing behind it moves.
+  if (loading) {
+    if (event.key === 'Enter' || event.key === ' ') return;
+    event.preventDefault();
+    return;
+  }
   if (event.key === 'Escape') { event.preventDefault(); goBack(); return; }
   if (screen === 'start' && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); enter(); return; }
   if (event.key === 'PageUp') { switchTab(-1); return; }
@@ -645,7 +674,7 @@ function renderHome() {
   grid.textContent = '';
   for (let i = 0; i < 6; i++) {
     const game = lastGames[i];
-    const count = game ? onlinePlayers.filter((player) => player.gameId === game.id).length : 0;
+    const count = playersIn(game);
     if (game) grid.append(gameTile(game, { badge: count ? `${count} PLAYING` : `UP ${formatUptime(game.upSeconds).toUpperCase()}`, live: count > 0 }));
     else if (i === lastGames.length && state && state.canHost) grid.append(placeholder('Host a game', '+', () => { showView('settings'); showSettings('host'); }));
     else if (i === lastGames.length) grid.append(placeholder(lastGames.length ? 'More games show up here.' : 'No games online yet.', '·'));
@@ -666,9 +695,11 @@ function openDetail(game) {
   box.textContent = '';
   box.append(cover(detailGame));
   $('detail-name').textContent = detailGame.name;
+  const by = detailGame.creator ? `By ${detailGame.creator} · ` : '';
+  const count = playable ? playersIn(detailGame) : 0;
   $('detail-meta').textContent = playable
-    ? `Place ${detailGame.placeId} · up ${formatUptime(detailGame.upSeconds)}`
-    : `Place ${detailGame.placeId || '?'}`;
+    ? `${by}${count} playing · up ${formatUptime(detailGame.upSeconds)} · place ${detailGame.placeId}`
+    : `${by}Place ${detailGame.placeId || '?'}`;
   const inGame = onlinePlayers.filter((player) => player.gameId === detailGame.id).map((player) => player.name);
   $('detail-players').textContent = inGame.length ? `Playing now: ${inGame.join(', ')}` : '';
   $('detail-desc').textContent = detailGame.description || '';
@@ -686,28 +717,96 @@ function closeDetail() {
 }
 
 $('detail-back').addEventListener('click', closeDetail);
+// --- loading screen ---------------------------------------------------------------------
+// From Play until the game's own window takes over (the launcher loses focus
+// to it), like Roblox's: the game, its creator and what is happening.
+
 // Set while Play waits, so a game files update shows its progress here.
 let playStarting = false;
+let loading = null; // { game, cancelled, started }
+
+function setLoadingStatus(text, kind) {
+  const status = $('loading-status');
+  status.textContent = text;
+  status.className = `loading-status${kind ? ` ${kind}` : ''}`;
+}
+
+function setLoadingBar(fraction) {
+  $('loading-bar').classList.toggle('hidden', fraction === null);
+  if (fraction !== null) $('loading-bar-fill').style.width = `${Math.round(Math.max(0, Math.min(1, fraction)) * 100)}%`;
+}
+
+function showLoading(game) {
+  loading = { game, cancelled: false, started: false };
+  $('loading-backdrop').textContent = '';
+  $('loading-backdrop').append(cover(game));
+  $('loading-cover').textContent = '';
+  $('loading-cover').append(cover(game));
+  $('loading-name').textContent = game.name || 'Game';
+  $('loading-by').textContent = game.creator ? `By ${game.creator}` : '';
+  setLoadingStatus('Getting ready…');
+  setLoadingBar(null);
+  $('loading-cancel').textContent = 'Cancel';
+  $('loading-screen').classList.remove('hidden');
+  focusEl($('loading-cancel'));
+}
+
+function hideLoading() {
+  loading = null;
+  $('loading-screen').classList.add('hidden');
+}
+
+$('loading-cancel').addEventListener('click', () => {
+  if (!loading) return hideLoading();
+  if (loading.started) api.stopClient();
+  else loading.cancelled = true; // stops the client as soon as it starts
+  hideLoading();
+});
+
+// The game window takes the focus once it is up.
+window.addEventListener('blur', () => {
+  if (loading && loading.started) setTimeout(() => { if (loading && loading.started) hideLoading(); }, 400);
+});
+
 $('detail-play').addEventListener('click', async () => {
   if (!detailGame) return;
+  const game = detailGame;
   $('detail-play').disabled = true;
-  $('detail-note').textContent = 'Starting the client…';
+  $('detail-note').textContent = '';
+  closeDetail();
+  showLoading(game);
+  const mine = loading;
   playStarting = true;
   try {
-    const joined = await api.join({ game: detailGame, guest: !me });
+    setLoadingStatus('Joining the server…');
+    const joined = await api.join({ game, guest: !me });
     playStarting = false;
-    rememberPlayed(detailGame);
-    $('detail-note').textContent = joined.guest ? `Have fun, ${joined.name}!` : 'Have fun!';
-    setTimeout(() => { closeDetail(); renderHome(); }, 1100);
+    rememberPlayed(game);
+    renderHome();
+    if (mine.cancelled) {
+      api.stopClient();
+      return;
+    }
+    if (loading !== mine) return;
+    mine.started = true;
+    setLoadingBar(null);
+    setLoadingStatus(joined.guest ? `Starting Roblox as ${joined.name}…` : 'Starting Roblox…');
+    $('loading-cancel').textContent = 'Close the game';
+    // If the window never takes the focus (another window in front), stop waiting.
+    setTimeout(() => { if (loading === mine) hideLoading(); }, 25000);
   } catch (error) {
     playStarting = false;
-    $('detail-note').textContent = message(error);
-    $('detail-play').disabled = false;
     if (/sign in/i.test(message(error)) && me) {
       // The session ran out on the server.
       me = null;
       updateIdentity();
     }
+    if (loading !== mine) return;
+    hideLoading();
+    openDetail(game);
+    $('detail-note').textContent = message(error);
+  } finally {
+    $('detail-play').disabled = false;
   }
 });
 
@@ -722,6 +821,8 @@ async function refreshState() {
   $('start-foot').textContent = `Launcher ${state.version}${serverAddress() ? ` · ${serverAddress()}` : ''}`;
 
   // Games / play
+  // The client closed (or failed) before its window took over.
+  if (loading && loading.started && !state.play.active) hideLoading();
   $('play-close').classList.toggle('hidden', !state.play.active);
   if (state.play.active) setStatus('play-status', 'The client is running.', 'good');
   else if ($('play-status').textContent === 'The client is running.') setStatus('play-status', 'The client closed.');
@@ -828,8 +929,8 @@ function renderAllGames() {
   const list = $('all-games');
   list.textContent = '';
   for (const game of lastGames) {
-    const count = onlinePlayers.filter((player) => player.gameId === game.id).length;
-    list.append(gameTile(game, { caption: count ? `${count} playing · up ${formatUptime(game.upSeconds)}` : `Up ${formatUptime(game.upSeconds)}` }));
+    const by = game.creator ? `By ${game.creator} · ` : '';
+    list.append(gameTile(game, { players: playersIn(game), caption: `${by}up ${formatUptime(game.upSeconds)}` }));
   }
   if (lastGames.length === 0) list.append(placeholder('No games online. Host one, or ask your host to start theirs.', '·'));
 }
@@ -1249,12 +1350,17 @@ api.onFilesProgress((info) => {
     bar.removeAttribute('value');
     setStatus('files-status', 'Unpacking…');
   }
-  if (playStarting) {
-    const note = $('detail-note');
-    if (info.phase === 'checking') note.textContent = 'The server has new game files. Updating…';
-    if (info.phase === 'download') note.textContent = `Updating the game files… ${Math.round(info.received / 1e6)} of ${Math.round(info.total / 1e6)} MB`;
-    if (info.phase === 'unpack') note.textContent = 'Installing the game files update…';
-    if (info.phase === 'done') note.textContent = 'Game files updated. Starting the client…';
+  if (playStarting && loading) {
+    if (info.phase === 'checking') setLoadingStatus('The server has new game files. Updating…');
+    if (info.phase === 'download') {
+      setLoadingStatus(`Updating the game files… ${Math.round(info.received / 1e6)} of ${Math.round(info.total / 1e6)} MB`);
+      setLoadingBar(info.total ? info.received / info.total : null);
+    }
+    if (info.phase === 'unpack') {
+      setLoadingStatus('Installing the game files update…');
+      setLoadingBar(null);
+    }
+    if (info.phase === 'done') setLoadingStatus('Game files updated. Joining the server…');
   }
 });
 
