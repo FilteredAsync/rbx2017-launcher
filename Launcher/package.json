@@ -1,0 +1,76 @@
+{
+  "name": "robloxclient-launcher",
+  "productName": "RobloxClient Launcher",
+  "version": "1.1.0",
+  "description": "Play, host and run the web server for the RobloxClient 2017 bundle.",
+  "author": "rbx2017-launcher",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "package": "electron-packager . \"RobloxClient Launcher\" --platform=win32 --arch=x64 --out=dist --overwrite --ignore=^/dist --ignore=^/dist-installer --ignore=^/node_modules",
+    "dist": "electron-builder --win nsis --x64"
+  },
+  "devDependencies": {
+    "@electron/packager": "20.3.0",
+    "electron": "45.3.1",
+    "electron-builder": "^26.18.0"
+  },
+  "build": {
+    "appId": "com.rbx2017.launcher",
+    "productName": "RobloxClient Launcher",
+    "electronVersion": "45.3.1",
+    "electronDist": "node_modules/electron/dist",
+    "directories": {
+      "output": "dist-installer",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json",
+      "renderer/**/*"
+    ],
+    "extraFiles": [
+      {
+        "from": "../Client",
+        "to": "Client",
+        "filter": [
+          "**/*",
+          "!RobloxPlayerBeta_aecandidate.exe",
+          "!RobloxPlayerBeta_tracecandidate.exe",
+          "!rbxsig_private.pem",
+          "!corescripts-original{,/**}"
+        ]
+      },
+      {
+        "from": "../Webserver/node",
+        "to": "Webserver/node",
+        "filter": [
+          "**/*",
+          "!data{,/**}",
+          "!logs{,/**}",
+          "!*.pid"
+        ]
+      },
+      {
+        "from": "../config/README.txt",
+        "to": "config/README.txt"
+      }
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "RobloxClient Launcher",
+      "runAfterFinish": true,
+      "include": "build/installer.nsh",
+      "artifactName": "RobloxClient-Setup-${version}.${ext}"
+    }
+  }
+}

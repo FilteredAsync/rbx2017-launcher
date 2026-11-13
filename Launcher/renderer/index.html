@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' launcher-media:">
+  <title>RobloxClient Launcher</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="backdrop" aria-hidden="true"><canvas id="bg-canvas"></canvas></div>
+
+  <header class="top">
+    <img class="logo" src="roblox-logo.png" alt="ROBLOX" draggable="false">
+    <div class="top-right">
+      <span class="presence-dot" id="presence-dot"></span>
+      <span class="clock" id="top-clock"></span>
+    </div>
+  </header>
+
+  <nav class="tabs" id="tabs">
+    <button class="tab-link active" data-view="home">HOME</button>
+    <button class="tab-link" data-view="games">GAMES</button>
+    <button class="tab-link" data-view="host">HOST</button>
+    <button class="tab-link" data-view="web">SERVER</button>
+    <button class="tab-link" data-view="setup">SETUP</button>
+  </nav>
+
+  <!-- HOME -->
+  <section class="view active" id="view-home">
+    <div class="home-grid">
+      <div class="col col-me">
+        <div class="col-title" id="home-username">GUEST</div>
+        <button class="avatar-panel nav-target" id="avatar-panel" data-goto="games">
+          <img id="avatar-img" class="hidden" alt="">
+          <svg id="avatar-silhouette" viewBox="0 0 100 120" aria-hidden="true"><rect x="34" y="8" width="32" height="30" rx="4"/><rect x="26" y="42" width="48" height="44" rx="3"/><rect x="12" y="44" width="12" height="38" rx="3"/><rect x="76" y="44" width="12" height="38" rx="3"/><rect x="28" y="88" width="20" height="30" rx="3"/><rect x="52" y="88" width="20" height="30" rx="3"/></svg>
+        </button>
+        <div class="col-title second">STATUS</div>
+        <div class="status-list" id="home-status"></div>
+      </div>
+
+      <div class="col col-recent">
+        <div class="col-title">RECENTLY PLAYED</div>
+        <div class="recent-grid" id="recent-grid"></div>
+        <button class="more nav-target" data-goto="games" title="All games">· · ·</button>
+      </div>
+
+      <div class="col col-online">
+        <div class="col-title">ONLINE GAMES</div>
+        <div class="online-grid" id="online-grid"></div>
+        <button class="more nav-target" data-goto="games" title="All games">· · ·</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- GAMES -->
+  <section class="view" id="view-games">
+    <div class="panel">
+      <div class="grid two">
+        <label>Web server address
+          <input id="play-server" placeholder="http://100.95.180.22" spellcheck="false">
+          <span class="hint">The host's Tailscale address, a playit address, or http://127.0.0.1 on the host PC.</span>
+        </label>
+        <label>Username
+          <input id="play-username" placeholder="3-20 letters, digits or _" spellcheck="false" maxlength="20">
+          <span class="hint">Your avatar comes from the Roblox account with this name.</span>
+        </label>
+      </div>
+      <div class="row">
+        <button class="primary" id="play-refresh">Find games</button>
+        <button class="ghost" id="play-manage">Manage games</button>
+        <span class="status" id="play-status"></span>
+        <button class="ghost hidden" id="play-close">Close the client</button>
+      </div>
+    </div>
+    <div class="all-games" id="all-games"></div>
+    <details class="log-box"><summary>Log</summary><pre class="log" id="log-play"></pre></details>
+  </section>
+
+  <!-- HOST -->
+  <section class="view" id="view-host">
+    <div class="panel">
+      <div class="grid two">
+        <label>Game name <input id="host-name" spellcheck="false"></label>
+        <label>Place ID <input id="host-place" inputmode="numeric"></label>
+        <label>Game port (UDP) <input id="host-port" inputmode="numeric"></label>
+        <label>Players reach this PC through
+          <select id="host-reach">
+            <option value="tailscale">Tailscale (found automatically)</option>
+            <option value="custom">Another address (playit or LAN)</option>
+          </select>
+        </label>
+        <label class="hidden" id="host-custom-wrap">Public game address
+          <input id="host-custom" placeholder="abc.gl.at.ply.gg:23456" spellcheck="false">
+        </label>
+        <label>Web server address
+          <input id="host-central" placeholder="http://127.0.0.1" spellcheck="false">
+          <span class="hint">http://127.0.0.1 when the web server runs on this PC.</span>
+        </label>
+        <label class="hidden" id="host-key-wrap">Host key
+          <input id="host-key" spellcheck="false" type="password">
+          <span class="hint">From config\host-key.txt on the web server PC.</span>
+        </label>
+      </div>
+      <div class="thumb-row">
+        <div class="thumb-preview" id="thumb-preview">No thumbnail</div>
+        <div class="thumb-side">
+          <div class="label">Game thumbnail</div>
+          <span class="hint">Shown on this place's tile in every player's launcher. PNG, JPG, GIF or WebP, up to 4 MB; square pictures look best.</span>
+          <div class="row">
+            <button class="ghost" id="thumb-pick">Choose picture…</button>
+            <button class="ghost hidden" id="thumb-remove">Remove</button>
+            <span class="status" id="thumb-status"></span>
+          </div>
+        </div>
+      </div>
+      <div class="row">
+        <button class="primary" id="host-start">Start hosting</button>
+        <button class="danger hidden" id="host-stop">Stop hosting</button>
+        <span class="status" id="host-status"></span>
+      </div>
+    </div>
+    <div class="panel hidden" id="host-live">
+      <div class="live-head">
+        <div><div class="label">Listed at</div><div class="value" id="host-address"></div></div>
+        <div><div class="label">Players</div><div class="value" id="host-players">—</div></div>
+      </div>
+    </div>
+    <details class="log-box" open><summary>Log</summary><pre class="log" id="log-host"></pre></details>
+  </section>
+
+  <!-- SERVER -->
+  <section class="view" id="view-web">
+    <div class="panel">
+      <p class="lead">Serves assets, avatars, saves and the game list. One PC runs it for everyone.</p>
+      <div class="row">
+        <span class="pill" id="web-pill">Checking…</span>
+        <button class="primary" id="web-start">Start</button>
+        <button class="ghost" id="web-manage">Manage games</button>
+        <button class="ghost" id="web-stop">Stop</button>
+      </div>
+      <div class="addresses">
+        <div class="address-row"><span class="label">On this PC</span><code id="web-local">http://127.0.0.1</code></div>
+        <div class="address-row"><span class="label">For friends (Tailscale)</span><code id="web-tailscale">—</code><button class="ghost small" id="web-copy">Copy</button></div>
+      </div>
+    </div>
+    <details class="log-box" open><summary>Log</summary><pre class="log" id="log-web"></pre></details>
+  </section>
+
+  <!-- SETUP -->
+  <section class="view" id="view-setup">
+    <div class="panel">
+      <p class="lead">One-time steps. Actions marked "admin" ask Windows for permission.</p>
+      <div class="checks" id="setup-checks"></div>
+      <div class="row">
+        <button class="ghost" id="setup-refresh">Check again</button>
+        <button class="ghost" id="open-root">Open RobloxClient folder</button>
+        <button class="ghost" id="open-config">Open config</button>
+        <button class="ghost" id="open-logs">Open logs</button>
+      </div>
+    </div>
+    <div class="panel" id="convert-panel">
+      <div class="label">Convert a place file</div>
+      <p class="lead">Makes a place saved by a newer Roblox Studio (.rbxlx) load in the 2017 client: fixes asset links, fonts and newer value types, and lists anything that needs a hand edit.</p>
+      <div class="grid two">
+        <label>Roblox place ID it came from (optional)
+          <input id="convert-place-id" inputmode="numeric" placeholder="e.g. 13822889" spellcheck="false" maxlength="15">
+          <span class="hint">Lets the converter find the game's own images (rbxgameasset://).</span>
+        </label>
+      </div>
+      <div class="row">
+        <button class="primary" id="convert-pick">Choose a place file…</button>
+        <button class="ghost hidden" id="convert-install">Host this place</button>
+        <span class="status" id="convert-status"></span>
+      </div>
+      <pre class="log hidden" id="convert-report"></pre>
+    </div>
+    <div class="panel">
+      <div class="label">Menu</div>
+      <div class="row tight">
+        <button class="ghost" id="toggle-music">Music: On</button>
+        <button class="ghost" id="toggle-background">Background: Neon grid</button>
+        <span class="hint" id="music-hint"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Game details -->
+  <div class="overlay hidden" id="overlay">
+    <div class="detail">
+      <div class="detail-cover" id="detail-cover"></div>
+      <div class="detail-info">
+        <div class="detail-name" id="detail-name"></div>
+        <div class="detail-meta" id="detail-meta"></div>
+        <div class="detail-desc" id="detail-desc"></div>
+        <div class="detail-note" id="detail-note"></div>
+        <div class="row">
+          <button class="play-button" id="detail-play">Play</button>
+          <button class="ghost" id="detail-back">Back</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="hints">
+    <span class="hint-item"><b class="btn btn-a">A</b> Select</span>
+    <span class="hint-item"><b class="btn btn-b">B</b> Back</span>
+    <span class="hint-item"><b class="btn btn-y">Y</b> Music</span>
+    <span class="hint-item"><b class="btn btn-bumper">LB</b><b class="btn btn-bumper">RB</b> Tabs</span>
+    <button class="settings-hint" id="settings-hint"><b class="btn btn-x">X</b> Settings</button>
+  </footer>
+
+  <audio id="music" loop preload="auto"></audio>
+  <script src="background.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+    "webServer": true,
+    "restartDaily": "05:00",
+    "maxGames": 4,
+    "memoryLimitMB": 3000,
+    "healthCheckSeconds": 60,
+    "failedChecksBeforeRestart": 3,
+    "saveWaitSeconds": 10,
+    "gamePortFirst": 53640,
+    "gamePortCount": 20
+}

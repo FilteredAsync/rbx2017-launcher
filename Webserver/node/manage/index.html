@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Server management</title>
+  <link rel="stylesheet" href="/manage/manage.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <div class="title">Server management</div>
+      <div class="subtitle" id="server-line">Checking the server…</div>
+    </div>
+    <form class="key" id="key-form" autocomplete="off">
+      <label for="host-key">Host key</label>
+      <input id="host-key" type="password" placeholder="from config\host-key.txt on the server" spellcheck="false">
+      <button type="submit">Save</button>
+      <button type="button" class="ghost" id="key-forget">Forget</button>
+      <span class="hint" id="key-state"></span>
+    </form>
+  </header>
+
+  <main>
+    <section class="panel" id="upload-panel">
+      <h2>Upload a game</h2>
+      <p class="lead">Each upload gets its own place ID, kept for good: saves and thumbnails stay with it, and the ID is never given to another game. Places from a newer Roblox Studio are converted for the 2017 engine on the way in (save them as .rbxlx).</p>
+      <form id="upload-form" class="grid">
+        <label class="wide">Place file (.rbxlx)
+          <input type="file" id="upload-file" accept=".rbxlx,.rbxmx" required>
+        </label>
+        <label>Name
+          <input id="upload-name" maxlength="60" placeholder="Shown in everyone's game list" required>
+        </label>
+        <label>Roblox place ID it came from (optional)
+          <input id="upload-from" inputmode="numeric" maxlength="15" placeholder="Finds the game's own images">
+        </label>
+        <label class="wide">Description (optional)
+          <textarea id="upload-description" maxlength="1000" rows="2"></textarea>
+        </label>
+        <label class="check wide"><input type="checkbox" id="upload-enabled" checked> Put it online right away (the always-on server starts it)</label>
+        <div class="row wide">
+          <button type="submit" id="upload-button">Upload</button>
+          <progress id="upload-progress" max="100" value="0" hidden></progress>
+          <span class="status" id="upload-status"></span>
+        </div>
+      </form>
+      <pre class="notes" id="upload-notes" hidden></pre>
+    </section>
+
+    <section>
+      <div class="list-head">
+        <h2>Games</h2>
+        <span class="hint" id="list-state"></span>
+      </div>
+      <div id="places" class="places"></div>
+    </section>
+  </main>
+
+  <input type="file" id="replace-file" accept=".rbxlx,.rbxmx" hidden>
+  <input type="file" id="thumb-file" accept=".png,.jpg,.jpeg,.gif,.webp" hidden>
+  <script src="/manage/manage.js"></script>
+</body>
+</html>

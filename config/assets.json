@@ -1,0 +1,12 @@
+{
+    "baseUrl": "http://localhost.",
+    "avatarType": "auto",
+    "defaultFaceId": "144075659",
+    "dynamicHeadFaces": {},
+    "dynamicHeads": {},
+    "legacyBodyPartMaxAssetId": "",
+    "loadGear": false,
+    "avatarCacheSeconds": 120,
+    "gameAssets": {},
+    "gameUniverseId": "2471084"
+}

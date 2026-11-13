@@ -1,0 +1,46 @@
+# Allow-list: git tracks only this project's own code and docs. Everything
+# else stays out: the 2017 client and RCC (Roblox's), place files, the web
+# root and tools from the original bundle, caches, saves, keys and builds.
+/*
+!/.gitignore
+!/.gitattributes
+!/README.md
+!/Requirements.txt
+!/*.bat
+!/*.ps1
+!/start-web.sh
+!/packaging/
+!/tools/
+
+!/config/
+/config/*
+!/config/README.txt
+!/config/server.json
+!/config/assets.json
+
+!/Launcher/
+/Launcher/*
+!/Launcher/main.js
+!/Launcher/preload.js
+!/Launcher/package.json
+!/Launcher/package-lock.json
+!/Launcher/build/
+!/Launcher/renderer/
+# Roblox's logo: keep your own copy locally (the launcher shows text without it).
+/Launcher/renderer/roblox-logo.png
+
+!/Webserver/
+/Webserver/*
+!/Webserver/node/
+/Webserver/node/data/
+/Webserver/node/logs/
+/Webserver/node/*.pid
+
+# Never, wherever they turn up.
+*.log
+*.pem
+*.dmp
+host-key.txt
+roblox-api-key.txt
+.roblosecurity
+menu-music.mp3

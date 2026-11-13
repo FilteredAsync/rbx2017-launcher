@@ -1,0 +1,11 @@
+Things the roblox client NEEDS working
+    1. Properly fixed asset loading (With character loading, asset translator for things like dynamic faces to normal 2d faces.)
+	
+	2. Fixing LuaWebService to be in its true state
+	
+	3. A nice looking launcher for the server, to monitor it, load the game(s), etc. (windows and linux), utilize cloudflare, playit or a costum reverse proxy to be able to connect to it (Multiplayer)
+	
+	4. A nice looking launcher for the client, what username, userid (Removing the whole detect roblox user script), robux amount, server ip / port to connect to, use roblox website avatar or one made in the client
+	 4-1. Preferably if you manage to find the XBOX one launcher client UI, from 2017 (Or around that time).
+
+    5. Fully rebuilt web server (to run it on linux / windows).

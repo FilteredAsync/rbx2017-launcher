@@ -1,0 +1,11 @@
+{
+    "hosts": [
+        "127.0.0.1",
+        "::1",
+        "tailscale"
+    ],
+    "port": 80,
+    "httpsPort": 443,
+    "httpsCert": "Webserver/bin/apache/certificats/main-server.com.cert",
+    "httpsKey": "Webserver/bin/apache/certificats/main-server.com.key"
+}
