@@ -22,6 +22,7 @@ const fs = require('fs');
 const net = require('net');
 const path = require('path');
 const readline = require('readline');
+const accounts = require('./lib/accounts');
 const core = require('./lib/core');
 const hosting = require('./lib/hosting');
 const places = require('./lib/places');
@@ -359,6 +360,137 @@ class GameSlot {
   }
 }
 
+// --- one Team Create server -------------------------------------------------------------------
+// RCC as a cloud edit server for one place, shared by everyone editing it in
+// Studio. Started when Studio asks for it (PlaceLauncher.ashx?request=CloudEdit
+// becomes a "cloudedit" request), saved and stopped once nobody has been
+// editing for CLOUD_IDLE_MS. Its saves go to the web server's
+// /ide/publish/UploadFromCloudEdit with a token only this server has.
+
+const CLOUD_IDLE_MS = 3 * 60 * 1000;
+
+class CloudEditSlot {
+  constructor(placeId, index, config, onChange) {
+    this.placeId = placeId;
+    this.index = index;
+    this.config = config;
+    this.onChange = onChange;
+    this.scope = `Team Create ${placeId}`;
+    this.session = null;
+    this.state = 'starting';
+    this.lastError = null;
+    this.startedAt = 0;
+    this.idleSince = Date.now();
+    this.editors = null;
+    this.stopping = false;
+  }
+
+  get gamePort() { return this.config.gamePortFirst + this.index; }
+  get soapPort() { return hosting.SOAP_PORT + this.index; }
+
+  setState(state, error) {
+    this.state = state;
+    if (error !== undefined) this.lastError = error;
+    this.onChange();
+  }
+
+  hostConfig() {
+    const place = places.load().places[this.placeId];
+    if (!place) throw new Error('this place is no longer in the library');
+    this.scope = `Team Create: ${place.name} (${this.placeId})`;
+    const token = accounts.editToken(0, this.placeId, 30);
+    return {
+      gameName: `${place.name} (Team Create)`,
+      placeId: this.placeId,
+      placeFile: place.file,
+      gamePort: this.gamePort,
+      soapPort: this.soapPort,
+      publicAddress: `tailscale:${this.gamePort}`,
+      centralUrl: this.config.centralUrl,
+      hostKey: this.config.hostKey,
+      cloudEdit: { saveUrl: `http://localhost./ide/publish/UploadFromCloudEdit?placeId=${this.placeId}&t=${encodeURIComponent(token)}` },
+    };
+  }
+
+  // Resolves when the server has stopped (it is not restarted: Studio asks
+  // again when someone opens the place).
+  async run() {
+    try {
+      this.setState('starting');
+      this.session = await hosting.startHosting(this.hostConfig(), { log: (line) => log(this.scope, line), dedicated: true });
+      this.startedAt = Date.now();
+      this.idleSince = Date.now();
+      this.setState('running', null);
+      log(this.scope, `ready on UDP port ${this.gamePort}`);
+      await this.session.stopped;
+    } catch (error) {
+      this.setState('error', error.message);
+      log(this.scope, `could not start: ${error.message}`);
+    } finally {
+      this.session = null;
+      if (this.state !== 'error') this.setState('stopped');
+    }
+  }
+
+  // Who is editing; tracks how long nobody has been.
+  async sample() {
+    const session = this.session;
+    if (!session || this.state !== 'running') return;
+    this.editors = await session.players();
+    if (this.editors === null || this.editors.length > 0) this.idleSince = Date.now();
+  }
+
+  idleTooLong() {
+    return this.state === 'running' && !this.stopping && Array.isArray(this.editors) && this.editors.length === 0
+      && Date.now() - this.idleSince > CLOUD_IDLE_MS;
+  }
+
+  // Saves the place to the web server, waits for it to arrive, then stops.
+  async shutdown(reason) {
+    if (this.stopping) return;
+    this.stopping = true;
+    const session = this.session;
+    if (!session) return;
+    this.setState('stopping');
+    if (!places.load().places[this.placeId]) {
+      await session.stop(`${reason}; stopping the Team Create server`);
+      return;
+    }
+    const before = places.load().places[this.placeId].version || 0;
+    log(this.scope, `${reason}; saving the place first`);
+    if (await session.saveNow(60000)) {
+      for (let i = 0; i < 60; i++) {
+        if (((places.load().places[this.placeId] || {}).version || 0) !== before) break;
+        await sleep(500);
+      }
+    } else {
+      log(this.scope, 'warning: RCC did not save; changes since its last autosave are lost');
+    }
+    await session.stop('stopping the Team Create server');
+  }
+
+  killNow() {
+    this.stopping = true;
+    if (this.session && this.session.pid) killTree(this.session.pid);
+  }
+
+  report() {
+    return {
+      state: this.state,
+      editors: this.editors,
+      startedAt: this.startedAt ? new Date(this.startedAt).toISOString() : null,
+      lastError: this.lastError,
+      address: this.session ? this.session.publicAddress : null,
+      gamePort: this.gamePort,
+    };
+  }
+
+  describe() {
+    const who = this.editors === null ? 'RCC busy' : `${this.editors.length} editing${this.editors.length ? ` (${this.editors.join(', ')})` : ''}`;
+    return `${this.scope}: ${this.state}, ${who}, port ${this.gamePort}`;
+  }
+}
+
 // --- main ----------------------------------------------------------------------------------
 
 function nextDaily(time) {
@@ -386,6 +518,7 @@ async function main() {
   }
 
   const slots = new Map(); // placeId -> GameSlot
+  const cloud = new Map(); // placeId -> CloudEditSlot (Team Create servers)
   const retiring = new Set();
   let problems = [];
   let shuttingDown = false;
@@ -395,7 +528,9 @@ async function main() {
   const writeStatus = () => {
     const games = {};
     for (const [id, slot] of slots) games[id] = slot.report();
-    places.writeRunnerStatus({ pid: process.pid, maxGames: config.maxGames, games, problems });
+    const cloudEdit = {};
+    for (const [id, slot] of cloud) cloudEdit[id] = slot.report();
+    places.writeRunnerStatus({ pid: process.pid, maxGames: config.maxGames, games, cloudEdit, problems });
   };
   const statusSoon = () => {
     if (statusTimer) return;
@@ -403,7 +538,31 @@ async function main() {
   };
   const sampleAll = async () => {
     for (const slot of slots.values()) await slot.sample().catch(() => {});
+    for (const slot of cloud.values()) {
+      await slot.sample().catch(() => {});
+      if (slot.idleTooLong()) slot.shutdown('nobody has been editing for a while').catch(() => {});
+    }
     writeStatus();
+  };
+
+  // A free port pair: games count up from the first, Team Create servers
+  // down from the last, so they rarely meet.
+  const usedIndexes = () => new Set([...slots.values(), ...cloud.values()].map((slot) => slot.index));
+  const startCloudEdit = (id, entries) => {
+    const used = usedIndexes();
+    let index = config.gamePortCount - 1;
+    while (index >= 0 && used.has(index)) index--;
+    if (index < 0) {
+      log(`place ${id}`, 'no free game port for a Team Create server (gamePortCount in config\\dedicated.json)');
+      return;
+    }
+    const slot = new CloudEditSlot(id, index, config, statusSoon);
+    cloud.set(id, slot);
+    log(`place ${id}`, `starting a Team Create server for "${entries[id].name}" (UDP port ${slot.gamePort})`);
+    slot.run().finally(() => {
+      if (cloud.get(id) === slot) cloud.delete(id);
+      statusSoon();
+    });
   };
 
   // --- keep running games in line with the library ---
@@ -437,7 +596,7 @@ async function main() {
           nextProblems.push(`"${entries[id].name}" (${id}) is online but waits: ${config.maxGames} games already run (maxGames in config\\dedicated.json).`);
           continue;
         }
-        const used = new Set([...slots.values()].map((slot) => slot.index));
+        const used = usedIndexes();
         let index = 0;
         while (used.has(index)) index++;
         if (index >= config.gamePortCount) {
@@ -452,11 +611,27 @@ async function main() {
       }
 
       // A new version of a running game: save players and restart on it.
+      // Team Create saves (every few minutes while people build) wait until
+      // nobody is playing, so players are not kicked each time.
       for (const [id, slot] of slots) {
         const place = entries[id];
         if (place && slot.session && slot.startedVersion !== null && (place.version || 1) !== slot.startedVersion && !slot.restarting) {
-          log(slot.scope, `version ${place.version} was uploaded; restarting`);
-          slot.restart('a new version was uploaded', MESSAGES.updated).catch(() => {});
+          if (place.versionSource === 'teamcreate') {
+            if (Array.isArray(slot.players) && slot.players.length === 0) {
+              log(slot.scope, `Team Create saved version ${place.version} and nobody is playing; restarting on it`);
+              slot.restart('Team Create changes go live').catch(() => {});
+            }
+          } else {
+            log(slot.scope, `version ${place.version} was uploaded; restarting`);
+            slot.restart('a new version was uploaded', MESSAGES.updated).catch(() => {});
+          }
+        }
+      }
+
+      // Team Create servers for places that left Team Create or the library.
+      for (const [id, slot] of cloud) {
+        if ((!entries[id] || !entries[id].teamCreate) && !slot.stopping) {
+          slot.shutdown(entries[id] ? 'Team Create was turned off' : 'removed from the library').catch(() => {});
         }
       }
 
@@ -464,6 +639,11 @@ async function main() {
       for (const request of places.readRequests()) {
         if (handled.has(request.id)) continue;
         handled.add(request.id);
+        if (request.action === 'cloudedit') {
+          const id = String(request.placeId);
+          if (entries[id] && entries[id].teamCreate && !cloud.has(id)) startCloudEdit(id, entries);
+          continue;
+        }
         const slot = slots.get(String(request.placeId));
         if (request.action === 'restart' && slot) {
           log(slot.scope, 'restart requested on the management page');
@@ -513,11 +693,16 @@ async function main() {
     if (fast) {
       // The window is closing: Windows allows a few seconds only.
       for (const slot of slots.values()) slot.killNow();
+      for (const slot of cloud.values()) slot.killNow();
     } else {
-      log('server', 'stopping: saving players, then stopping the games and the web server');
-      await Promise.all([...slots.values()].map((slot) => slot.shutdown(MESSAGES.shutdown).catch(() => {})));
+      log('server', 'stopping: saving players and Team Create places, then stopping the games and the web server');
+      await Promise.all([
+        ...[...slots.values()].map((slot) => slot.shutdown(MESSAGES.shutdown).catch(() => {})),
+        ...[...cloud.values()].map((slot) => slot.shutdown('the server is stopping').catch(() => {})),
+      ]);
     }
     slots.clear();
+    cloud.clear();
     try { places.writeRunnerStatus({ pid: null, maxGames: config.maxGames, games: {}, problems: [], stoppedAt: new Date().toISOString() }); } catch (error) { /* ignore */ }
     try { fs.unlinkSync(places.STATUS); } catch (error) { /* gone */ }
     if (web) web.stop();
@@ -539,6 +724,7 @@ async function main() {
       await sampleAll();
       if (slots.size === 0) log('status', 'no games online (turn some on at http://<this PC>/manage)');
       for (const slot of slots.values()) log('status', slot.describe());
+      for (const slot of cloud.values()) log('status', slot.describe());
       for (const problem of problems) log('status', problem);
     } else if (name === 'restart') {
       const targets = !argument || argument === 'all' ? [...slots.values()] : [slots.get(argument)].filter(Boolean);

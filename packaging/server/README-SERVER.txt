@@ -112,6 +112,38 @@ then reach this server only. Set it up once in the Tailscale admin console
 Players' PCs show up in Machines as rbx-<username>; remove any you do not
 recognize. Tagged players do not count as Tailscale users.
 
+Roblox Studio and Team Create
+-----------------------------
+Roblox Studio 2017 (Studio\RobloxStudioBeta.exe) uses this server: its start
+page lists the games here. Log in on that page with a username and password;
+the first login with a name creates that account (use your Roblox username,
+so your avatar shows in games). The first account made on this PC is an
+admin: admins may open and publish over every game. /manage, "Studio
+accounts", changes who is an admin and resets a forgotten password (delete the
+account; the next login with that name makes it again).
+  - Edit opens a game from the start page; New place starts a baseplate.
+  - FILE > Publish to ROBLOX As...: publish as a new game (it gets the next
+    place ID and goes online right away if ticked) or over a game you may
+    edit. FILE > Publish to ROBLOX updates the game the place came from.
+  - Everyone else edits only their own games and the ones whose owner added
+    them as editors ("Editors" on the start page, or the game's Edit form on
+    /manage).
+Team Create (building together):
+  - The owner or an admin turns it on in Studio: VIEW > Team Create > Turn
+    ON (or tick Team Create in the game's Edit form on /manage).
+  - From then on the game opens in Team Create for its owner and editors:
+    everyone builds in the same place and sees the others' changes at once.
+  - This server starts a Team Create server for the game when the first person
+    opens it (UDP ports from 53659 down) and stops it, after saving, 3 minutes
+    after the last person leaves. It also saves every 5 minutes.
+  - Saved changes go live when nobody is playing that game, at the daily
+    restart, or when you press Restart on /manage.
+  - It needs this always-on server (startServer.bat), not the launcher's
+    Host tab.
+For now Studio works on this PC only; Studio on players' PCs comes with a
+launcher update. Log: Webserver
+ode\logs\studio.log.
+
 Managing games
 --------------
 Open http://<this PC's Tailscale address>/manage in a browser (on this PC:

@@ -154,6 +154,11 @@ function placeCard(place) {
   pid.append(document.createTextNode('Place ID '), el('b', '', id), document.createTextNode(` · version ${place.version} · ${size(place.fileSize)}`));
   info.append(pid);
   if (place.description) info.append(el('div', 'desc', place.description));
+  if (place.teamCreate) {
+    const server = place.cloudEdit;
+    const editing = server && Array.isArray(server.editors) ? server.editors : [];
+    info.append(el('div', 'pid', `Team Create on${server ? ` · ${server.state === 'running' ? `${editing.length} editing${editing.length ? ` (${editing.join(', ')})` : ''}` : server.state}` : ''}`));
+  }
   if (place.owner || place.editors.length) {
     const who = [place.owner ? `By ${place.owner.name}` : 'No owner (admins only)'];
     if (place.editors.length) who.push(`editors: ${place.editors.map((e) => e.name).join(', ')}`);
@@ -229,15 +234,20 @@ function editForm(place) {
   editors.placeholder = 'Studio account names, comma-separated';
   const editorsLabel = el('label', '', 'Editors in Studio');
   editorsLabel.append(editors);
+  const teamCreate = el('input');
+  teamCreate.type = 'checkbox';
+  teamCreate.checked = place.teamCreate;
+  const teamCreateLabel = el('label', 'check');
+  teamCreateLabel.append(teamCreate, document.createTextNode(' Team Create: the owner and editors build it together in Studio'));
   const row = el('div', 'row');
   const save = el('button', '', 'Save');
   save.type = 'submit';
   row.append(save, button('Cancel', 'ghost', () => { editing.delete(id); renderPlaces(true); }));
-  form.append(nameLabel, descriptionLabel, universeLabel, ownerLabel, editorsLabel, row);
+  form.append(nameLabel, descriptionLabel, universeLabel, ownerLabel, editorsLabel, teamCreateLabel, row);
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     act(async () => {
-      await change('POST', `/api/places/${id}`, JSON.stringify({ name: name.value, description: description.value, universeId: universe.value.trim() }));
+      await change('POST', `/api/places/${id}`, JSON.stringify({ name: name.value, description: description.value, universeId: universe.value.trim(), teamCreate: teamCreate.checked }));
       const editorNames = editors.value.split(',').map((n) => n.trim()).filter(Boolean);
       await change('POST', `/api/places/${id}/access`, JSON.stringify({ owner: owner.value.trim(), editors: editorNames }));
       editing.delete(id);

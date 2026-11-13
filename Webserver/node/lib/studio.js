@@ -37,6 +37,10 @@ const PAGE_FILES = {
 // An empty place: what a newly published game holds until Studio's upload lands.
 const EMPTY_PLACE = Buffer.from('<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">\n</roblox>\n');
 const MAX_PLACE_BYTES = 200 * 1024 * 1024;
+// The Studio in Studio/ (RobloxStudioBeta.exe 0.299.0.136981, from
+// version-963a1dfb081b4bff): what its Team Create version check expects.
+const STUDIO_VERSION_NAME = 'version-963a1dfb081b4bff';
+const STUDIO_FILE_VERSION = '0, 299, 0, 136981';
 
 module.exports = function studioRoutes({ send, sendUtf8, sendFile, sendJson, jsonBody, sign }) {
   // --- helpers ------------------------------------------------------------------------
@@ -149,7 +153,9 @@ module.exports = function studioRoutes({ send, sendUtf8, sendFile, sendJson, jso
     const token = accounts.editToken(account.userId, placeId);
     return {
       token,
-      script: `${base}/Game/edit.ashx?PlaceID=${placeId}&upload=${placeId}&t=${encodeURIComponent(token)}`,
+      // universeId: Studio reads it from this address to check Team Create
+      // (each place is its own universe here: universe ID = place ID).
+      script: `${base}/Game/edit.ashx?PlaceID=${placeId}&upload=${placeId}&universeId=${placeId}&t=${encodeURIComponent(token)}`,
       // Studio's game:Load only takes asset addresses (/asset/?id=).
       placeUrl: `${base}/asset/?id=${placeId}&studioplace=1&t=${encodeURIComponent(token)}`,
       uploadUrl: `${base}/Data/Upload.ashx?assetid=${placeId}&t=${encodeURIComponent(token)}`,
@@ -440,7 +446,7 @@ pcall(function() history:SetEnabled(true) end)
       } else {
         const urls = editUrls(ctx, allowed.account, placeId);
         script = editScriptFor(ctx, {
-          placeId, universeId: allowed.place.universeId, userId: allowed.account.userId,
+          placeId, universeId: placeId, userId: allowed.account.userId,
           placeUrl: urls.placeUrl, uploadUrl: urls.uploadUrl,
         });
       }
@@ -480,6 +486,225 @@ pcall(function() history:SetEnabled(true) end)
     core.appendLog(path.join(core.rootPath('Webserver', 'node', 'logs'), 'studio.log'),
       `${core.gmdate()}  ${allowed.account.name} published ${place.name} (place ${key}, version ${place.version}, ${bytes.length} bytes)`, 1024 * 1024);
     send(ctx, 200, headers, String(place.version));
+  }
+
+  // --- Team Create ----------------------------------------------------------------------
+  // Each place is its own universe (universe ID = place ID). The owner (or an
+  // admin) turns Team Create on; the owner, editors and admins can then join
+  // its cloud edit server, which dedicated.js runs (CloudEditSlot).
+
+  function universePlace(match) {
+    return places.get(match[1]);
+  }
+
+  function isOwnerOrAdmin(account, place) {
+    return Boolean(account && place && (account.admin || (place.owner && place.owner.userId === account.userId)));
+  }
+
+  function universeContainingPlace(ctx) {
+    const place = places.get(ctx.queryLower.placeid);
+    if (!place) return sendJson(ctx, 400, { errors: [{ code: 1, message: 'Invalid place' }] });
+    sendJson(ctx, 200, { UniverseId: Number(place.placeId) });
+  }
+
+  // api.roblox.com/universes/get-info and friends: what Studio's Game
+  // Explorer shows for the universe (here: one place, no aliases or products).
+  function universeInfo(ctx) {
+    const place = places.get(ctx.queryLower.universeid);
+    if (!place) return sendJson(ctx, 404, { errors: [{ code: 1, message: 'Invalid universe' }] });
+    const account = currentAccount(ctx);
+    sendJson(ctx, 200, {
+      Name: place.name, Description: place.description, RootPlace: Number(place.placeId),
+      StudioAccessToApisAllowed: false, CurrentUserHasEditPermissions: canEdit(account, place), UniverseAvatarType: 'MorphToR6',
+    });
+  }
+
+  function universePlaces(ctx) {
+    const place = places.get(ctx.queryLower.universeid);
+    if (!place) return sendJson(ctx, 404, { errors: [{ code: 1, message: 'Invalid universe' }] });
+    sendJson(ctx, 200, { FinalPage: true, RootPlace: Number(place.placeId), Places: [{ PlaceId: Number(place.placeId), Name: place.name }], PageSize: 50 });
+  }
+
+  // www.roblox.com/places/<id>/settings, read by the Team Create panel.
+  function placeSettings(ctx, match) {
+    const place = places.get(match[1]);
+    if (!place) return sendJson(ctx, 404, { errors: [{ code: 1, message: 'Invalid place' }] });
+    const ownerId = place.owner ? place.owner.userId : 1;
+    const ownerName = place.owner ? place.owner.name : 'Server';
+    sendJson(ctx, 200, {
+      Id: Number(place.placeId), PlaceId: Number(place.placeId), UniverseId: Number(place.placeId),
+      Name: place.name, Description: place.description,
+      Creator: { CreatorType: 'User', CreatorTargetId: ownerId, Id: ownerId, Name: ownerName },
+      CreatorType: 'User', CreatorTargetId: ownerId, CreatorId: ownerId, CreatorName: ownerName,
+      IsTeamCreateEnabled: place.teamCreate, IsCloudEditEnabled: place.teamCreate, IsCopyingAllowed: false,
+      MaxPlayers: 30, IsPublic: true, Genre: 'All',
+    });
+  }
+
+  function cloudEditEnabled(ctx, match) {
+    const place = universePlace(match);
+    sendJson(ctx, 200, { enabled: Boolean(place && place.teamCreate) });
+  }
+
+  function cloudEditToggle(on) {
+    return (ctx, match) => {
+      const headers = {};
+      const account = requestAccount(ctx, headers);
+      const place = universePlace(match);
+      if (!place) return sendJson(ctx, 404, { error: 'no such game' });
+      if (!isOwnerOrAdmin(account, place)) return sendJson(ctx, 403, { error: 'Only the game\'s owner can turn Team Create on or off.' });
+      places.update(place.placeId, { teamCreate: on });
+      logStudio(`${account.name} turned Team Create ${on ? 'on' : 'off'} for ${place.name} (place ${place.placeId})`);
+      sendUtf8(ctx, 200, Object.assign({ 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }, headers), '{}');
+    };
+  }
+
+  function userJson(account) {
+    return { userId: account.userId, UserId: account.userId, Id: account.userId, name: account.name, Name: account.name, username: account.name, Username: account.name };
+  }
+
+  function listCloudEditors(ctx, match) {
+    const place = universePlace(match);
+    if (!place) return sendJson(ctx, 404, { error: 'no such game' });
+    const users = [];
+    if (place.owner) users.push(Object.assign(userJson(place.owner), { isAdmin: true }));
+    for (const editor of place.editors) users.push(Object.assign(userJson(editor), { isAdmin: false }));
+    sendJson(ctx, 200, { finalPage: true, users });
+  }
+
+  function cloudEditorChange(add) {
+    return (ctx, match) => {
+      const headers = {};
+      const account = requestAccount(ctx, headers);
+      const place = universePlace(match);
+      if (!place) return sendJson(ctx, 404, { error: 'no such game' });
+      if (!isOwnerOrAdmin(account, place)) return sendJson(ctx, 403, { error: 'Only the game\'s owner can change who may edit it.' });
+      const target = accounts.byUserId(ctx.queryLower.userid);
+      if (!target) return sendJson(ctx, 400, { error: 'There is no Studio account with that user ID.' });
+      let editors = place.editors.filter((editor) => editor.userId !== target.userId);
+      if (add && !(place.owner && place.owner.userId === target.userId)) editors = editors.concat({ userId: target.userId, name: target.name });
+      places.setAccess(place.placeId, { editors });
+      sendUtf8(ctx, 200, Object.assign({ 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }, headers), '{}');
+    };
+  }
+
+  // api.roblox.com/users/get-by-username: Studio's Team Create "add user" box.
+  function userByName(ctx) {
+    const account = accounts.byName(ctx.query.username || ctx.queryLower.username);
+    if (!account) return sendJson(ctx, 200, { success: false, errorMessage: 'User not found' });
+    sendJson(ctx, 200, { Id: account.userId, Username: account.name, AvatarUri: null, AvatarFinal: false, IsOnline: false });
+  }
+
+  // api.roblox.com/users/<user>/canmanage/<place>: whether Studio may offer
+  // to configure (and turn on Team Create for) the place.
+  function canManage(ctx, match) {
+    const account = accounts.byUserId(match[1]);
+    const place = places.get(match[2]);
+    sendJson(ctx, 200, { Success: true, CanManage: Boolean(account && place && canEdit(account, place)) });
+  }
+
+  function userById(ctx, match) {
+    const account = accounts.byUserId(match[1]);
+    if (!account) return sendJson(ctx, 404, { errors: [{ code: 0, message: 'User not found' }] });
+    sendJson(ctx, 200, { Id: account.userId, Username: account.name, AvatarUri: null, AvatarFinal: false, IsOnline: false });
+  }
+
+  function logStudio(line) {
+    core.appendLog(path.join(core.rootPath('Webserver', 'node', 'logs'), 'studio.log'), `${core.gmdate()}  ${line}`, 1024 * 1024);
+  }
+
+  // game/PlaceLauncher.ashx?request=CloudEdit&placeId=: Studio asks for the
+  // place's Team Create server and retries while it says "loading" (status 1).
+  // Called by the place launcher; true when it answered.
+  const lastCloudRequest = new Map();
+  function cloudEditLaunch(ctx) {
+    if (String(ctx.queryLower.request || '').toLowerCase() !== 'cloudedit') return false;
+    const headers = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' };
+    const answer = (status, fields) => sendUtf8(ctx, 200, headers, JSON.stringify(Object.assign({
+      jobId: null, status, joinScriptUrl: null, authenticationUrl: null, authenticationTicket: null, message: null,
+    }, fields)));
+    const account = requestAccount(ctx, headers);
+    const place = places.get(ctx.queryLower.placeid);
+    if (!account) { answer(12, { message: 'Log in to Studio first.' }); return true; }
+    if (!place) { answer(4, { message: 'There is no game with that place ID on this server.' }); return true; }
+    if (!place.teamCreate) { answer(4, { message: 'Team Create is off for this game.' }); return true; }
+    if (!canEdit(account, place)) { answer(12, { message: `${account.name} may not edit ${place.name}.` }); return true; }
+    const runner = places.runnerStatus();
+    if (!runner || runner.stale) { answer(4, { message: 'The always-on server (startServer.bat) is not running, so Team Create cannot start.' }); return true; }
+    const server = runner.cloudEdit && runner.cloudEdit[place.placeId];
+    const jobId = cloudJobId(place.placeId, server && server.startedAt);
+    if (!server || server.state !== 'running') {
+      // Starting (or about to): ask once every few seconds while Studio waits.
+      const last = lastCloudRequest.get(place.placeId) || 0;
+      if (!server && Date.now() - last > 10000) {
+        lastCloudRequest.set(place.placeId, Date.now());
+        places.requestCloudEdit(place.placeId);
+        logStudio(`${account.name} opened ${place.name} (place ${place.placeId}) in Team Create; starting its server`);
+      }
+      answer(1, { jobId, message: 'Starting the Team Create server...' });
+      return true;
+    }
+    // Studio on this PC reaches it on loopback; others on the server's address.
+    const loopback = /^(?:127\.|::1$|::ffff:127\.)/.test(String(ctx.remote));
+    const host = loopback ? '127.0.0.1' : (core.tailscaleIPv4() || String(server.address || '').split(':')[0] || '127.0.0.1');
+    const base = baseUrl(ctx);
+    const joinScriptUrl = `${base}/game/join.php?placeid=${place.placeId}&ip=${encodeURIComponent(host)}&port=${server.gamePort}`
+      + `&id=${account.userId}&user=${encodeURIComponent(account.name)}`;
+    // joinScriptUrl gives the same details, signed (the game client's way).
+    const gameId = cloudJobId(place.placeId, server.startedAt);
+    const joinScript = {
+      ClientPort: 0, MachineAddress: host, ServerPort: server.gamePort, PingUrl: '', PingInterval: 0,
+      UserName: account.name, SeleniumTestMode: false, UserId: account.userId, SuperSafeChat: false,
+      CharacterAppearance: `${base}/v1.1/avatar-fetch/?placeId=${place.placeId}&userId=${account.userId}`,
+      ClientTicket: 'TeamCreate', GameId: gameId, PlaceId: Number(place.placeId), MeasurementUrl: '',
+      WaitingForCharacterGuid: gameId, BaseUrl: `${base}/`, ChatStyle: 'ClassicAndBubble', VendorId: 0,
+      ScreenShotInfo: '', VideoInfo: '', CreatorId: place.owner ? place.owner.userId : 1, CreatorTypeEnum: 'User',
+      MembershipType: 'None', AccountAge: 365, CookieStoreFirstTimePlayKey: 'rbx_evt_ftp', CookieStoreFiveMinutePlayKey: 'rbx_evt_fmp',
+      CookieStoreEnabled: false, IsRobloxPlace: false, GenerateTeleportJoin: false, IsUnknownOrUnder13: false,
+      SessionId: '', DataCenterId: 0, UniverseId: Number(place.placeId), FollowUserId: 0, BrowserTrackerId: 0,
+      CountryCode: 'US', GameChatType: 'AllUsers',
+    };
+    // Studio's Team Create code reads "status" and then the join details from
+    // "settings" (MachineAddress, ServerPort, UserName, ClientTicket...); it
+    // crashes when they are missing.
+    answer(2, {
+      jobId: gameId, joinScriptUrl, authenticationUrl: `${base}/Login/Negotiate.ashx`, authenticationTicket: 'TeamCreate',
+      settings: joinScript,
+    });
+    return true;
+  }
+
+  // A GUID-shaped ID for one run of a place's Team Create server.
+  function cloudJobId(placeId, startedAt) {
+    const hex = require('crypto').createHash('sha1').update(`teamcreate:${placeId}:${startedAt || ''}`).digest('hex');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+  }
+
+  // RCC's Team Create autosave (and save on close): the whole place.
+  async function uploadFromCloudEdit(ctx) {
+    const headers = { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' };
+    if (ctx.method !== 'POST') return send(ctx, 405, headers, 'use POST');
+    const checked = accounts.checkEditToken(ctx.queryLower.t);
+    const place = places.get(ctx.queryLower.placeid);
+    if (!place) {
+      logStudio(`dropped a Team Create save for place ${ctx.queryLower.placeid || '?'}: it is no longer in the library`);
+      return send(ctx, 404, headers, 'no such place');
+    }
+    if (!checked || checked.userId !== 0 || String(checked.placeId) !== String(place.placeId)) {
+      logStudio(`refused a Team Create save for place ${place.placeId} (bad or missing token)`);
+      return send(ctx, 403, headers, 'not allowed');
+    }
+    let bytes = await ctx.body();
+    if (bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) {
+      try { bytes = zlib.gunzipSync(bytes, { maxOutputLength: MAX_PLACE_BYTES }); } catch (error) { return send(ctx, 400, headers, 'could not unpack'); }
+    }
+    if (!bytes.subarray(0, 8).toString('latin1').startsWith('<roblox')) {
+      logStudio(`refused a Team Create save for ${place.name}: not a place (${bytes.length} bytes, starts ${JSON.stringify(bytes.subarray(0, 12).toString('latin1'))})`);
+      return send(ctx, 400, headers, 'not a place');
+    }
+    const updated = places.replaceFile(place.placeId, { bytes, notes: [], from: 'Team Create', source: 'teamcreate' });
+    logStudio(`Team Create saved ${place.name} (place ${place.placeId}, version ${updated.version}, ${bytes.length} bytes)`);
+    send(ctx, 200, headers, String(updated.version));
   }
 
   // --- /manage (host key) ---------------------------------------------------------------
@@ -564,9 +789,38 @@ pcall(function() history:SetEnabled(true) end)
     [/^my\/settings\/json\/?$/i, mySettings],
     [/^api\/studio\/accounts(?:\/([A-Za-z0-9_]{3,20}))?\/?$/i, manageAccounts],
     [/^api\/places\/(\d{1,15})\/access\/?$/i, manageAccess],
+    // Team Create
+    [/^universes\/get-universe-containing-place\/?$/i, universeContainingPlace],
+    [/^universes\/get-info\/?$/i, universeInfo],
+    [/^places\/(\d{1,15})\/settings\/?$/i, placeSettings],
+    // Team Test (several Studios testing on a server) is not set up here.
+    [/^teamtest\/(\d{1,15})\/runninggames\/?$/i, (ctx) => sendJson(ctx, 200, { games: [] })],
+    [/^teamtest\/(\d{1,15})\/stopgame\/?$/i, (ctx) => sendJson(ctx, 200, {})],
+    [/^badges\/list-badges-for-place\/json\/?$/i, (ctx) => sendJson(ctx, 200, { GameBadges: [], FinalPage: true })],
+    // Team Create chat needs a chat service; off for now.
+    [/^v2\/chat-settings\/?$/i, (ctx) => sendJson(ctx, 200, { chatEnabled: false })],
+    [/^universes\/get-universe-places\/?$/i, universePlaces],
+    [/^universes\/get-aliases\/?$/i, (ctx) => sendJson(ctx, 200, { FinalPage: true, Aliases: [], PageSize: 50 })],
+    [/^developerproducts\/list\/?$/i, (ctx) => sendJson(ctx, 200, { DeveloperProducts: [], FinalPage: true, PageSize: 50 })],
+    [/^universes\/(\d{1,15})\/cloudeditenabled\/?$/i, cloudEditEnabled],
+    [/^universes\/(\d{1,15})\/enablecloudedit\/?$/i, cloudEditToggle(true)],
+    [/^universes\/(\d{1,15})\/disablecloudedit\/?$/i, cloudEditToggle(false)],
+    [/^universes\/(\d{1,15})\/listcloudeditors\/?$/i, listCloudEditors],
+    [/^universes\/(\d{1,15})\/addcloudeditor\/?$/i, cloudEditorChange(true)],
+    [/^universes\/(\d{1,15})\/removecloudeditor\/?$/i, cloudEditorChange(false)],
+    [/^users\/get-by-username\/?$/i, userByName],
+    [/^users\/(\d{1,15})\/friends\/?$/i, (ctx) => sendJson(ctx, 200, [])],
+    [/^(?:v1\/)?users?\/(\d{1,15})\/canmanage\/(\d{1,15})\/?$/i, canManage],
+    [/^users\/(\d{1,15})\/?$/i, userById],
+    [/^ide\/publish\/uploadfromcloudedit\/?$/i, uploadFromCloudEdit],
+    // Before joining Team Create, Studio compares its version with the one
+    // setup.roblox.com named (and crashes on anything it cannot split):
+    // answer with this Studio's own, so it is never "out of date".
+    [/^versionqtstudio\/?$/i, (ctx) => send(ctx, 200, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' }, STUDIO_VERSION_NAME)],
+    [/^version-[0-9a-f]{16}-bootstrapperqtstudioversion\.txt$/i, (ctx) => send(ctx, 200, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' }, STUDIO_FILE_VERSION)],
     // Studio's usage statistics: nothing collects them here.
     [/^(?:game\/report-stats|analytics\/measurement\.ashx|game\/report-event)\/?$/i, (ctx) => send(ctx, 200, { 'Content-Type': 'text/plain' }, '')],
   ];
 
-  return { routes, placeAsset };
+  return { routes, placeAsset, cloudEditLaunch };
 };

@@ -388,6 +388,8 @@ async function characterAppearance(ctx) {
 // from playGame.bat) the join goes to that registered game instead of the
 // local server-state.json game.
 async function placeLauncher(ctx) {
+  // Studio joining a Team Create server (lib/studio.js).
+  if (studio.cloudEditLaunch(ctx)) return;
   const q = ctx.query;
   let state = gameServerState();
   const gameId = ctx.queryLower.gameid;
@@ -661,11 +663,14 @@ function productDetails(ctx) {
 // www/marketplace/productinfo.php
 function productInfo(ctx) {
   const assetId = core.phpInt(ctx.query.assetId);
+  // A library place: its own name and its Studio owner (Studio shows both,
+  // and Team Create checks the owner).
+  const place = places.exists() ? places.get(assetId) : null;
   send(ctx, 200, { 'Content-Type': 'application/json; charset=utf-8' }, core.phpJson({
     TargetId: assetId, ProductType: 'User Product', AssetId: assetId, ProductId: 0,
-    Name: assetId === 1818 ? 'Lumber Tycoon 2' : `Local Asset ${assetId}`,
-    Description: 'Served by the local game server.', AssetTypeId: 9,
-    Creator: { Id: 1, Name: 'henumeramon08', CreatorType: 'User' },
+    Name: place ? place.name : (assetId === 1818 ? 'Lumber Tycoon 2' : `Local Asset ${assetId}`),
+    Description: place && place.description ? place.description : 'Served by the local game server.', AssetTypeId: 9,
+    Creator: place && place.owner ? { Id: place.owner.userId, Name: place.owner.name, CreatorType: 'User' } : { Id: 1, Name: 'henumeramon08', CreatorType: 'User' },
     IconImageAssetId: 0, Created: '2015-01-01T00:00:00Z', Updated: '2017-01-01T00:00:00Z', PriceInRobux: null,
     IsForSale: false, IsLimited: false, IsLimitedUnique: false, Remaining: null, MinimumMembershipLevel: 0, ContentRatingTypeId: 0,
   }));
@@ -720,6 +725,9 @@ function rccSettings(ctx) {
     DFIntRCCNonJsonExecuteInfluxHundrethsPercentage: 0,
     DFIntRCCUrlExecuteInfluxHundrethsPercentage: 0,
     DFIntGameServerInitializationErrorInfluxHundrethsPercentage: 0,
+    // Team Create: RCC as a cloud edit server (gameserver.lua, matchmaking context 3).
+    FFlagRCCSupportCloudEdit: true,
+    DFFlagRCCSupportCloudEdit: true,
   };
   // RCC reads each as FString (at startup) or DFString (live); send both.
   for (const [name, value] of Object.entries(RCC_STRINGS)) {
@@ -816,6 +824,7 @@ function placesWithStatus() {
     places: places.list().map((place) => Object.assign(place, {
       thumbnail: gamethumbs.version(place.placeId),
       status: running[place.placeId] || null,
+      cloudEdit: runner && !runner.stale && runner.cloudEdit ? runner.cloudEdit[place.placeId] || null : null,
     })),
     runner: runner ? { running: !runner.stale, updatedAt: runner.updatedAt, maxGames: runner.maxGames, problems: runner.problems || [] } : { running: false },
     // For the join code players paste into their launcher.
@@ -883,7 +892,7 @@ async function placesApi(ctx, match) {
   }
   if (action === null) {
     const body = await jsonBody(ctx);
-    const place = places.update(placeId, { name: body.name, description: body.description, enabled: body.enabled, universeId: body.universeId });
+    const place = places.update(placeId, { name: body.name, description: body.description, enabled: body.enabled, universeId: body.universeId, teamCreate: body.teamCreate });
     return sendJson(ctx, 200, { place });
   }
   return sendJson(ctx, 404, { error: 'unknown places API call' });

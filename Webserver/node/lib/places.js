@@ -122,6 +122,11 @@ function describe(placeId, place) {
     // else may edit it. Places uploaded on /manage have no owner: only admins.
     owner: place.owner && place.owner.userId ? { userId: Number(place.owner.userId), name: String(place.owner.name || '') } : null,
     editors: Array.isArray(place.editors) ? place.editors.map((e) => ({ userId: Number(e.userId), name: String(e.name || '') })) : [],
+    // Team Create: Studio opens it on a shared cloud edit server.
+    teamCreate: Boolean(place.teamCreate),
+    // Where the current version came from: "teamcreate" (autosaves of a
+    // Team Create server) goes live once nobody is playing; others at once.
+    versionSource: place.versionSource || 'upload',
   };
 }
 
@@ -184,7 +189,7 @@ function create({ name, description, universeId, enabled, bytes, notes, from, ow
 }
 
 // A new file for an existing place; the always-on server restarts it.
-function replaceFile(placeId, { bytes, notes, universeId, from }) {
+function replaceFile(placeId, { bytes, notes, universeId, from, source }) {
   const id = placeKey(placeId);
   const library = load();
   const place = id === null ? null : library.places[id];
@@ -195,6 +200,7 @@ function replaceFile(placeId, { bytes, notes, universeId, from }) {
   place.uploadedFrom = cleanText(from, 60) || place.uploadedFrom;
   if (placeKey(universeId)) place.universeId = placeKey(universeId);
   place.notes = Array.isArray(notes) ? notes.slice(0, 60) : [];
+  place.versionSource = source || 'upload';
   save(library);
   return describe(id, place);
 }
@@ -208,6 +214,7 @@ function update(placeId, fields) {
   if (fields.description !== undefined) place.description = cleanText(fields.description, 1000);
   if (fields.enabled !== undefined) place.enabled = Boolean(fields.enabled);
   if (fields.universeId !== undefined) place.universeId = placeKey(fields.universeId) || '';
+  if (fields.teamCreate !== undefined) place.teamCreate = Boolean(fields.teamCreate);
   place.updatedAt = now();
   save(library);
   return describe(id, place);
@@ -255,11 +262,20 @@ function remove(placeId) {
 // --- talking to the always-on server -------------------------------------------------
 
 // Asks dedicated.js to restart (or start) a place soon.
-function requestRestart(placeId) {
+function request(action, placeId) {
   const control = core.readJsonFile(CONTROL) || {};
   const requests = Array.isArray(control.requests) ? control.requests.slice(-50) : [];
-  requests.push({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, action: 'restart', placeId: String(placeId), at: now() });
+  requests.push({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, action, placeId: String(placeId), at: now() });
   core.writeFileAtomic(CONTROL, JSON.stringify({ requests }, null, 2));
+}
+
+function requestRestart(placeId) {
+  request('restart', placeId);
+}
+
+// Asks dedicated.js to start a Team Create (cloud edit) server for a place.
+function requestCloudEdit(placeId) {
+  request('cloudedit', placeId);
 }
 
 function readRequests() {
@@ -282,6 +298,6 @@ function writeRunnerStatus(status) {
 
 module.exports = {
   load, exists, ensure, list, get, create, replaceFile, update, setAccess, remove, filePath, placeKey,
-  requestRestart, readRequests, runnerStatus, writeRunnerStatus,
+  requestRestart, requestCloudEdit, readRequests, runnerStatus, writeRunnerStatus,
   LIBRARY, CONTROL, STATUS,
 };

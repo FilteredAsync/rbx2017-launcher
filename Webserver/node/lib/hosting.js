@@ -197,11 +197,15 @@ function runMemoryPatch(script, pid, label, consequence, log) {
   else log(`warning: ${label} failed, ${consequence}: ${output.join(' | ').slice(0, 300)}`);
 }
 
-function startCall(placeId, port, domain, scriptTimeout) {
+// cloudEdit: matchmakingContextId (20th argument) 3 makes gameserver.lua a
+// Team Create server: ConfigureAsCloudEditServer, no game scripts or physics,
+// and the place saved to the web server every 5 minutes and on close.
+function startCall(placeId, port, domain, scriptTimeout, cloudEdit = false) {
   const args = new Array(23).fill('nil');
   args[0] = String(placeId);
   args[1] = String(port);
   if (scriptTimeout > 0) args[6] = String(scriptTimeout);
+  if (cloudEdit) args[19] = '3';
   if (domain !== null) {
     args[9] = JSON.stringify(domain);
     args[22] = '"http://"';
@@ -224,7 +228,9 @@ function appearanceHook() {
 // Same job as start-server.ps1: open "GameServer", then run gameserver.lua,
 // which loads rbxasset://place.rbxlx (Server/content/place.rbxlx) unless the
 // game names another place file.
-async function startGameJob(placeId, port, domain, scriptTimeout, log, soapPort = SOAP_PORT, placeFile = 'place.rbxlx') {
+// cloudEdit: { saveUrl } for a Team Create server (saveUrl: where RCC posts
+// the place; it carries the place ID and the token the web server checks).
+async function startGameJob(placeId, port, domain, scriptTimeout, log, soapPort = SOAP_PORT, placeFile = 'place.rbxlx', cloudEdit = null) {
   const open = await soap('OpenJob', '<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ns1="http://localhost./">'
     + '<SOAP-ENV:Body><ns1:OpenJob><ns1:job><ns1:id>GameServer</ns1:id><ns1:expirationInSeconds>360000</ns1:expirationInSeconds>'
     + '<ns1:category>0</ns1:category><ns1:cores>4</ns1:cores></ns1:job><ns1:script><ns1:name>Bootstrap</ns1:name>'
@@ -233,7 +239,13 @@ async function startGameJob(placeId, port, domain, scriptTimeout, log, soapPort 
 
   let source = fs.readFileSync(core.rootPath('Server', 'gameserver.lua'), 'latin1');
   if (placeFile !== 'place.rbxlx') source = source.split('rbxasset://place.rbxlx').join(`rbxasset://${placeFile}`);
-  const script = `${source}\r\n${startCall(placeId, port, domain, scriptTimeout)}\r\n${appearanceHook()}\r\n`;
+  if (cloudEdit) {
+    const stock = 'game:SetServerSaveUrl(dataUrl .. "/ide/publish/UploadFromCloudEdit")';
+    if (!source.includes(stock)) throw new Error('Server/gameserver.lua has no cloud edit save line');
+    source = source.split(stock).join(`game:SetServerSaveUrl(${JSON.stringify(cloudEdit.saveUrl)})`);
+  }
+  // No characters on a Team Create server, so no avatar code.
+  const script = `${source}\r\n${startCall(placeId, port, domain, scriptTimeout, Boolean(cloudEdit))}\r\n${cloudEdit ? '' : appearanceHook()}\r\n`;
   soap('Execute', executeEnvelope('GameServer', script), 0, soapPort).then((result) => {
     if (result.status < 200 || result.status >= 300) log(`RCC answered the game job with HTTP ${result.status}`);
   }, (error) => log(`game job connection ended: ${error.code || error.message}`));
@@ -370,7 +382,7 @@ async function startHosting(rawConfig, { log = console.log, startRcc = true, ded
       }
       const domain = fixedDomain(config);
       const scriptTimeout = config.scriptTimeout === undefined ? 10 : Number(config.scriptTimeout) || 0;
-      await startGameJob(placeId, gamePort, domain, scriptTimeout, log, soapPort, placeFile);
+      await startGameJob(placeId, gamePort, domain, scriptTimeout, log, soapPort, placeFile, config.cloudEdit || null);
       log(`game job submitted on UDP port ${gamePort} (RCC web address ${domain === null ? 'not set' : `http://${domain}/`}, script timeout ${scriptTimeout ? `${scriptTimeout} s` : 'off'})`);
     }
   } catch (error) {
@@ -378,12 +390,14 @@ async function startHosting(rawConfig, { log = console.log, startRcc = true, ded
     throw error;
   }
 
-  // 3. List the game -------------------------------------------------------------
+  // 3. List the game (not a Team Create server: only Studio joins those) ----------
   const publicAddress = resolvePublicAddress(config.publicAddress || `${lanAddress()}:${gamePort}`, log);
   const fields = { key: hostKey, name: config.gameName || `${os.hostname()}'s game`, placeId, address: publicAddress };
+  const listed = !config.cloudEdit;
   let gameId = null;
   let heartbeatSeconds = 15;
   const registerGame = async () => {
+    if (!listed) return;
     const result = await api(config.centralUrl, '/api/games/register', fields);
     if (result.status !== 200) throw new Error(`the web server refused the game: ${result.data.error || `HTTP ${result.status}`}`);
     gameId = result.data.id;
@@ -395,12 +409,13 @@ async function startHosting(rawConfig, { log = console.log, startRcc = true, ded
     cleanup();
     throw error;
   }
-  log(`listed "${fields.name}" as game ${gameId}; players join at ${publicAddress}`);
+  if (listed) log(`listed "${fields.name}" as game ${gameId}; players join at ${publicAddress}`);
 
   let stopping = false;
   let resolveStopped;
   const stopped = new Promise((resolve) => { resolveStopped = resolve; });
   const timer = setInterval(async () => {
+    if (!listed) return;
     try {
       const result = await api(config.centralUrl, `/api/games/${gameId}/heartbeat`, { key: hostKey });
       if (result.status === 404) {
@@ -470,8 +485,20 @@ async function startHosting(rawConfig, { log = console.log, startRcc = true, ded
     }
   };
 
+  // Team Create: has RCC post the place to the web server now (its save
+  // address); true when RCC ran it.
+  const saveNow = async (timeoutMs = 60000) => {
+    try {
+      const result = await soap('Execute', executeEnvelope('Save', 'game:ServerSave() return 1'), timeoutMs, soapPort);
+      return result.status === 200;
+    } catch (error) {
+      return false;
+    }
+  };
+
   return {
     get gameId() { return gameId; },
+    saveNow,
     publicAddress,
     placeId,
     soapPort,
