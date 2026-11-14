@@ -65,14 +65,31 @@ function classKnownTo2017(name) {
 
 // Newer properties scripts read, and the value they get when the 2017
 // engine lacks them.
-const NEWER_PROPERTIES = { RobloxLocaleId: '"en-us"', PlaceholderText: '""' };
+const NEWER_PROPERTIES = { RobloxLocaleId: '"en-us"', PlaceholderText: '""', Massless: 'false' };
 // Newer properties scripts set (x.AutoLocalize = false); on 2017 such a line
 // stops the script, so the setting is skipped when the engine lacks it.
 // Sound's RollOff distances fall back to their 2017 names (in the Set helper).
 // TextBox.PlaceholderText/Color3 are in the 2017 RCC, but the 2017 client
 // fails on any use of them ("An error occurred").
 const NEWER_SETTABLE = new Set(['AutoLocalize', 'RootLocalizationTable', 'AutomaticSize', 'RichText', 'MaxVisibleGraphemes', 'LineHeight', 'Interactable',
-  'RollOffMaxDistance', 'RollOffMinDistance', 'RespawnTime', 'PlaceholderText', 'PlaceholderColor3', 'DisplayName']);
+  'RollOffMaxDistance', 'RollOffMinDistance', 'RespawnTime', 'PlaceholderText', 'PlaceholderColor3', 'DisplayName',
+  // BasePart.Massless (2019; Jailbreak sets it on characters entering a car
+  // and holding an item, which stopped both); Lighting.ClockTime (Set helper
+  // falls back to SetMinutesAfterMidnight).
+  'Massless', 'ClockTime',
+  // BillboardGui.Brightness/LightInfluence (2021); lights keep their own Brightness.
+  'Brightness', 'LightInfluence',
+  // Motor6D.Transform (the 2017 client lacks it; see SetTransform), and C0,
+  // which scripts must see without the stand-in's offset.
+  'Transform', 'C0']);
+// Newer properties read through a helper of their own: property -> helper.
+const READ_HELPERS = { RootPart: 'RootPart', DisplayName: 'DisplayName', ClockTime: 'ClockTime', Transform: 'GetTransform', C0: 'C0' };
+// Setters with a helper of their own; Set for those with a 2017 fallback
+// name; the others are guarded inline: do local __o2017, __v2017 = x, v
+// pcall(function() __o2017.Name = __v2017 end) end.
+const SETTERS = { Transform: 'SetTransform', C0: 'SetC0' };
+const ALIASED = new Set(['RollOffMaxDistance', 'RollOffMinDistance', 'ClockTime']);
+const GUARD_OBJECT = '__o2017';
 
 const KEYWORDS = new Set(['and', 'break', 'do', 'else', 'elseif', 'end', 'false', 'for', 'function', 'if', 'in',
   'local', 'nil', 'not', 'or', 'repeat', 'return', 'then', 'true', 'until', 'while', 'continue']);
@@ -311,7 +328,57 @@ const HELPERS = {
   Service: 'function(o, n) local ok, s = pcall(function() return o:GetService(n) end) if ok and s then return s end local x x = setmetatable({}, {__index = function() return x end, __call = function() return nil end}) return x end',
   Prop: 'function(o, n, d) local ok, v = pcall(function() return o[n] end) if ok and v ~= nil then return v end return d end',
   Set: 'function(o, n, v) if pcall(function() o[n] = v end) then return end '
+    + 'if n == "ClockTime" then pcall(function() o:SetMinutesAfterMidnight((v % 24) * 60) end) return end '
     + 'local a = ({RollOffMaxDistance = "MaxDistance", RollOffMinDistance = "EmitterSize"})[n] if a then pcall(function() o[a] = v end) end end',
+  // Color3.R/G/B (2017 has only r, g, b).
+  C3: 'function(x, n) local ok, v = pcall(function() return x[n] end) if ok then return v end return x[n:lower()] end',
+  // Motor6D.Transform (2018; the 2017 client has no such property). In newer
+  // engines the animator writes each joint's Transform every frame and a
+  // script's own Transform replaces it. Here the 2017 animator keeps adding
+  // its pose after C0, so setting it puts Transform * (animation pose)^-1
+  // into C0, the pose read off the parts' positions (once per frame), and C0
+  // goes back once a script stops setting it. Reading gives this frame's
+  // value, else that animation pose. Scripts reading
+  // or setting such a joint's C0 get and set the C0 without the offset (C0,
+  // SetC0): IK code reads C0 to work out the Transform it sets, and seeing
+  // its own offset there made arms jump about.
+  SetTransform: 'function(o, n, v) if pcall(function() o[n] = v end) then return end local S = _G.__rbx2017Transform '
+    + 'if not S then S = {joints = {}, frame = 0} _G.__rbx2017Transform = S game:GetService("RunService").Heartbeat:connect(function() S.frame = S.frame + 1 '
+    + 'for m, e in pairs(S.joints) do if e.frame < S.frame - 1 then pcall(function() m.C0 = e.base end) S.joints[m] = nil end end end) end '
+    + 'local e = S.joints[o] if not e then e = {base = o.C0, frame = -1} S.joints[o] = e end '
+    + 'if e.animFrame ~= S.frame then local a = CFrame.new() pcall(function() a = (o.Part0.CFrame * o.C0):inverse() * o.Part1.CFrame * o.C1 end) e.anim = a e.animFrame = S.frame end '
+    + 'e.value = v e.frame = S.frame o.C0 = e.base * v * e.anim:inverse() end',
+  GetTransform: 'function(o) local ok, v = pcall(function() return o.Transform end) if ok then return v end local S = _G.__rbx2017Transform '
+    + 'local e = S and S.joints[o] if e and e.frame == S.frame then return e.value end if e and e.animFrame == S.frame then return e.anim end '
+    + 'local a = CFrame.new() pcall(function() a = (o.Part0.CFrame * o.C0):inverse() * o.Part1.CFrame * o.C1 end) if e then e.anim = a e.animFrame = S.frame end return a end',
+  C0: 'function(o) local S = _G.__rbx2017Transform local e = S and S.joints[o] if e then return e.base end return o.C0 end',
+  SetC0: 'function(o, n, v) local S = _G.__rbx2017Transform local e = S and S.joints[o] '
+    + 'if e then e.base = v if e.frame == S.frame then o.C0 = v * e.value * e.anim:inverse() else o.C0 = v end return end o.C0 = v end',
+  // Player.CharacterAppearanceLoaded. RCC never fires it on these servers
+  // (its own avatar loading never runs; Server/appearance-hook.lua dresses
+  // characters instead and then marks them __2017Dressed, lib/hosting.js).
+  // This fires once per character, when it is dressed (or after 6 s; the
+  // 2017 engine fires CharacterAdded before the character is in Workspace).
+  AppearanceLoaded: 'function(p) local sig = {} local function ready(char) local t = 0 while t < 6 and not (char.Parent and char:FindFirstChild("__2017Dressed")) do t = t + wait(0.1) end end '
+    + 'function sig:connect(f) local done = setmetatable({}, {__mode = "k"}) local function go(char) if done[char] then return end done[char] = true ready(char) if char.Parent then f(char) end end '
+    + 'local a = p.CharacterAdded:connect(go) local ok, b = pcall(function() return p.CharacterAppearanceLoaded:connect(go) end) '
+    + 'local c = {Connected = true} function c:disconnect() a:disconnect() if ok and b then b:disconnect() end c.Connected = false end c.Disconnect = c.disconnect return c end '
+    + 'sig.Connect = sig.connect function sig:wait() local char = p.Character or p.CharacterAdded:wait() ready(char) return char end sig.Wait = sig.wait return sig end',
+  // Lighting.ClockTime (read) from 2017's minutes after midnight.
+  ClockTime: 'function(o) local ok, v = pcall(function() return o.ClockTime end) if ok then return v end return o:GetMinutesAfterMidnight() / 60 end',
+  // TweenService:Create(Lighting, info, {ClockTime = ...}): ClockTime is
+  // tweened on a stand-in number that sets the minutes after midnight (in
+  // Lighting while it runs: 2017 tweens only instances in the game).
+  TweenCreate: 'function(s, o, info, props) local ok, t = pcall(function() return s.Create(s, o, info, props) end) if ok then return t end '
+    + 'if type(props) ~= "table" or props.ClockTime == nil then error(t, 2) end local rest, more = {}, false '
+    + 'for k, v in pairs(props) do if k ~= "ClockTime" then rest[k] = v more = true end end '
+    + 'local value = Instance.new("NumberValue") value.Value = o:GetMinutesAfterMidnight() / 60 '
+    + 'value.Name = "__2017ClockTime" value.Changed:connect(function(v) o:SetMinutesAfterMidnight((v % 24) * 60) end) value.Parent = o '
+    + 'local tween = s.Create(s, value, info, {Value = props.ClockTime}) local other = more and s.Create(s, o, info, rest) or nil '
+    + 'tween.Completed:connect(function() value:Destroy() end) local proxy = {Completed = tween.Completed, Instance = o, TweenInfo = info} '
+    + 'function proxy:Play() tween:Play() if other then other:Play() end end function proxy:Pause() tween:Pause() if other then other:Pause() end end '
+    + 'function proxy:Cancel() tween:Cancel() if other then other:Cancel() end end '
+    + 'return setmetatable(proxy, {__index = function(_, k) if k == "PlaybackState" then return tween.PlaybackState end end}) end',
   // CFrame methods with capitals -> the 2017 lower-case ones (tables keep their own).
   CFCall: 'function(x, n, ...) if type(x) == "table" then return x[n](x, ...) end '
     + 'local m = n == "GetComponents" and "components" or n == "ToOrientation" and "toEulerAnglesYXZ" or n:sub(1, 1):lower() .. n:sub(2) return x[m](x, ...) end',
@@ -615,6 +682,10 @@ function convertSource(source) {
   // A script converted before gets only the rewrites added since (newer
   // services and properties); everything else was done then.
   const marked = source.startsWith(MARK);
+  // C0 needs its stand-in (C0/SetC0) only where Transform is used; elsewhere
+  // the extra helper reference could push a big function past Lua 5.1's 60
+  // upvalues (Phantom Forces' Framework).
+  const usesTransform = /\.Transform\b/.test(source);
   let text = source;
   const changes = new Set();
   const helpers = new Set();
@@ -720,14 +791,54 @@ function convertSource(source) {
       }
       // humanoid.RootPart (read; 2018) -> __rbx2017.RootPart(humanoid); player.DisplayName (2020; on
       // 2017 only Roblox's own scripts may read it) -> __rbx2017.DisplayName(player): the name.
-      if (isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && (tokens[i + 1].value === 'RootPart' || tokens[i + 1].value === 'DisplayName') && !isSymbol(tokens[i + 2], '=') && !isSymbol(tokens[i + 2], '(')) {
+      if (isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && READ_HELPERS[tokens[i + 1].value] !== undefined && !isSymbol(tokens[i + 2], '=') && !isSymbol(tokens[i + 2], '(')
+        && (tokens[i + 1].value !== 'C0' || usesTransform)) {
         const start = prefixStart(tokens, i);
         if (start >= 0 && text.slice(tokens[start].start, tokens[i].start) !== '__rbx2017') {
           const object = text.slice(tokens[start].start, tokens[i].start);
           const name = tokens[i + 1].value;
-          text = `${text.slice(0, tokens[start].start)}__rbx2017.${name}(${object})${text.slice(tokens[i + 1].end)}`;
-          helpers.add(name);
-          changes.add(name === 'RootPart' ? 'Humanoid.RootPart' : '.DisplayName');
+          text = `${text.slice(0, tokens[start].start)}__rbx2017.${READ_HELPERS[name]}(${object})${text.slice(tokens[i + 1].end)}`;
+          helpers.add(READ_HELPERS[name]);
+          changes.add(name === 'RootPart' ? 'Humanoid.RootPart' : `.${name}`);
+          done = false;
+          break;
+        }
+      }
+      // x:Create(obj, info, {ClockTime = ...}) -> __rbx2017.TweenCreate(x, obj, info, {...}).
+      if (isSymbol(tokens[i], ':') && tokens[i + 1].type === 'name' && tokens[i + 1].value === 'Create' && isSymbol(tokens[i + 2], '(')) {
+        const close = matchForward(tokens, i + 2);
+        const args = close >= 0 ? text.slice(tokens[i + 2].end, tokens[close].start) : '';
+        const start = close >= 0 && argumentCount(tokens, i + 2, close) === 3 && /\bClockTime\s*=/.test(args) ? prefixStart(tokens, i) : -1;
+        if (start >= 0 && text.slice(tokens[start].start, tokens[i].start) !== '__rbx2017') {
+          const object = text.slice(tokens[start].start, tokens[i].start);
+          text = `${text.slice(0, tokens[start].start)}__rbx2017.TweenCreate(${object}, ${text.slice(tokens[i + 2].end)}`;
+          helpers.add('TweenCreate');
+          changes.add('TweenService:Create ClockTime');
+          done = false;
+          break;
+        }
+      }
+      // color.R / .G / .B (read) -> __rbx2017.C3(color, "R"); not on Enum items (Enum.KeyCode.R).
+      if (isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && /^[RGB]$/.test(tokens[i + 1].value) && !isSymbol(tokens[i + 2], '=') && !isSymbol(tokens[i + 2], '(')
+        && !isSymbol(tokens[i + 2], '.') && !isSymbol(tokens[i + 2], ':') && !isSymbol(tokens[i + 2], '[')) {
+        const start = prefixStart(tokens, i);
+        const object = start >= 0 ? text.slice(tokens[start].start, tokens[i].start) : '';
+        if (start >= 0 && object !== '__rbx2017' && !/^Enum\b/.test(object)) {
+          text = `${text.slice(0, tokens[start].start)}__rbx2017.C3(${object}, "${tokens[i + 1].value}")${text.slice(tokens[i + 1].end)}`;
+          helpers.add('C3');
+          changes.add('Color3.R/G/B');
+          done = false;
+          break;
+        }
+      }
+      // player.CharacterAppearanceLoaded:Connect(...) -> __rbx2017.AppearanceLoaded(player):Connect(...).
+      if (isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && tokens[i + 1].value === 'CharacterAppearanceLoaded' && isSymbol(tokens[i + 2], ':')) {
+        const start = prefixStart(tokens, i);
+        if (start >= 0 && text.slice(tokens[start].start, tokens[i].start) !== '__rbx2017') {
+          const object = text.slice(tokens[start].start, tokens[i].start);
+          text = `${text.slice(0, tokens[start].start)}__rbx2017.AppearanceLoaded(${object})${text.slice(tokens[i + 1].end)}`;
+          helpers.add('AppearanceLoaded');
+          changes.add('.CharacterAppearanceLoaded');
           done = false;
           break;
         }
@@ -749,7 +860,7 @@ function convertSource(source) {
         break;
       }
       // cf.LookVector / someCFrame.Position (read) -> __rbx2017.CFMember(cf, "LookVector").
-      if (isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && !isSymbol(tokens[i + 2], '=') && !isSymbol(tokens[i + 2], '(') && !isSymbol(tokens[i + 2], ':')
+      if (isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && !isSymbol(tokens[i + 2], '=') && !isSymbol(tokens[i + 2], '(')
         && (CFRAME_MEMBERS.has(tokens[i + 1].value) || (CFRAME_NAMED_MEMBERS.has(tokens[i + 1].value) && tokens[i - 1] && tokens[i - 1].type === 'name' && CFRAME_NAME.test(tokens[i - 1].value)))) {
         const start = prefixStart(tokens, i);
         if (start >= 0 && text.slice(tokens[start].start, tokens[i].start) !== '__rbx2017') {
@@ -776,16 +887,25 @@ function convertSource(source) {
       // x.NewerProperty = value (one token) -> __rbx2017.Set(x, "NewerProperty", value).
       // The value may be simple operands (literals, a.b.c) joined by and/or/arithmetic.
       const valueEnd = isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && NEWER_SETTABLE.has(tokens[i + 1].value) && isSymbol(tokens[i + 2], '=')
+        && (tokens[i + 1].value !== 'C0' || usesTransform)
         ? simpleExpressionEnd(tokens, i + 3) : -1;
       if (valueEnd > 0) {
         const next = tokens[valueEnd + 1];
         const ends = !next || next.type === 'eof' || (next.type === 'keyword' && next.value !== 'and' && next.value !== 'or') || next.type === 'name' || isSymbol(next, ';');
         const start = ends ? prefixStart(tokens, i) : -1;
-        if (start >= 0) {
-          const object = text.slice(tokens[start].start, tokens[i].start);
+        const object = start >= 0 ? text.slice(tokens[start].start, tokens[i].start) : '';
+        if (start >= 0 && object !== GUARD_OBJECT) {
           const value = text.slice(tokens[i + 3].start, tokens[valueEnd].end);
-          text = `${text.slice(0, tokens[start].start)}__rbx2017.Set(${object}, "${tokens[i + 1].value}", ${value})${text.slice(tokens[valueEnd].end)}`;
-          helpers.add('Set');
+          const name = tokens[i + 1].value;
+          const setter = SETTERS[name] || (ALIASED.has(name) ? 'Set' : null);
+          if (setter) {
+            text = `${text.slice(0, tokens[start].start)}__rbx2017.${setter}(${object}, "${name}", ${value})${text.slice(tokens[valueEnd].end)}`;
+            helpers.add(setter);
+          } else {
+            // Inline, so the enclosing function gains no upvalue (Lua 5.1
+            // allows 60; Phantom Forces' Framework has a function at the limit).
+            text = `${text.slice(0, tokens[start].start)}do local ${GUARD_OBJECT}, __v2017 = ${object}, ${value} pcall(function() ${GUARD_OBJECT}.${name} = __v2017 end) end${text.slice(tokens[valueEnd].end)}`;
+          }
           changes.add(`.${tokens[i + 1].value} =`);
           done = false;
           break;

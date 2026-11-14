@@ -322,9 +322,21 @@ function creatorCall(placeId) {
 // (game/characterappearance.ashx: body colors + one URL per worn item) and
 // applies each item with LoadCharacterAppearance, as older servers did.
 // The Lua lives in Server/appearance-hook.lua, shared with start-server.ps1.
+// Each dressed character (or one whose appearance list could not be had) is
+// marked with a BoolValue __2017Dressed: RCC never fires
+// Player.CharacterAppearanceLoaded here, and lib/luacompat.js has scripts
+// wait for that mark instead (Jailbreak gives police their items, and
+// prisoners their clothes, in that event).
+const DRESSED_MARK = 'pcall(function() local c = player.Character if c and not c:FindFirstChild("__2017Dressed") then '
+  + 'local m = Instance.new("BoolValue") m.Name = "__2017Dressed" m.Value = true m.Parent = c end end) ';
 function appearanceHook() {
   const file = core.rootPath('Server', 'appearance-hook.lua');
-  return core.isFile(file) ? fs.readFileSync(file, 'latin1') : '';
+  if (!core.isFile(file)) return '';
+  let source = fs.readFileSync(file, 'latin1');
+  for (const line of ['print("[host] no appearance list', 'print("[host] dressed ']) {
+    if (source.includes(line) && !source.includes(`${DRESSED_MARK}${line}`)) source = source.split(line).join(`${DRESSED_MARK}${line}`);
+  }
+  return source;
 }
 
 // Same job as start-server.ps1: open "GameServer", then run gameserver.lua,

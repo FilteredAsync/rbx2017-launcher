@@ -296,6 +296,16 @@ function convertProperties(className, props, options, counts) {
     out = out.replace(/(\r?\n[ \t]*)?(<\/?[A-Za-z]+[\s>])/, (match, lead, tag) => `${lead || ''}<bool name="FilteringEnabled">true</bool>${lead || ''}${tag}`);
     if (out !== before) counts.filteringEnabled++;
   }
+  // The PGS physics solver, the same way. Since about 2018 it is the only
+  // solver and files leave the setting out; the 2017 engine then runs its
+  // older solver, in which VectorForce, Torque and the other newer
+  // constraints do nothing (Jailbreak's cars, which run on them, would not
+  // move). It cannot be changed by a script, only in the place file.
+  if (className === 'Workspace' && !/<bool\s+name="PGSPhysicsSolverEnabled">/.test(out)) {
+    const before = out;
+    out = out.replace(/(\r?\n[ \t]*)?(<\/?[A-Za-z]+[\s>])/, (match, lead, tag) => `${lead || ''}<bool name="PGSPhysicsSolverEnabled">true</bool>${lead || ''}${tag}`);
+    if (out !== before) counts.pgsSolver++;
+  }
 
   // ContentId (2024) is the old Content type renamed.
   out = out.replace(/<ContentId(\s[^>]*)>([\s\S]*?)<\/ContentId>/g, (match, attrs, body) => {
@@ -638,7 +648,7 @@ function convertPlace(input, options) {
   }
   const counts = {
     robloxLinks: 0, thumbnails: 0, gameAssets: 0, contentIds: 0, fonts: 0, droppedProperties: 0,
-    attributes: 0, sharedStrings: 0, newCsg: 0, taskCalls: 0, compoundAssignments: 0, materials: 0, unionCollision: 0, unionShapes: 0, filteringEnabled: 0,
+    attributes: 0, sharedStrings: 0, newCsg: 0, taskCalls: 0, compoundAssignments: 0, materials: 0, unionCollision: 0, unionShapes: 0, filteringEnabled: 0, pgsSolver: 0,
     compatScripts: 0, compatChanges: new Map(), madeFolders: new Map(), chatSetAside: 0, coreGuiSetAside: 0, localizationTables: 0, playerModule: false,
     gameAssetNames: new Set(), unsupportedThumbnails: new Set(), luauScripts: [], unknownClasses: new Map(),
   };
@@ -817,6 +827,7 @@ function summarize(counts, options) {
     lines.push(`  ${[...counts.madeFolders].map(([name, n]) => `${n} ${name}${n === 1 ? '' : 's'}`).join(', ')} where the 2017 engine does not allow them (it would refuse the whole place) -> folders of the same name`);
   }
   if (counts.filteringEnabled > 0) lines.push('  FilteringEnabled turned on (the file leaves it out, and the 2017 engine would run the game with it off)');
+  if (counts.pgsSolver > 0) lines.push('  the PGS physics solver turned on (the file leaves it out; with the older 2017 solver, forces and newer constraints do nothing)');
   if (counts.compatScripts > 0) {
     lines.push(`  ${counts.compatScripts} scripts made to run on 2017: ${[...counts.compatChanges].sort((a, b) => b[1] - a[1]).map(([name, n]) => `${name} x${n}`).join(', ')}`);
   }

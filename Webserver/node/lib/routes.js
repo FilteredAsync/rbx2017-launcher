@@ -855,7 +855,8 @@ const CLIENT_APP_SETTINGS = {
 // games use: CollectionService tags (AddTag/HasTag/GetTagged), TweenService,
 // FindFirstChildWhichIsA and friends, mouse queries (GetMouseLocation...),
 // BindActionAtPriority, raycast/region whitelists, AnimationTrack.Looped,
-// UITableLayout, BuildRigFromAttachments, collision groups (PhysicsService).
+// UITableLayout, BuildRigFromAttachments, collision groups (PhysicsService),
+// and the features listed with them below.
 // Without them scripts stop with
 // "... is not enabled yet". RCC gets them here; the 2017 client reads only
 // its own Client/ClientSettings/ClientAppSettings.json, which has the same
@@ -865,6 +866,17 @@ const FEATURE_FLAGS = [
   'InstanceTaggingEnabled', 'GenericTweensEnabled', 'InstanceNavigationAdditionsEnabled', 'MouseInputQueryMethodsEnabled',
   'EnableContextActionPriority', 'Region3WhitelistEnabled', 'AnimationTrackHasLoopApi', 'TableLayoutEnabled',
   'BuildRigFromAttachmentsApiEnabled', 'EnableCollisionGroups',
+  // Also off in this build, though games of 2018 on use them: WeldConstraint
+  // (Jailbreak holds a driver in the seat with one), Trails, particles,
+  // lights and sounds in attachments, attachments as BillboardGui adornees,
+  // ParticleEmitter.SpreadAngle, BillboardGui.MaxDistance, UIPadding,
+  // UIScale, grid cell size constraints, image tiling, Motor6D.Transform,
+  // Humanoid health display, CFrame.RightVector/UpVector and more math.
+  'EnableWeldConstraint', 'CFrameRightAndUpVectors', 'AddMoreMathAPI', 'EnableTrailEffect',
+  'EnableParticleEmittersInAttachments', 'EnableLightObjectsInAttachments', 'EnableSoundsInAttachments', 'EnableAttachmentsAsBillboardGuiAdornee',
+  'EnableParticleSpreadAngle', 'BillboardGuiMaxDistance', 'PaddingComponentEnabled', 'UIScaleComponentEnabled',
+  'GridLayoutCellSizeConstraints', 'SizeFromContentsEnabled', 'EnableImageTilingInGUI', 'Motor6DTransformPropEnabled',
+  'HumanoidHealthDisplayTypeEnabled',
 ];
 for (const name of FEATURE_FLAGS) {
   CLIENT_APP_SETTINGS[`FFlag${name}`] = true;
