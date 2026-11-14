@@ -484,7 +484,13 @@ pcall(function() history:SetEnabled(true) end)
     }
     const head = bytes.subarray(0, 8).toString('latin1');
     if (!head.startsWith('<roblox')) return send(ctx, 400, headers, 'That is not a Roblox place.');
-    const place = places.replaceFile(allowed.place.placeId, { bytes, notes: [], from: `Studio (${allowed.account.name})` });
+    let place;
+    try {
+      place = await places.replaceFile(allowed.place.placeId, { bytes, notes: [], from: `Studio (${allowed.account.name})` });
+    } catch (error) {
+      if (error.busy) return send(ctx, 409, headers, 'A server of this game is still loading the current version. Publish again in a minute.');
+      throw error;
+    }
     const key = String(allowed.place.placeId);
     if (pendingOnline.has(key)) {
       places.update(key, { enabled: pendingOnline.get(key) });
@@ -709,7 +715,15 @@ pcall(function() history:SetEnabled(true) end)
       logStudio(`refused a Team Create save for ${place.name}: not a place (${bytes.length} bytes, starts ${JSON.stringify(bytes.subarray(0, 12).toString('latin1'))})`);
       return send(ctx, 400, headers, 'not a place');
     }
-    const updated = places.replaceFile(place.placeId, { bytes, notes: [], from: 'Team Create', source: 'teamcreate' });
+    let updated;
+    try {
+      updated = await places.replaceFile(place.placeId, { bytes, notes: [], from: 'Team Create', source: 'teamcreate' });
+    } catch (error) {
+      if (!error.busy) throw error;
+      // The Team Create server saves again in a few minutes.
+      logStudio(`Team Create could not save ${place.name} yet: a server of the game is still loading the current version`);
+      return send(ctx, 409, headers, 'place file in use');
+    }
     logStudio(`Team Create saved ${place.name} (place ${place.placeId}, version ${updated.version}, ${bytes.length} bytes)`);
     send(ctx, 200, headers, String(updated.version));
   }

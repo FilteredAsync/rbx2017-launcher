@@ -997,6 +997,10 @@ async function gamesApi(ctx, match) {
 //   DELETE /api/places/<id>                   remove (saves, thumbnail and ID stay reserved)
 // Changes need the host key (X-Host-Key).
 
+// A new version that cannot go in yet (lib/places.js replaceFile waited a
+// minute for a starting server of the game to finish reading the old one).
+const PLACE_FILE_BUSY = 'A server of this game is still loading the current version, so it cannot be replaced yet. Try again in a minute.';
+
 // Fields of a library place only admins see.
 const ADMIN_PLACE_FIELDS = ['file', 'uploadedFrom', 'notes'];
 function forViewer(place, isAdmin) {
@@ -1080,7 +1084,13 @@ async function placesApi(ctx, match) {
   if (action === 'file') {
     const converted = await convertUpload(ctx, query);
     if (converted.error) return sendJson(ctx, 400, { error: converted.error });
-    const place = places.replaceFile(placeId, { bytes: converted.bytes, notes: converted.notes, universeId: converted.universeId, from });
+    let place;
+    try {
+      place = await places.replaceFile(placeId, { bytes: converted.bytes, notes: converted.notes, universeId: converted.universeId, from });
+    } catch (error) {
+      if (error.busy) return sendJson(ctx, 409, { error: PLACE_FILE_BUSY });
+      throw error;
+    }
     return sendJson(ctx, 200, { place, notes: converted.notes });
   }
   if (action === 'restart') {
@@ -1097,7 +1107,13 @@ async function placesApi(ctx, match) {
     } catch (error) {
       return sendJson(ctx, 400, { error: `could not convert the place again: ${error.message}` });
     }
-    const place = places.replaceFile(placeId, { bytes: result.output, notes: result.summary, universeId: current.universeId, from: 'converted again' });
+    let place;
+    try {
+      place = await places.replaceFile(placeId, { bytes: result.output, notes: result.summary, universeId: current.universeId, from: 'converted again' });
+    } catch (error) {
+      if (error.busy) return sendJson(ctx, 409, { error: PLACE_FILE_BUSY });
+      throw error;
+    }
     return sendJson(ctx, 200, { place, notes: result.summary });
   }
   if (action === null) {

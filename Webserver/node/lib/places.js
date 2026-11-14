@@ -185,6 +185,11 @@ function get(placeId) {
 
 // --- changes -----------------------------------------------------------------------
 
+// While a server of the game is starting, RCC has its place file open, and
+// Windows does not let an open file be moved: the old version cannot go to
+// places/old yet. Such an error has busy: true.
+const FILE_BUSY_CODES = new Set(['EBUSY', 'EPERM', 'EACCES']);
+
 function storePlaceFile(placeId, bytes) {
   fs.mkdirSync(PLACES_DIR, { recursive: true });
   const relative = `places/${placeId}.rbxlx`;
@@ -193,7 +198,12 @@ function storePlaceFile(placeId, bytes) {
     const oldDir = path.join(PLACES_DIR, 'old');
     fs.mkdirSync(oldDir, { recursive: true });
     const stamp = now().replace(/[-:]/g, '').replace(/\..*$/, '');
-    fs.renameSync(target, path.join(oldDir, `${placeId}-${stamp}.rbxlx`));
+    try {
+      fs.renameSync(target, path.join(oldDir, `${placeId}-${stamp}.rbxlx`));
+    } catch (error) {
+      if (FILE_BUSY_CODES.has(error.code)) throw Object.assign(new Error(`the place file is in use (${error.code})`), { busy: true });
+      throw error;
+    }
     const old = fs.readdirSync(oldDir).filter((name) => name.startsWith(`${placeId}-`)).sort();
     for (const name of old.slice(0, Math.max(0, old.length - KEEP_OLD_VERSIONS))) {
       try { fs.unlinkSync(path.join(oldDir, name)); } catch (error) { /* in use */ }
@@ -231,8 +241,25 @@ function create({ name, description, universeId, enabled, bytes, notes, from, ow
   return describe(placeId, library.places[placeId]);
 }
 
-// A new file for an existing place; the always-on server restarts it.
-function replaceFile(placeId, { bytes, notes, universeId, from, source }) {
+// A new file for an existing place; its servers restart with it. When the
+// current file is in use (a server of the game is loading it), this waits for
+// it, up to BUSY_WAIT_MS, and then throws an error with busy: true.
+const BUSY_WAIT_MS = 60 * 1000;
+const BUSY_RETRY_MS = 2000;
+
+async function replaceFile(placeId, fields) {
+  const started = Date.now();
+  for (;;) {
+    try {
+      return replaceFileNow(placeId, fields);
+    } catch (error) {
+      if (!error.busy || Date.now() - started >= BUSY_WAIT_MS) throw error;
+      await new Promise((resolve) => setTimeout(resolve, BUSY_RETRY_MS));
+    }
+  }
+}
+
+function replaceFileNow(placeId, { bytes, notes, universeId, from, source }) {
   const id = placeKey(placeId);
   const library = load();
   const place = id === null ? null : library.places[id];
