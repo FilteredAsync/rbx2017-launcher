@@ -318,33 +318,50 @@ code { background: rgba(0,0,0,.35); padding: 5px 9px; font-family: Consolas, mon
 /* Game details overlay ------------------------------------------------------------ */
 .overlay { position: fixed; inset: 0; background: rgba(5, 12, 18, .8); display: grid; place-items: center; z-index: 10; animation: fade .18s ease-out; backdrop-filter: blur(4px); }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
-.detail { display: flex; gap: 34px; width: min(1100px, 86vw); align-items: stretch; }
-.detail-cover { position: relative; width: 42%; aspect-ratio: 1 / 1; flex: none; overflow: hidden; }
+.detail { display: flex; gap: 40px; width: min(1100px, 86vw); max-height: 88vh; align-items: flex-start; }
+.detail-cover { position: relative; width: 40%; aspect-ratio: 1 / 1; flex: none; overflow: hidden; box-shadow: 0 18px 50px rgba(0, 0, 0, .45); }
 .detail-cover .cover-title { font-size: 46px; }
-.detail-info { flex: 1; display: flex; flex-direction: column; justify-content: center; }
-.detail-name { font-size: 46px; font-weight: 300; line-height: 1.1; }
-.detail-meta { color: var(--muted); font-size: 17px; margin-top: 12px; line-height: 1.6; white-space: pre-line; }
-.detail-players { color: #dbe6ee; font-size: 16px; margin-top: 6px; }
-.detail-players:empty { display: none; }
-.detail-desc { color: var(--text); font-size: 16px; margin-top: 10px; line-height: 1.5; white-space: pre-line; max-height: 140px; overflow: auto; }
+.detail-info { flex: 1; min-width: 0; display: flex; flex-direction: column; align-self: stretch; justify-content: safe center; overflow-y: auto; max-height: 88vh; padding-right: 8px; }
+.detail-info > * { flex-shrink: 0; }
+.detail-name { font-size: 48px; font-weight: 300; line-height: 1.08; }
+.detail-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; color: var(--muted); font-size: 18px; margin-top: 10px; }
+.detail-meta:empty { display: none; }
+.detail-live { display: inline-flex; align-items: center; gap: 8px; color: var(--good); font-weight: 600; }
+.detail-live::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--good); box-shadow: 0 0 0 4px rgba(58, 212, 125, .2); }
+/* The description shows a few lines; More opens the rest (no box with its own scrollbar). */
+.detail-desc {
+  color: #dbe6ee; font-size: 16px; margin-top: 18px; line-height: 1.5; white-space: pre-line; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden;
+}
+.detail-desc.open { display: block; -webkit-line-clamp: unset; }
 .detail-desc:empty { display: none; }
-.detail-note { color: var(--gold); margin-top: 10px; min-height: 22px; }
-.detail-as { color: var(--muted); margin-top: 12px; font-size: 15px; }
-.detail { max-height: 90vh; }
-.detail-info { overflow-y: auto; max-height: 90vh; padding-right: 6px; }
-.detail-section { margin-top: 18px; }
-.detail-head { font-size: 13px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+.detail-more { align-self: flex-start; background: none; border: 0; padding: 4px 0; margin-top: 2px; color: var(--tab); font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; }
+.detail-more:hover, .detail-more:focus-visible { color: var(--tab-hover); outline: none; text-decoration: underline; }
+.detail-actions { display: flex; align-items: center; gap: 12px; margin-top: 26px; }
+.detail-actions button.ghost { align-self: stretch; padding: 0 26px; font-size: 17px; }
+.detail-note { color: var(--gold); margin-top: 10px; }
+.detail-note:empty { display: none; }
+.detail-as { color: var(--muted); margin-top: 10px; font-size: 15px; }
+.detail-section { margin-top: 30px; padding-top: 18px; border-top: 1px solid var(--line); }
+.detail-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.detail-head span { font-size: 22px; font-weight: 300; margin-right: auto; }
 .server-list { display: grid; gap: 6px; }
-.server-row { display: flex; align-items: center; gap: 10px; background: rgba(255, 255, 255, .06); padding: 8px 10px; }
+.server-list:empty { display: none; }
+.server-row { display: flex; align-items: center; gap: 10px; background: rgba(255, 255, 255, .06); padding: 10px 12px; }
 .server-row button.ghost { padding: 7px 14px; }
-.server-text { flex: 1; min-width: 0; font-size: 15px; }
+.server-text { flex: 1; min-width: 0; font-size: 16px; }
+.server-text b { font-weight: 600; margin-right: 12px; }
+.server-count { color: var(--muted); font-size: 14px; margin-right: 12px; }
+.server-count.live { color: var(--good); }
 .server-players { color: var(--muted); font-size: 13px; margin-top: 2px; overflow-wrap: anywhere; }
-.server-empty { color: var(--muted); font-size: 14px; }
 .private-form { display: flex; gap: 8px; margin-top: 8px; }
-.private-form input { flex: 1; min-width: 0; max-width: 320px; }
-.private-form button.ghost { padding: 9px 16px; }
-.play-button { background: var(--good); color: #fff; border: 2px solid transparent; font-size: 24px; font-weight: 700; padding: 14px 60px; cursor: pointer; }
+.private-form input { flex: 1; min-width: 0; max-width: 340px; }
+.private-form button { padding: 9px 18px; }
+#private-status { margin-top: 8px; font-size: 15px; }
+#private-status:empty { display: none; }
+.play-button { background: var(--good); color: #fff; border: 2px solid transparent; font-size: 26px; font-weight: 700; padding: 14px 72px; cursor: pointer; }
 .play-button:hover { filter: brightness(1.08); }
+.play-button:disabled { filter: grayscale(.6); }
 
 /* Announcements (the host's and the project's) on Home ------------------------------------ */
 .news { display: flex; flex-direction: column; gap: 10px; max-width: 1700px; margin-bottom: 22px; }
@@ -402,6 +419,8 @@ button.icon-btn:focus-visible { border-color: #fff; outline: none; }
 button.icon-btn:disabled { opacity: .55; cursor: default; }
 button.icon-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
 #play-refresh:disabled svg { animation: spin .9s linear infinite; }
+button.with-icon { display: inline-flex; align-items: center; gap: 9px; height: 46px; padding: 0 18px 0 14px; }
+button.with-icon svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* Players in a game (from the server), top left of a game tile. */

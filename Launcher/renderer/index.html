@@ -150,7 +150,7 @@
     <section class="view" id="view-games">
       <div class="toolbar">
         <button class="icon-btn accent" id="play-refresh" title="Refresh the game list" aria-label="Refresh the game list"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.35-5.65"/><path d="M20 4v6h-6"/></svg></button>
-        <button class="icon-btn" id="play-studio" title="Open Roblox Studio" aria-label="Open Roblox Studio"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 3.5l7 7-3 3-7-7z"/><path d="M12 9L3.5 17.5l3 3L15 12"/></svg></button>
+        <button class="ghost with-icon" id="play-studio" title="Open Roblox Studio"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.8l8 4.6v9.2l-8 4.6-8-4.6V7.4z"/><path d="M4 7.4l8 4.6 8-4.6M12 12v9.2"/></svg>Studio</button>
         <button class="ghost hidden" id="play-manage">Manage games</button>
         <span class="status" id="play-status"></span>
         <button class="ghost hidden" id="play-close">Close the client</button>
@@ -312,7 +312,7 @@
               <div class="row tight">
                 <button class="ghost" id="toggle-music">Music: On</button>
                 <button class="ghost" id="toggle-background">Background: Classic</button>
-                <button class="ghost" id="toggle-gamewindow">Game window: Separate window</button>
+                <button class="ghost" id="toggle-gamewindow">Game window: Inside the launcher</button>
               </div>
               <p class="hint" id="music-hint"></p>
             </div>
@@ -494,28 +494,34 @@
       <div class="detail-info">
         <div class="detail-name" id="detail-name"></div>
         <div class="detail-meta" id="detail-meta"></div>
-        <div class="detail-players" id="detail-players"></div>
         <div class="detail-desc" id="detail-desc"></div>
-        <div class="detail-note" id="detail-note"></div>
-        <div class="row">
+        <button class="detail-more hidden" id="detail-more">More</button>
+        <div class="detail-actions">
           <button class="play-button" id="detail-play">Play</button>
           <button class="ghost" id="detail-back">Back</button>
         </div>
+        <div class="detail-note" id="detail-note"></div>
         <div class="detail-as" id="detail-as"></div>
         <div class="detail-section hidden" id="detail-servers-box">
-          <div class="detail-head">Servers</div>
+          <div class="detail-head"><span>Servers</span></div>
           <div class="server-list" id="detail-servers"></div>
         </div>
         <div class="detail-section hidden" id="detail-private-box">
-          <div class="detail-head">Private servers</div>
+          <div class="detail-head">
+            <span>Private servers</span>
+            <button class="ghost small" id="private-new">New</button>
+            <button class="ghost small" id="private-enter">Enter code</button>
+          </div>
           <div class="server-list" id="detail-private"></div>
-          <form class="private-form" id="private-create">
-            <input id="private-name" maxlength="40" placeholder="Name for a new private server" autocomplete="off">
-            <button class="ghost" type="submit">Make one</button>
+          <form class="private-form hidden" id="private-create">
+            <input id="private-name" maxlength="40" placeholder="Server name" autocomplete="off">
+            <button class="primary" type="submit">Create</button>
+            <button class="ghost" type="button" data-cancel>Cancel</button>
           </form>
-          <form class="private-form" id="private-redeem">
+          <form class="private-form hidden" id="private-redeem">
             <input id="private-code" maxlength="12" placeholder="Invite code" autocomplete="off" spellcheck="false">
-            <button class="ghost" type="submit">Use code</button>
+            <button class="primary" type="submit">Join</button>
+            <button class="ghost" type="button" data-cancel>Cancel</button>
           </form>
           <div class="status" id="private-status"></div>
         </div>

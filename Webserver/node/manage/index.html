@@ -3,187 +3,282 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Server management</title>
+  <meta name="color-scheme" content="light dark">
+  <title>Manage</title>
   <link rel="stylesheet" href="/manage/manage.css">
 </head>
 <body class="locked">
-  <header class="top">
-    <div class="brand">
-      <div class="title">Server management</div>
-      <div class="subtitle" id="server-line">Checking the server…</div>
-    </div>
-    <form class="key" id="key-form" autocomplete="off">
-      <label for="host-key">Host key</label>
-      <input id="host-key" type="password" placeholder="from config\host-key.txt on the server" spellcheck="false">
-      <button type="submit">Save</button>
-      <button type="button" class="ghost" id="key-forget">Forget</button>
-      <span class="hint" id="key-state"></span>
-    </form>
-  </header>
-  <section class="lock-note panel">
-    <h2>Locked</h2>
-    <p>Only admins manage this server. Enter the host key (<code>config\host-key.txt</code> on the server PC), or open <b>Manage games</b> from the launcher while signed in to an admin account.</p>
-  </section>
 
-  <main>
-    <section class="panel" id="upload-panel">
-      <h2>Upload a game</h2>
-      <p class="lead">Each upload gets its own place ID, kept for good: saves and thumbnails stay with it, and the ID is never given to another game. Places from a newer Roblox Studio are converted for the 2017 engine on the way in (save them as .rbxlx).</p>
-      <form id="upload-form" class="grid">
-        <label class="wide">Place file (.rbxlx)
+  <div class="lock">
+    <form class="lock-card" id="key-form" autocomplete="off">
+      <h1>Manage</h1>
+      <p class="lock-host" id="lock-host"></p>
+      <label class="field">
+        <span>Host key</span>
+        <input id="host-key" type="password" placeholder="config\host-key.txt on the server" spellcheck="false">
+      </label>
+      <button class="btn primary wide" type="submit">Unlock</button>
+      <p class="lock-error" id="key-state" role="alert"></p>
+      <p class="lock-alt">Admins can also open it from the launcher: Manage games.</p>
+    </form>
+  </div>
+
+  <div class="app">
+    <aside class="side">
+      <div class="brand">
+        <div class="brand-name">Manage</div>
+        <div class="brand-host" id="brand-host"></div>
+      </div>
+      <nav class="nav">
+        <a href="#games" data-nav="games">Games <span class="count" id="nav-games"></span></a>
+        <a href="#announcements" data-nav="announcements">Announcements <span class="count" id="nav-news"></span></a>
+        <a href="#accounts" data-nav="accounts">Studio accounts</a>
+        <a href="#assets" data-nav="assets">Missing assets <span class="count" id="nav-assets"></span></a>
+        <a href="#server" data-nav="server">Server <span class="dot" id="nav-server"></span></a>
+        <a href="#join" data-nav="join">Join codes</a>
+      </nav>
+      <div class="side-foot">
+        <span id="who"></span>
+        <button type="button" class="linkish" id="key-forget">Sign out</button>
+      </div>
+    </aside>
+
+    <main>
+      <!-- Games -->
+      <section data-view="games">
+        <header class="view-head">
+          <div>
+            <h1>Games</h1>
+            <p class="sub" id="games-sub"></p>
+          </div>
+          <div class="head-actions">
+            <input class="search" id="games-filter" type="search" placeholder="Filter" aria-label="Filter games">
+            <button class="btn primary" type="button" id="upload-open">Upload game</button>
+          </div>
+        </header>
+        <div class="banner bad" id="runner-banner" hidden></div>
+        <div class="table-wrap">
+          <table class="table games">
+            <thead>
+              <tr><th>Game</th><th>Status</th><th class="num hide-sm">Players</th><th class="num hide-sm">Servers</th><th class="hide-sm">Avatars</th><th class="right">Online</th></tr>
+            </thead>
+            <tbody id="games-rows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Announcements -->
+      <section data-view="announcements" hidden>
+        <header class="view-head">
+          <div>
+            <h1>Announcements</h1>
+            <p class="sub">Shown in every player's launcher.</p>
+          </div>
+        </header>
+        <form class="card composer" id="news-form" autocomplete="off">
+          <input id="news-title" class="bare title" maxlength="80" placeholder="Title (optional)">
+          <textarea id="news-text" class="bare" maxlength="1000" rows="3" placeholder="Write an announcement" required></textarea>
+          <div class="composer-foot">
+            <label class="inline">Show for
+              <select id="news-expires">
+                <option value="0">Until removed</option>
+                <option value="6">6 hours</option>
+                <option value="24">1 day</option>
+                <option value="72" selected>3 days</option>
+                <option value="168">1 week</option>
+              </select>
+            </label>
+            <label class="inline check"><input type="checkbox" id="news-important"> Pop up</label>
+            <span class="grow"></span>
+            <button class="btn primary" type="submit">Post</button>
+          </div>
+        </form>
+        <div class="news" id="news-list"></div>
+      </section>
+
+      <!-- Studio accounts -->
+      <section data-view="accounts" hidden>
+        <header class="view-head">
+          <div>
+            <h1>Studio accounts</h1>
+            <p class="sub">The first login with a name creates it. Delete an account to reset its password.</p>
+          </div>
+        </header>
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th>Name</th><th class="num hide-sm">User ID</th><th>Last login</th><th>Admin</th><th></th></tr></thead>
+            <tbody id="account-rows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Missing assets -->
+      <section data-view="assets" hidden>
+        <header class="view-head">
+          <div>
+            <h1>Missing assets</h1>
+            <p class="sub" id="assets-sub">Assets Roblox no longer serves. Upload a replacement and games use it instead.</p>
+          </div>
+        </header>
+        <div class="seg" id="assets-filter" role="tablist">
+          <button type="button" data-filter="Audio">Sounds</button>
+          <button type="button" data-filter="Image">Images</button>
+          <button type="button" data-filter="Animation">Animations</button>
+          <button type="button" data-filter="other">Other</button>
+          <button type="button" data-filter="">All</button>
+        </div>
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th>Asset</th><th class="hide-sm">Type</th><th class="num hide-sm">ID</th><th class="hide-sm">Why</th><th></th></tr></thead>
+            <tbody id="asset-rows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Server -->
+      <section data-view="server" hidden>
+        <header class="view-head">
+          <div>
+            <h1>Server</h1>
+            <p class="sub" id="srv-sub"></p>
+          </div>
+          <div class="head-actions">
+            <button class="btn" type="button" id="srv-check">Check for updates</button>
+            <button class="btn" type="button" id="srv-restart">Restart</button>
+          </div>
+        </header>
+        <div class="stats" id="srv-stats"></div>
+        <div class="card update-card">
+          <div class="update-text" id="srv-updates"></div>
+          <div class="update-actions">
+            <progress id="srv-progress" max="100" value="0" hidden></progress>
+            <button class="btn" type="button" id="srv-upload-button">Upload update file</button>
+            <button class="btn primary" type="button" id="srv-install" hidden>Install now</button>
+          </div>
+        </div>
+        <div class="card logs">
+          <div class="card-head">
+            <div class="seg small" id="log-tabs">
+              <button type="button" data-log="server">Server</button>
+              <button type="button" data-log="web">Web</button>
+              <button type="button" data-log="update">Updates</button>
+              <button type="button" data-log="access">Requests</button>
+              <button type="button" data-log="studio">Studio</button>
+            </div>
+            <button class="btn small" type="button" id="log-reload">Reload</button>
+          </div>
+          <pre class="log" id="srv-log"></pre>
+        </div>
+      </section>
+
+      <!-- Join codes -->
+      <section data-view="join" hidden>
+        <header class="view-head">
+          <div>
+            <h1>Join codes</h1>
+            <p class="sub">A player pastes one into the launcher, and it connects them to this server over Tailscale.</p>
+          </div>
+        </header>
+        <form class="card form-card" id="join-form" autocomplete="off">
+          <label class="field">
+            <span>Server address</span>
+            <input id="join-server" placeholder="http://100.x.y.z" spellcheck="false">
+          </label>
+          <label class="field">
+            <span>Tailscale auth key</span>
+            <input id="join-key" type="password" placeholder="tskey-auth-…" spellcheck="false">
+            <small>A reusable key for players (README-SERVER.txt, "Join codes").</small>
+          </label>
+          <div><button class="btn primary" type="submit">Make code</button></div>
+        </form>
+        <div class="card code-card" id="join-result" hidden>
+          <code id="join-output"></code>
+          <button class="btn" type="button" id="join-copy">Copy</button>
+          <p>It contains the key, so share it privately. A new key cuts off old codes.</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- One game, opened from the table -->
+  <div class="scrim" id="scrim" hidden></div>
+  <aside class="drawer" id="drawer" aria-label="Game" aria-hidden="true">
+    <header class="drawer-head" id="drawer-head"></header>
+    <div class="tabs" id="drawer-tabs" role="tablist">
+      <button type="button" data-tab="servers" role="tab">Servers</button>
+      <button type="button" data-tab="settings" role="tab">Settings</button>
+      <button type="button" data-tab="files" role="tab">File</button>
+    </div>
+    <div class="drawer-body">
+      <div class="pane" data-pane="servers" id="pane-servers"></div>
+      <div class="pane" data-pane="settings" id="pane-settings" hidden></div>
+      <div class="pane" data-pane="files" id="pane-files" hidden></div>
+    </div>
+  </aside>
+
+  <!-- Upload -->
+  <dialog class="modal" id="upload">
+    <form id="upload-form" autocomplete="off">
+      <header class="modal-head">
+        <h2>Upload a game</h2>
+        <button type="button" class="icon-btn" id="upload-close" aria-label="Close">&times;</button>
+      </header>
+      <div class="modal-body" id="upload-fields">
+        <label class="drop" id="upload-drop">
           <input type="file" id="upload-file" accept=".rbxlx,.rbxmx" required>
+          <span class="drop-main" id="upload-file-name">Choose a .rbxlx file, or drop it here</span>
+          <span class="drop-sub">Places from newer Studio versions are converted on the way in.</span>
         </label>
-        <label>Name
-          <input id="upload-name" maxlength="60" placeholder="Shown in everyone's game list" required>
+        <label class="field">
+          <span>Name</span>
+          <input id="upload-name" maxlength="60" required>
         </label>
-        <label>Roblox place ID it came from (optional)
-          <input id="upload-from" inputmode="numeric" maxlength="15" placeholder="Finds the game's own images">
+        <label class="field">
+          <span>Roblox place ID <em>optional</em></span>
+          <input id="upload-from" inputmode="numeric" maxlength="15" placeholder="For its icon and creator">
         </label>
-        <label class="wide">Description (optional)
+        <label class="field">
+          <span>Description <em>optional</em></span>
           <textarea id="upload-description" maxlength="1000" rows="2"></textarea>
         </label>
-        <label class="check wide"><input type="checkbox" id="upload-enabled" checked> Put it online right away (a server starts when someone joins)</label>
-        <div class="row wide">
-          <button type="submit" id="upload-button">Upload</button>
-          <progress id="upload-progress" max="100" value="0" hidden></progress>
-          <span class="status" id="upload-status"></span>
-        </div>
-      </form>
-      <pre class="notes" id="upload-notes" hidden></pre>
-    </section>
+        <label class="inline check"><input type="checkbox" id="upload-enabled" checked> Online right away</label>
+      </div>
+      <div class="modal-body" id="upload-done" hidden>
+        <p class="done-line" id="upload-done-line"></p>
+        <details class="notes" id="upload-notes-box"><summary>Conversion notes</summary><pre id="upload-notes"></pre></details>
+      </div>
+      <footer class="modal-foot">
+        <progress id="upload-progress" max="100" value="0" hidden></progress>
+        <span class="modal-status" id="upload-status"></span>
+        <span class="grow"></span>
+        <button type="button" class="btn" id="upload-cancel">Cancel</button>
+        <button type="submit" class="btn primary" id="upload-button">Upload</button>
+        <button type="button" class="btn primary" id="upload-open-game" hidden>Open it</button>
+      </footer>
+    </form>
+  </dialog>
 
-    <section class="panel">
-      <h2>Join code for players</h2>
-      <p class="lead">One code gets new players in: they paste it into their launcher, which sets up Tailscale and connects them to this server only. No Tailscale account or invite needed. First make a Tailscale auth key for players (README-SERVER.txt, "Join codes"). The code contains that key, so share it only with your players; make a new key and code to cut off old ones.</p>
-      <form id="join-form" class="grid" autocomplete="off">
-        <label>Server address
-          <input id="join-server" placeholder="http://100.x.y.z" spellcheck="false">
-        </label>
-        <label>Tailscale auth key for players
-          <input id="join-key" type="password" placeholder="tskey-auth-…" spellcheck="false">
-        </label>
-        <div class="row wide">
-          <button type="submit">Make join code</button>
-          <button type="button" class="ghost" id="join-copy" hidden>Copy</button>
-          <span class="status" id="join-state"></span>
-        </div>
-      </form>
-      <pre class="notes" id="join-output" hidden></pre>
-    </section>
+  <!-- Confirmations -->
+  <dialog class="modal small" id="ask">
+    <form method="dialog">
+      <div class="modal-body">
+        <h2 id="ask-title"></h2>
+        <p id="ask-body"></p>
+      </div>
+      <footer class="modal-foot">
+        <span class="grow"></span>
+        <button class="btn" value="cancel">Cancel</button>
+        <button class="btn primary" value="ok" id="ask-ok">OK</button>
+      </footer>
+    </form>
+  </dialog>
 
-    <section class="panel">
-      <div class="list-head">
-        <h2>Announcements</h2>
-        <span class="hint" id="news-state"></span>
-      </div>
-      <p class="lead">Shown in every player's launcher (1.5.2 and newer) within a few minutes, until it expires or you remove it. Players can dismiss one; an important one also pops up when it arrives.</p>
-      <form id="news-form" class="grid" autocomplete="off">
-        <label class="wide">Title (optional)
-          <input id="news-title" maxlength="80" placeholder="e.g. Server maintenance tonight">
-        </label>
-        <label class="wide">Announcement
-          <textarea id="news-text" maxlength="1000" rows="3" required></textarea>
-        </label>
-        <label class="inline">Show it for
-          <select id="news-expires">
-            <option value="0">Until I remove it</option>
-            <option value="6">6 hours</option>
-            <option value="24">1 day</option>
-            <option value="72" selected>3 days</option>
-            <option value="168">1 week</option>
-          </select>
-        </label>
-        <label class="check"><input type="checkbox" id="news-important"> Important (pops up)</label>
-        <div class="row wide">
-          <button type="submit">Post</button>
-          <span class="status" id="news-status"></span>
-        </div>
-      </form>
-      <div id="news-list" class="news"></div>
-    </section>
-
-    <section class="panel">
-      <div class="list-head">
-        <h2>Server</h2>
-        <span class="hint" id="srv-state"></span>
-      </div>
-      <p class="lead">Updates to this server's own files come from the project and install by themselves once nobody has played for a few minutes: players are saved first, the old files are kept, and they are put back if the new version does not start. Games, accounts, saves and settings are never touched. Changes need the host key.</p>
-      <div class="srv-grid">
-        <div><div class="srv-label">Installed</div><div id="srv-installed">…</div></div>
-        <div><div class="srv-label">Updates</div><div id="srv-updates">…</div></div>
-        <div><div class="srv-label">Last update</div><div id="srv-last">…</div></div>
-      </div>
-      <div class="row">
-        <button type="button" id="srv-check">Check for updates</button>
-        <button type="button" id="srv-install" hidden>Install now</button>
-        <button type="button" class="ghost" id="srv-upload-button">Install an update file…</button>
-        <button type="button" class="ghost" id="srv-restart">Restart the whole server</button>
-        <progress id="srv-progress" max="100" value="0" hidden></progress>
-        <span class="status" id="srv-status"></span>
-      </div>
-      <div class="row srv-logs">
-        <label class="inline">Log
-          <select id="srv-log-name">
-            <option value="server">Server (games and restarts)</option>
-            <option value="web">Web server</option>
-            <option value="update">Updates</option>
-              <option value="access">Web requests (access)</option>
-            <option value="studio">Studio</option>
-          </select>
-        </label>
-        <button type="button" class="ghost" id="srv-log-show">Show the last 300 lines</button>
-      </div>
-      <pre class="notes srv-log" id="srv-log" hidden></pre>
-    </section>
-
-    <section>
-      <div class="list-head">
-        <h2>Games</h2>
-        <span class="hint" id="list-state"></span>
-      </div>
-      <div id="places" class="places"></div>
-    </section>
-
-    <section class="panel missing-panel">
-      <div class="list-head">
-        <h2>Studio accounts</h2>
-        <span class="hint" id="accounts-state"></span>
-      </div>
-      <p class="lead">People log in to Roblox Studio with these (Studio is in the Studio folder; its start page lists this server's games). The first login with a name creates the account. Admins may open and publish over every game; everyone else edits only the games they published and the ones whose owner added them as editors. To reset a forgotten password, delete the account: the next login with that name makes it again. The first account made on this PC is an admin.</p>
-      <table class="missing">
-        <thead><tr><th>Name</th><th>User ID</th><th>Last login</th><th>Admin</th><th></th></tr></thead>
-        <tbody id="account-rows"></tbody>
-      </table>
-    </section>
-
-    <section class="panel missing-panel">
-      <div class="list-head">
-        <h2>Missing assets</h2>
-        <span class="hint" id="missing-state"></span>
-      </div>
-      <p class="lead">Roblox no longer hands these out: most sounds became private in its 2022 audio privacy change, others were removed for copyright or moderated. Upload a replacement and the server uses it from then on: an OGG, MP3 or WAV for a sound, a PNG or JPG for an image, a .rbxm or .rbxmx for an animation exported from Studio.</p>
-      <div class="row">
-        <label class="inline">Show
-          <select id="missing-filter">
-            <option value="">Everything</option>
-            <option value="Audio" selected>Sounds</option>
-            <option value="Image">Images</option>
-            <option value="Animation">Animations</option>
-            <option value="other">Other</option>
-          </select>
-        </label>
-      </div>
-      <table class="missing">
-        <thead><tr><th>Type</th><th>Name</th><th>Asset ID</th><th>Why it is missing</th><th></th></tr></thead>
-        <tbody id="missing-rows"></tbody>
-      </table>
-    </section>
-  </main>
-  <input type="file" id="missing-file" accept=".ogg,.mp3,.wav,.png,.jpg,.jpeg,.rbxm,.rbxmx" hidden>
+  <div class="toasts" id="toasts" aria-live="polite"></div>
 
   <input type="file" id="replace-file" accept=".rbxlx,.rbxmx" hidden>
-  <input type="file" id="srv-upload" accept=".rbxupd" hidden>
   <input type="file" id="thumb-file" accept=".png,.jpg,.jpeg,.gif,.webp" hidden>
+  <input type="file" id="missing-file" accept=".ogg,.mp3,.wav,.png,.jpg,.jpeg,.rbxm,.rbxmx" hidden>
+  <input type="file" id="srv-upload" accept=".rbxupd" hidden>
   <script src="/manage/manage.js"></script>
 </body>
 </html>

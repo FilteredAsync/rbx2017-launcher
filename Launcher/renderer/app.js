@@ -610,9 +610,9 @@ function updateBackgroundButton() {
   $('toggle-background').textContent = `Background: ${entry[1]}`;
 }
 
-// The game window: a window of its own (default) or inside the launcher's
-// window (main.js embedClient; new in 1.7.2, so players try it first).
-const gameWindowInside = () => storage('gameWindow') === 'launcher';
+// The game window: inside the launcher's window (main.js embedClient; the
+// default since 1.7.3) or a window of its own.
+const gameWindowInside = () => storage('gameWindow') !== 'separate';
 function updateGameWindowButton() {
   $('toggle-gamewindow').textContent = `Game window: ${gameWindowInside() ? 'Inside the launcher' : 'Separate window'}`;
 }
@@ -723,35 +723,49 @@ function openDetail(game) {
   box.textContent = '';
   box.append(cover(detailGame));
   $('detail-name').textContent = detailGame.name;
-  const by = detailGame.creator ? `By ${detailGame.creator} · ` : '';
-  const count = listed ? playersIn(detailGame) : 0;
-  const serverText = servers.length ? `${servers.length} server${servers.length === 1 ? '' : 's'}` : 'a server starts when you join';
-  $('detail-meta').textContent = listed
-    ? `${by}${count} playing · ${serverText}${detailGame.maxPlayers ? ` · up to ${detailGame.maxPlayers} per server` : ''} · place ${detailGame.placeId}`
-    : `${by}Place ${detailGame.placeId || '?'}`;
-  $('detail-players').textContent = '';
-  $('detail-desc').textContent = detailGame.description || '';
-  $('detail-note').textContent = playable ? (busy ? 'The client is already running.' : '')
-    : listed ? 'The server PC is not running its games right now.' : 'This game is not online right now.';
-  $('detail-as').textContent = me ? `You'll play as ${me.account.name}.` : 'You\'ll play as a guest. Sign in to use your own name and avatar.';
+  renderDetailMeta(detailGame, listed);
+  const desc = $('detail-desc');
+  desc.textContent = detailGame.description || '';
+  desc.classList.remove('open');
+  $('detail-more').classList.add('hidden');
+  $('detail-more').textContent = 'More';
+  $('detail-note').textContent = playable ? (busy ? 'Roblox is already open.' : '') : 'Offline right now.';
+  $('detail-as').textContent = me ? `Playing as ${me.account.name}` : 'Playing as a guest';
   $('detail-play').disabled = !playable || busy;
   renderServerList(servers, playable && !busy);
+  closePrivateForms();
   loadPrivate(detailGame);
   $('overlay').classList.remove('hidden');
+  // "More" only when the description is longer than its few lines.
+  requestAnimationFrame(() => $('detail-more').classList.toggle('hidden', desc.scrollHeight <= desc.clientHeight + 2));
   focusEl($('detail-play').disabled ? $('detail-back') : $('detail-play'));
 }
 
-// The game's public servers, each with who is in it and its own Join.
+// "By ..." and, when anyone is in it, how many are playing.
+function renderDetailMeta(game, listed) {
+  const meta = $('detail-meta');
+  meta.textContent = '';
+  if (game.creator) meta.append(el('span', '', `By ${game.creator}`));
+  const count = listed ? playersIn(game) : 0;
+  if (count > 0) meta.append(el('span', 'detail-live', `${count} playing`));
+}
+
+$('detail-more').addEventListener('click', () => {
+  const open = $('detail-desc').classList.toggle('open');
+  $('detail-more').textContent = open ? 'Less' : 'More';
+});
+
+// Public servers, listed when there is more than one to pick from (Play
+// already picks one); each shows who is in it and has its own Join.
 function renderServerList(servers, canJoin) {
   const list = $('detail-servers');
   list.textContent = '';
-  $('detail-servers-box').classList.toggle('hidden', servers.length === 0);
+  $('detail-servers-box').classList.toggle('hidden', servers.length < 2);
   servers.forEach((server, index) => {
     const row = el('div', 'server-row');
     const full = Boolean(server.maxPlayers && server.playing >= server.maxPlayers);
     const text = el('div', 'server-text');
-    text.append(el('b', '', `Server ${index + 1}`),
-      document.createTextNode(` · ${server.playing}${server.maxPlayers ? `/${server.maxPlayers}` : ''} playing${server.upSeconds ? ` · up ${formatUptime(server.upSeconds)}` : ''}`));
+    text.append(el('b', '', `Server ${index + 1}`), el('span', 'server-count', `${server.playing}${server.maxPlayers ? `/${server.maxPlayers}` : ''}`));
     if (server.players && server.players.length) text.append(el('div', 'server-players', server.players.join(', ')));
     const join = el('button', 'ghost', full ? 'Full' : 'Join');
     join.disabled = full || !canJoin;
@@ -784,14 +798,13 @@ async function loadPrivate(game, keepStatus) {
 function renderPrivate(game, servers) {
   const list = $('detail-private');
   list.textContent = '';
-  if (servers.length === 0) list.append(el('div', 'server-empty', 'None yet. Make one for you and your friends, or enter an invite code.'));
   for (const server of servers) {
     const row = el('div', 'server-row');
     const text = el('div', 'server-text');
-    const where = server.playing ? `${server.playing} playing` : server.running ? 'empty' : 'starts when you join';
-    text.append(el('b', '', server.name), document.createTextNode(` · ${server.mine ? 'yours' : `${server.owner.name}'s`} · ${where}`));
+    text.append(el('b', '', server.name), el('span', 'server-count', server.mine ? 'Yours' : `${server.owner.name}'s`));
+    if (server.playing) text.append(el('span', 'server-count live', `${server.playing} playing`));
     if (server.players && server.players.length) text.append(el('div', 'server-players', server.players.join(', ')));
-    if (server.mine) text.append(el('div', 'server-players', `Invite code ${server.code}${server.friendsCanJoin ? ' · your friends can join without it' : ''}`));
+    if (server.mine) text.append(el('div', 'server-players', `Code ${server.code}`));
     const join = el('button', 'ghost', 'Join');
     join.disabled = Boolean(state && state.play.active);
     join.addEventListener('click', () => startPlay(game, { privateId: server.id }));
@@ -800,8 +813,8 @@ function renderPrivate(game, servers) {
       const copy = el('button', 'ghost', 'Copy code');
       copy.addEventListener('click', () => {
         navigator.clipboard.writeText(server.code).then(
-          () => setStatus('private-status', `Copied ${server.code}. Anyone who enters it can join "${server.name}".`, 'good'),
-          () => setStatus('private-status', `The invite code is ${server.code}.`));
+          () => setStatus('private-status', `Copied ${server.code}`, 'good'),
+          () => setStatus('private-status', `The code is ${server.code}`));
       });
       const remove = el('button', 'ghost', 'Delete');
       remove.addEventListener('click', () => privateAction(game, server, 'delete'));
@@ -812,10 +825,10 @@ function renderPrivate(game, servers) {
 }
 
 async function privateAction(game, server, verb) {
-  if (verb === 'delete' && !window.confirm(`Delete your private server "${server.name}"? Anyone in it is sent back to the launcher.`)) return;
+  if (verb === 'delete' && !window.confirm(`Delete "${server.name}"? Anyone in it goes back to the launcher.`)) return;
   try {
     await api.privateServerAction({ id: server.id, verb });
-    setStatus('private-status', verb === 'delete' ? `Deleted "${server.name}".` : 'Done.', 'good');
+    setStatus('private-status', verb === 'delete' ? `Deleted ${server.name}` : 'Done', 'good');
   } catch (error) {
     setStatus('private-status', message(error), 'error');
   }
@@ -828,8 +841,8 @@ $('private-create').addEventListener('submit', async (event) => {
   if (!game || !me) return;
   try {
     const result = await api.createPrivateServer({ placeId: game.placeId, name: $('private-name').value.trim() || `${me.account.name}'s server` });
-    $('private-name').value = '';
-    setStatus('private-status', `Made "${result.server.name}". Your friends can join it; give others its invite code, ${result.server.code}.`, 'good');
+    closePrivateForms();
+    setStatus('private-status', `Made ${result.server.name}. Friends can join; anyone else needs code ${result.server.code}.`, 'good');
   } catch (error) {
     setStatus('private-status', message(error), 'error');
   }
@@ -843,16 +856,34 @@ $('private-redeem').addEventListener('submit', async (event) => {
   if (!game || !me || !code) return;
   try {
     const result = await api.redeemPrivateCode(code);
-    $('private-code').value = '';
+    closePrivateForms();
     const server = result.server;
     setStatus('private-status', String(server.placeId) === String(game.placeId)
-      ? `You can now join "${server.name}".`
-      : `That code is for "${server.name}" in ${server.gameName}: it is listed there now.`, 'good');
+      ? `Added ${server.name}`
+      : `That code is for ${server.name} in ${server.gameName}. It's listed there now.`, 'good');
   } catch (error) {
     setStatus('private-status', message(error), 'error');
   }
   loadPrivate(game, true);
 });
+
+// New / Enter code each open one small form; only one shows at a time.
+function closePrivateForms() {
+  for (const id of ['private-create', 'private-redeem']) $(id).classList.add('hidden');
+  $('private-name').value = '';
+  $('private-code').value = '';
+}
+function openPrivateForm(id, input) {
+  const wasOpen = !$(id).classList.contains('hidden');
+  closePrivateForms();
+  setStatus('private-status', '');
+  if (wasOpen) return;
+  $(id).classList.remove('hidden');
+  focusEl($(input));
+}
+$('private-new').addEventListener('click', () => openPrivateForm('private-create', 'private-name'));
+$('private-enter').addEventListener('click', () => openPrivateForm('private-redeem', 'private-code'));
+for (const cancel of document.querySelectorAll('.private-form [data-cancel]')) cancel.addEventListener('click', closePrivateForms);
 
 function closeDetail() {
   $('overlay').classList.add('hidden');
@@ -1125,6 +1156,7 @@ async function findGames(quiet) {
     const current = !$('overlay').classList.contains('hidden') && detailGame ? onlineMatch(detailGame) : null;
     if (current) {
       detailGame = current;
+      renderDetailMeta(current, true);
       if (!$('detail-servers-box').contains(document.activeElement)) {
         renderServerList(current.servers || [], isPlayable(current) && !(state && state.play.active));
       }
@@ -1136,9 +1168,7 @@ function renderAllGames() {
   const list = $('all-games');
   list.textContent = '';
   for (const game of lastGames) {
-    const by = game.creator ? `By ${game.creator} · ` : '';
-    const servers = (game.servers || []).length;
-    list.append(gameTile(game, { players: playersIn(game), caption: `${by}${servers ? `${servers} server${servers === 1 ? '' : 's'}` : 'starts when you join'}` }));
+    list.append(gameTile(game, { players: playersIn(game), caption: game.creator ? `By ${game.creator}` : '' }));
   }
   if (lastGames.length === 0) list.append(placeholder('No games online. Host one, or ask your host to turn one on.', '·'));
 }
@@ -1161,8 +1191,8 @@ $('play-studio').addEventListener('click', async () => {
   try {
     await api.openStudio(serverAddress());
     setStatus('play-status', me
-      ? `Studio is open: sign in on its start page as ${me.account.name}.`
-      : 'Studio is open: sign in on its start page (Studio needs an account; sign up here first).', 'good');
+      ? `Studio is open. Sign in there as ${me.account.name}.`
+      : 'Studio is open. It needs an account, so sign up here first.', 'good');
   } catch (error) {
     setStatus('play-status', message(error), 'error');
   } finally {

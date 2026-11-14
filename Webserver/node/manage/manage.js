@@ -1,36 +1,82 @@
 'use strict';
 
-// Server management page: the place library (GET /api/places) and the changes
-// a host may make (see Webserver/node/lib/routes.js). The page stays locked
-// until the server accepts the host key or a manage token (lib/admin.js): the
-// launcher's Manage games button opens it as /manage#token=... for admins.
+// Server management page (/manage). The API is in lib/routes.js, lib/studio.js
+// and lib/admin.js. Nothing shows until the server accepts the host key or a
+// manage token: the launcher's Manage games button opens /manage#token=...
 
 const $ = (id) => document.getElementById(id);
-let data = null;
-let busy = false;            // an upload or change is in progress
-const editing = new Set();   // place IDs whose edit form is open
-let pendingPlace = null;     // which place the hidden file inputs are for
+const JOIN_CODE_NAME = 'Server management'; // the "n" of join codes, unchanged from the old page
+const VIEWS = ['games', 'announcements', 'accounts', 'assets', 'server', 'join'];
 
-// --- helpers -------------------------------------------------------------------------
+let places = [];
+let runner = { running: false };
+let serverInfo = null;
+let missing = [];
+let busy = false;            // a change is being sent; polling waits
+let view = 'games';
+let openId = null;           // the game in the drawer
+let drawerTab = 'servers';
+let pendingPlace = null;     // which game the hidden file inputs are for
+let pendingAsset = null;
+let assetFilter = 'Audio';
+let logName = 'server';
 
-function storedKey() {
-  try { return localStorage.getItem('hostKey') || ''; } catch (error) { return ''; }
+// --- small helpers ---------------------------------------------------------------------
+
+function h(tag, props, ...children) {
+  const node = document.createElement(tag);
+  for (const [key, value] of Object.entries(props || {})) {
+    if (value === undefined || value === null || value === false) continue;
+    if (key === 'class') node.className = value;
+    else if (key === 'text') node.textContent = value;
+    else if (key === 'dataset') Object.assign(node.dataset, value);
+    else if (key.startsWith('on') && typeof value === 'function') node.addEventListener(key.slice(2), value);
+    else if (key in node) node[key] = value;
+    else node.setAttribute(key, value === true ? '' : value);
+  }
+  for (const child of children.flat()) {
+    if (child === null || child === undefined || child === false) continue;
+    node.append(child instanceof Node ? child : document.createTextNode(String(child)));
+  }
+  return node;
 }
-function storeKey(value) {
-  try { if (value) localStorage.setItem('hostKey', value); else localStorage.removeItem('hostKey'); } catch (error) { /* private window */ }
+const btn = (text, className, onclick, extra) => h('button', Object.assign({ type: 'button', class: `btn ${className || ''}`.trim(), text, onclick }, extra || {}));
+const plural = (n, word, many) => `${n} ${n === 1 ? word : (many || `${word}s`)}`;
+
+function size(bytes) {
+  if (!Number.isFinite(bytes)) return '?';
+  return bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
-function storedToken() {
-  try { return localStorage.getItem('manageToken') || ''; } catch (error) { return ''; }
+function duration(ms) {
+  const minutes = Math.max(0, Math.round(ms / 60000));
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  return hours < 48 ? `${hours} h ${minutes % 60} min` : `${Math.floor(hours / 24)} days`;
 }
-function storeToken(value) {
-  try { if (value) localStorage.setItem('manageToken', value); else localStorage.removeItem('manageToken'); } catch (error) { /* private window */ }
+function when(iso) {
+  const time = Date.parse(iso);
+  if (!Number.isFinite(time)) return '';
+  const date = new Date(time);
+  const sameDay = date.toDateString() === new Date().toDateString();
+  return sameDay
+    ? `Today ${date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+    : date.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
-// A token from the launcher (#token=...) is kept, and taken out of the address.
+// --- key / token -------------------------------------------------------------------------
+
+function stored(name) { try { return localStorage.getItem(name) || ''; } catch (error) { return ''; } }
+function store(name, value) {
+  try { if (value) localStorage.setItem(name, value); else localStorage.removeItem(name); } catch (error) { /* private window */ }
+}
+const storedKey = () => stored('hostKey');
+const storedToken = () => stored('manageToken');
+
+// A token from the launcher (#token=...) is kept and taken out of the address.
 function takeTokenFromAddress() {
   const match = /(?:^#|&)token=([0-9a-f]{64})/.exec(location.hash);
   if (!match) return false;
-  storeToken(match[1]);
+  store('manageToken', match[1]);
   history.replaceState(null, '', location.pathname + location.search);
   return true;
 }
@@ -43,54 +89,8 @@ function authHeaders(extra) {
   return headers;
 }
 
-function el(tag, className, text) {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined && text !== null) node.textContent = text;
-  return node;
-}
-
-function button(text, className, onClick) {
-  const node = el('button', className, text);
-  node.type = 'button';
-  node.addEventListener('click', onClick);
-  return node;
-}
-
-function setStatus(node, text, kind) {
-  node.textContent = text || '';
-  node.className = `status${kind ? ` ${kind}` : ''}`;
-}
-
-function size(bytes) {
-  if (!Number.isFinite(bytes)) return '?';
-  return bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
-}
-
-function duration(ms) {
-  const minutes = Math.max(0, Math.round(ms / 60000));
-  if (minutes < 60) return `${minutes} min`;
-  const hours = Math.floor(minutes / 60);
-  return hours < 48 ? `${hours} h ${minutes % 60} min` : `${Math.floor(hours / 24)} days`;
-}
-
-function when(iso) {
-  const time = Date.parse(iso);
-  return Number.isFinite(time) ? new Date(time).toLocaleString() : '';
-}
-
-function needKey() {
-  const ok = Boolean(storedKey() || storedToken());
-  if (!ok) {
-    $('key-state').textContent = 'Enter the host key first.';
-    $('host-key').focus();
-  }
-  return ok;
-}
-
-// Sends a change with the host key or token -> parsed JSON, or throws with the server's message.
+// Sends a change -> parsed JSON, or throws with the server's message.
 async function change(method, url, body, contentType) {
-  if (!needKey()) throw new Error('Enter the host key first.');
   const response = await fetch(url, { method, headers: authHeaders({ 'Content-Type': contentType || 'application/json' }), body });
   const result = await response.json().catch(() => ({}));
   if (response.status === 403) unlock();
@@ -98,10 +98,9 @@ async function change(method, url, body, contentType) {
   return result;
 }
 
-// Uploads a file with progress (fetch has none) -> parsed JSON, or throws.
+// Uploads a file with progress -> parsed JSON, or throws.
 function uploadFile(url, file, progress) {
   return new Promise((resolve, reject) => {
-    if (!needKey()) return reject(new Error('Enter the host key first.'));
     const request = new XMLHttpRequest();
     request.open('POST', url);
     for (const [name, value] of Object.entries(authHeaders({ 'Content-Type': 'application/octet-stream' }))) request.setRequestHeader(name, value);
@@ -110,334 +109,427 @@ function uploadFile(url, file, progress) {
       let result = {};
       try { result = JSON.parse(request.responseText || '{}'); } catch (error) { result = {}; }
       if (request.status === 403) unlock();
-      if (request.status >= 200 && request.status < 300) {
-        resolve(result);
-      } else {
-        reject(new Error(result.error || `The server answered HTTP ${request.status}.`));
-      }
+      if (request.status >= 200 && request.status < 300) resolve(result);
+      else reject(new Error(result.error || `The server answered HTTP ${request.status}.`));
     };
-    request.onerror = () => reject(new Error('The upload failed (connection lost?).'));
+    request.onerror = () => reject(new Error('The upload failed. Is the server still reachable?'));
     request.send(file);
   });
 }
 
-// --- server line and list ---------------------------------------------------------------
+// --- toasts and confirmations --------------------------------------------------------------
 
-function renderServer() {
-  const line = $('server-line');
-  line.textContent = '';
-  const runner = data && data.runner ? data.runner : { running: false };
-  const servers = data ? data.places.reduce((sum, place) => sum + (place.servers || []).length, 0) : 0;
-  if (runner.running) {
-    line.append(el('span', 'ok', 'Always-on server running'), document.createTextNode(` · ${servers} game server${servers === 1 ? '' : 's'} running${runner.maxGames ? ` (up to ${runner.maxGames})` : ''}`
-      + (runner.idleStopMinutes ? ` · servers nobody plays on stop after ${runner.idleStopMinutes} min` : '')));
-  } else {
-    line.append(el('span', 'bad', 'The always-on server is not running'), document.createTextNode(' - games will not start until startServer.bat runs on the server.'));
-  }
-  for (const problem of runner.problems || []) line.append(el('div', 'bad', problem));
+function toast(text, kind, sticky) {
+  const item = h('div', { class: `toast ${kind || ''}`, text, role: kind === 'error' ? 'alert' : 'status' });
+  $('toasts').append(item);
+  const close = () => { item.classList.add('out'); setTimeout(() => item.remove(), 260); };
+  if (kind === 'error') item.addEventListener('click', close);
+  if (!sticky) setTimeout(close, kind === 'error' ? 9000 : 3200);
+  item.close = close;
+  item.say = (next) => { item.textContent = next; };
+  return item;
 }
 
-// One line for the whole game; serverList() has each server.
-function statusPill(place) {
+function ask(title, body, ok, danger) {
+  return new Promise((resolve) => {
+    const dialog = $('ask');
+    $('ask-title').textContent = title;
+    $('ask-body').textContent = body || '';
+    $('ask-body').hidden = !body;
+    $('ask-ok').textContent = ok || 'OK';
+    $('ask-ok').className = `btn ${danger ? 'danger-solid' : 'primary'}`;
+    dialog.returnValue = '';
+    dialog.onclose = () => resolve(dialog.returnValue === 'ok');
+    dialog.showModal();
+    $('ask-ok').focus();
+  });
+}
+
+// Runs a change with a toast, then refreshes.
+async function act(work, message, done) {
+  if (busy) return null;
+  busy = true;
+  const note = toast(message, 'busy', true);
+  try {
+    const result = await work(note);
+    note.close();
+    toast(done || 'Done', 'good');
+    return result;
+  } catch (error) {
+    note.close();
+    toast(error.message, 'error');
+    return null;
+  } finally {
+    busy = false;
+    await refresh();
+  }
+}
+
+// --- views ----------------------------------------------------------------------------------
+
+function route() {
+  const [name, arg] = location.hash.replace(/^#/, '').split('/');
+  view = VIEWS.includes(name) ? name : 'games';
+  for (const section of document.querySelectorAll('main > section')) section.hidden = section.dataset.view !== view;
+  for (const link of document.querySelectorAll('.nav a')) link.classList.toggle('active', link.dataset.nav === view);
+  if (view === 'games' && arg) showDrawer(arg);
+  else hideDrawer();
+  if (view === 'accounts') loadAccounts();
+  if (view === 'assets') loadMissing();
+  if (view === 'announcements') loadNews();
+  if (view === 'server') { loadServer(); if (!$('srv-log').textContent) loadLog(); }
+}
+
+// --- games ----------------------------------------------------------------------------------
+
+function gameState(place) {
   const servers = place.servers || [];
-  const runnerUp = data && data.runner && data.runner.running;
-  if (!place.enabled) return el('span', 'pill', servers.length ? 'Turning off…' : 'Offline');
-  if (!runnerUp) return el('span', 'pill starting', 'Waiting for the always-on server');
-  if (servers.length === 0) {
-    return place.keepRunning ? el('span', 'pill starting', 'Starting…') : el('span', 'pill', 'Online · no server running; one starts when someone joins');
-  }
-  const running = servers.filter((server) => server.state === 'running');
-  const players = running.reduce((sum, server) => sum + (Array.isArray(server.players) ? server.players.length : 0), 0);
-  if (running.length === 0) {
-    const broken = servers.find((server) => server.state === 'error');
-    if (broken) return el('span', 'pill error', `Not starting: ${broken.lastError || 'unknown error'}`);
-    return el('span', 'pill starting', servers.some((server) => server.state === 'restarting') ? 'Restarting…' : 'Starting…');
-  }
-  return el('span', 'pill running', `Online · ${running.length} server${running.length === 1 ? '' : 's'} · ${players} player${players === 1 ? '' : 's'}${servers.length > running.length ? ` · ${servers.length - running.length} starting` : ''}`);
+  const live = servers.filter((server) => server.state === 'running');
+  if (!place.enabled) return servers.length ? { kind: 'busy', text: 'Turning off' } : { kind: 'off', text: 'Offline' };
+  if (!runner.running) return { kind: 'busy', text: 'Waiting', title: 'The always-on server is not running.' };
+  if (live.length) return { kind: 'live', text: 'Live' };
+  const broken = servers.find((server) => server.state === 'error');
+  if (broken) return { kind: 'error', text: 'Error', title: broken.lastError || '' };
+  if (servers.some((server) => server.state === 'restarting')) return { kind: 'busy', text: 'Restarting' };
+  if (servers.length || place.keepRunning) return { kind: 'busy', text: 'Starting' };
+  return { kind: 'ready', text: 'Ready', title: 'Online. A server starts when someone joins.' };
 }
+const playersIn = (place) => (place.servers || []).reduce((sum, server) => sum + (Array.isArray(server.players) ? server.players.length : 0), 0);
 
-// Each running server of a place, with its own Restart and Stop.
-function serverList(place) {
-  const box = el('div', 'servers');
-  box.dataset.servers = place.placeId;
-  for (const server of place.servers || []) {
-    const row = el('div', `server-row ${server.state}`);
-    const players = Array.isArray(server.players) ? server.players : null;
-    const who = players === null ? 'busy' : `${players.length}/${server.maxPlayers || '?'} player${players.length === 1 ? '' : 's'}${players.length ? `: ${players.join(', ')}` : ''}`;
-    const parts = [`#${server.jobId.slice(0, 6)}`];
-    if (server.privateId) parts.push(`private: ${server.privateName || 'a private server'}`);
-    if (server.state === 'running') {
-      parts.push(who, `${server.memoryMB || '?'} MB`, `up ${duration(Date.now() - Date.parse(server.startedAt))}`);
-      if (server.idleSince) parts.push(`empty for ${duration(Date.now() - Date.parse(server.idleSince))}`);
-    } else {
-      parts.push(server.state === 'error' ? `not starting: ${server.lastError || 'unknown error'}` : `${server.state}…`);
-    }
-    const text = el('span', 'server-text', parts.join(' · '));
-    text.title = `Job ID ${server.jobId}${server.address ? ` · players join at ${server.address}` : ''}`;
-    row.append(text);
-    const base = `/api/places/${place.placeId}/servers/${server.jobId}`;
-    row.append(button('Restart', 'ghost small', () => act(() => change('POST', `${base}/restart`, '{}'), `Restarting server #${server.jobId.slice(0, 6)} (players are saved first)…`)));
-    row.append(button('Stop', 'ghost small', () => {
-      if (players && players.length && !confirm(`Stop server #${server.jobId.slice(0, 6)}? ${players.length} player${players.length === 1 ? ' is' : 's are'} saved and sent back to the launcher.`)) return;
-      act(() => change('POST', `${base}/stop`, '{}'), `Stopping server #${server.jobId.slice(0, 6)}…`);
-    }));
-    box.append(row);
-  }
+function thumb(place, big) {
+  const box = h('div', { class: `thumb${big ? ' big' : ''}` });
+  if (place.thumbnail) box.append(h('img', { alt: '', loading: 'lazy', src: `/api/thumbnails/${place.placeId}?v=${place.thumbnail}` }));
+  else box.textContent = (place.name || '?').trim().charAt(0).toUpperCase();
   return box;
 }
 
-// Players' private servers of a place (admins can delete them).
-function privateList(place) {
-  const box = el('div', 'servers');
-  const list = place.privateServers || [];
-  if (list.length === 0) return box;
-  box.append(el('div', 'pid', `Private servers (${list.length}):`));
-  for (const server of list) {
-    const row = el('div', 'server-row');
-    row.append(el('span', 'server-text', `"${server.name}" · owner ${server.owner} · ${server.members} member${server.members === 1 ? '' : 's'}${server.friends ? ' · friends may join' : ''}`));
-    row.append(button('Delete', 'ghost small', () => {
-      if (!confirm(`Delete the private server "${server.name}" of ${server.owner}? Anyone in it is saved and sent back.`)) return;
-      act(() => change('DELETE', `/api/private-servers/${server.id}`), `Deleting "${server.name}"…`);
-    }));
-    box.append(row);
-  }
-  return box;
+function onlineSwitch(place) {
+  return h('input', {
+    type: 'checkbox', class: 'switch', checked: place.enabled, title: place.enabled ? 'Online' : 'Offline',
+    'aria-label': `${place.name} online`,
+    onclick: (event) => event.stopPropagation(),
+    onchange: (event) => {
+      const on = event.target.checked;
+      act(() => change('POST', `/api/places/${place.placeId}`, JSON.stringify({ enabled: on })), on ? `Putting ${place.name} online` : `Taking ${place.name} offline`, on ? `${place.name} is online` : `${place.name} is offline`);
+    },
+  });
 }
 
-function placeCard(place) {
-  const id = place.placeId;
-  const card = el('article', `card${place.enabled ? '' : ' off'}`);
-  card.dataset.placeId = id;
+function gameRow(place) {
+  const state = gameState(place);
+  const players = playersIn(place);
+  const servers = (place.servers || []).filter((server) => server.state === 'running').length;
+  const creator = place.creator ? place.creator.name : null;
+  return h('tr', {
+    class: `${place.enabled ? '' : 'off'} ${openId === place.placeId ? 'selected' : ''}`.trim(),
+    dataset: { id: place.placeId },
+    onclick: () => { location.hash = `games/${place.placeId}`; },
+  },
+  h('td', {}, h('div', { class: 'game-cell' }, thumb(place),
+    h('div', {}, h('div', { class: 'game-name', text: place.name }), h('div', { class: 'sub' }, h('span', { class: 'mono', text: place.placeId }), creator && h('span', { text: creator }))))),
+  h('td', {}, h('span', { class: `state ${state.kind}`, text: state.text, title: state.title || null })),
+  h('td', { class: 'num hide-sm', text: servers ? String(players) : '–' }),
+  h('td', { class: 'num hide-sm', text: servers ? String(servers) : '–' }),
+  h('td', { class: 'hide-sm', text: place.avatarType === 'R15' ? 'R15' : 'R6' }),
+  h('td', { class: 'right' }, onlineSwitch(place)));
+}
 
-  const top = el('div', 'card-top');
-  const thumb = el('div', 'thumb');
-  if (place.thumbnail) {
-    const img = el('img');
-    img.alt = '';
-    img.src = `/api/thumbnails/${id}?v=${place.thumbnail}`;
-    thumb.append(img);
+function renderGames() {
+  const filter = $('games-filter').value.trim().toLowerCase();
+  const shown = places.filter((place) => !filter || place.name.toLowerCase().includes(filter) || place.placeId.includes(filter));
+  const rows = $('games-rows');
+  // Rows only change when their game did, so focus and hover survive polling.
+  const wanted = shown.map((place) => {
+    const signature = JSON.stringify([place, runner.running, openId === place.placeId]);
+    const old = rows.querySelector(`tr[data-id="${place.placeId}"]`);
+    if (old && old.dataset.sig === signature && !old.contains(document.activeElement)) return old;
+    if (old && old.contains(document.activeElement)) return old;
+    const row = gameRow(place);
+    row.dataset.sig = signature;
+    return row;
+  });
+  if (wanted.length === 0) {
+    rows.replaceChildren(h('tr', {}, h('td', { class: 'empty-cell', colSpan: 6, text: places.length ? 'No game matches.' : 'No games yet.' })));
   } else {
-    thumb.textContent = 'No picture';
+    rows.replaceChildren(...wanted);
   }
-  const info = el('div', 'info');
-  info.append(el('div', 'name', place.name));
-  const pid = el('div', 'pid');
-  pid.append(document.createTextNode('Place ID '), el('b', '', id), document.createTextNode(` · version ${place.version} · ${size(place.fileSize)}`));
-  info.append(pid);
-  if (place.description) info.append(el('div', 'desc', place.description));
-  if (place.teamCreate) {
-    const server = place.cloudEdit;
-    const editing = server && Array.isArray(server.editors) ? server.editors : [];
-    info.append(el('div', 'pid', `Team Create on${server ? ` · ${server.state === 'running' ? `${editing.length} editing${editing.length ? ` (${editing.join(', ')})` : ''}` : server.state}` : ''}`));
-  }
-  const creator = place.creator;
-  info.append(el('div', 'pid', creator
-    ? `By ${creator.name}${creator.source === 'roblox' ? ' (from Roblox)' : creator.source === 'owner' ? ' (its Studio owner)' : ''}${creator.type === 'Group' ? ' · group' : ''}`
-    : `Creator: unknown${place.universeId ? ' (looking it up on Roblox…)' : ' (set the Roblox universe, or type one under Edit)'}`));
-  if (place.owner || place.editors.length) {
-    const who = [place.owner ? `Owner ${place.owner.name}` : 'No owner (admins only)'];
-    if (place.editors.length) who.push(`editors: ${place.editors.map((e) => e.name).join(', ')}`);
-    info.append(el('div', 'pid', `Studio: ${who.join(' · ')}`));
-  }
-  info.append(el('div', 'pid', `Up to ${place.maxPlayers} players per server · ${place.avatarType === 'R15' ? 'R15' : 'R6'} avatars · ${place.keepRunning ? 'one server always running' : 'servers start when someone joins'}`));
-  const pill = statusPill(place);
-  pill.dataset.pill = id;
-  info.append(pill, serverList(place), privateList(place));
-  top.append(thumb, info);
-  card.append(top);
+  const live = places.reduce((sum, place) => sum + (place.servers || []).filter((server) => server.state === 'running').length, 0);
+  const players = places.reduce((sum, place) => sum + playersIn(place), 0);
+  $('games-sub').textContent = places.length
+    ? `${plural(places.filter((place) => place.enabled).length, 'game')} online, ${plural(live, 'server')} running, ${plural(players, 'player')}`
+    : '';
+  $('nav-games').textContent = places.length || '';
+  const banner = $('runner-banner');
+  banner.replaceChildren();
+  if (!runner.running) banner.append("The always-on server isn't running, so games can't start. Run startServer.bat on the server PC.");
+  for (const problem of runner.problems || []) banner.append(h('div', { text: problem }));
+  banner.hidden = runner.running && !(runner.problems || []).length;
+}
+$('games-filter').addEventListener('input', renderGames);
 
-  const actions = el('div', 'card-actions');
-  const toggle = el('label', 'switch');
-  const box = el('input');
-  box.type = 'checkbox';
-  box.checked = place.enabled;
-  box.addEventListener('change', () => act(() => change('POST', `/api/places/${id}`, JSON.stringify({ enabled: box.checked })), box.checked ? `Turning "${place.name}" on…` : `Turning "${place.name}" off…`));
-  toggle.append(box, document.createTextNode('Online'));
-  actions.append(toggle);
-  const restart = button('Restart all', 'ghost', () => act(() => change('POST', `/api/places/${id}/restart`, '{}'), `Restarting every server of "${place.name}" (players are saved first)…`));
-  restart.disabled = !place.enabled || !(place.servers || []).length;
-  actions.append(restart);
-  actions.append(button('Edit', 'ghost', () => { editing.has(id) ? editing.delete(id) : editing.add(id); renderPlaces(true); }));
-  actions.append(button('Replace file', 'ghost', () => { pendingPlace = place; $('replace-file').value = ''; $('replace-file').click(); }));
-  actions.append(button('Convert again', 'ghost', () => {
-    if (!confirm(`Run "${place.name}" through the converter again?\n\nIt picks up fixes made since it was uploaded. Its servers restart on the new version (players are saved first); the old version is kept in Server\\content\\places\\old.`)) return;
-    act(() => change('POST', `/api/places/${id}/reconvert`, '{}'), `Converting "${place.name}" again…`);
-  }));
-  actions.append(button('Thumbnail', 'ghost', () => { pendingPlace = place; $('thumb-file').value = ''; $('thumb-file').click(); }));
-  actions.append(button('Delete', 'danger', () => {
-    if (!confirm(`Delete "${place.name}" (place ${id})?\n\nIts file moves to Server\\content\\places\\deleted. Saves and the thumbnail are kept, and place ID ${id} is never reused.`)) return;
-    act(() => change('DELETE', `/api/places/${id}`), `Deleting "${place.name}"…`);
-  }));
-  card.append(actions);
+// --- one game ---------------------------------------------------------------------------------
 
-  if (editing.has(id)) card.append(editForm(place));
-
-  const details = el('details');
-  details.append(el('summary', '', 'Details'));
-  const lines = [
-    `File: Server\\content\\${String(place.file || '?').replace(/\//g, '\\')}`,
-    `Uploaded from: ${place.uploadedFrom || '?'} · added ${when(place.createdAt)} · changed ${when(place.updatedAt)}`,
-    place.universeId ? `Roblox universe for its images: ${place.universeId}` : 'Roblox universe: not set',
-  ];
-  if (place.notes && place.notes.length) lines.push('', 'Conversion notes:', ...place.notes);
-  details.append(el('pre', '', lines.join('\n')));
-  card.append(details);
-  return card;
+function showDrawer(id) {
+  const switched = openId !== id;
+  openId = id;
+  if (switched) drawerTab = 'servers';
+  renderDrawer(switched);
+  renderGames();
+}
+function hideDrawer() {
+  if (openId === null) return;
+  openId = null;
+  $('drawer').classList.remove('open');
+  $('drawer').setAttribute('aria-hidden', 'true');
+  $('scrim').hidden = true;
+  renderGames();
+}
+function closeDrawer() { if (openId !== null) location.hash = 'games'; }
+$('scrim').addEventListener('click', closeDrawer);
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && openId !== null && !document.querySelector('dialog[open]')) closeDrawer();
+});
+for (const tab of document.querySelectorAll('#drawer-tabs button')) {
+  tab.addEventListener('click', () => { drawerTab = tab.dataset.tab; renderDrawer(false); });
 }
 
-function editForm(place) {
-  const id = place.placeId;
-  const form = el('form', 'edit');
-  const name = el('input');
-  name.value = place.name;
-  name.maxLength = 60;
-  const description = el('textarea');
-  description.value = place.description;
-  description.maxLength = 1000;
-  description.rows = 3;
-  const universe = el('input');
-  universe.value = place.universeId;
-  universe.placeholder = 'Roblox universe ID (optional)';
-  const nameLabel = el('label', '', 'Name');
-  nameLabel.append(name);
-  const descriptionLabel = el('label', '', 'Description');
-  descriptionLabel.append(description);
-  const universeLabel = el('label', '', 'Roblox universe (its images, and who made it)');
-  universeLabel.append(universe);
-  const creator = el('input');
-  creator.maxLength = 60;
-  const ownedHere = place.creator && place.creator.source === 'owner';
-  creator.value = place.creator && !ownedHere ? place.creator.name : '';
-  creator.placeholder = ownedHere ? `${place.creator.name} (its Studio owner)` : 'Found from the Roblox universe, or type a name';
-  creator.disabled = ownedHere;
-  const creatorLabel = el('label', '', 'Creator ("By ..." in the game and the launcher)');
-  creatorLabel.append(creator);
-  const owner = el('input');
-  owner.value = place.owner ? place.owner.name : '';
-  owner.placeholder = 'Studio account name (empty: admins only)';
-  const ownerLabel = el('label', '', 'Owner in Studio (may publish over it and pick editors)');
-  ownerLabel.append(owner);
-  const editors = el('input');
-  editors.value = place.editors.map((e) => e.name).join(', ');
-  editors.placeholder = 'Studio account names, comma-separated';
-  const editorsLabel = el('label', '', 'Editors in Studio');
-  editorsLabel.append(editors);
-  const teamCreate = el('input');
-  teamCreate.type = 'checkbox';
-  teamCreate.checked = place.teamCreate;
-  const teamCreateLabel = el('label', 'check');
-  teamCreateLabel.append(teamCreate, document.createTextNode(' Team Create: the owner and editors build it together in Studio'));
-  const keepRunning = el('input');
-  keepRunning.type = 'checkbox';
-  keepRunning.checked = place.keepRunning;
-  const keepRunningLabel = el('label', 'check');
-  keepRunningLabel.append(keepRunning, document.createTextNode(' Keep one server running (otherwise servers start when someone joins and stop when empty)'));
-  const maxPlayers = el('input');
-  maxPlayers.type = 'number';
-  maxPlayers.min = '1';
-  maxPlayers.max = '50';
-  maxPlayers.value = String(place.maxPlayers);
-  const maxPlayersLabel = el('label', '', 'Players per server (more players get another server)');
-  maxPlayersLabel.append(maxPlayers);
-  const avatarType = el('select');
-  for (const [value, text] of [['R6', 'R6 (classic, 6 parts)'], ['R15', 'R15 (15 parts)']]) {
-    const option = el('option', '', text);
-    option.value = value;
-    avatarType.append(option);
+// full: also rebuild the settings form (otherwise typing there is left alone).
+function renderDrawer(full) {
+  const place = places.find((item) => item.placeId === openId);
+  const drawer = $('drawer');
+  if (!place) {
+    if (places.length && openId !== null) closeDrawer();
+    return;
   }
-  avatarType.value = place.avatarType === 'R15' ? 'R15' : 'R6';
-  const avatarTypeLabel = el('label', '', 'Avatars (servers started after saving use it)');
-  avatarTypeLabel.append(avatarType);
-  const row = el('div', 'row');
-  const save = el('button', '', 'Save');
-  save.type = 'submit';
-  row.append(save, button('Cancel', 'ghost', () => { editing.delete(id); renderPlaces(true); }));
-  form.append(nameLabel, descriptionLabel, universeLabel, creatorLabel, ownerLabel, editorsLabel, maxPlayersLabel, avatarTypeLabel, keepRunningLabel, teamCreateLabel, row);
+  drawer.classList.add('open');
+  drawer.setAttribute('aria-hidden', 'false');
+  $('scrim').hidden = false;
+
+  const state = gameState(place);
+  const meta = h('div', { class: 'meta' }, h('span', { text: `Place ${place.placeId}` }), h('span', { text: `Version ${place.version}` }),
+    place.creator && h('span', { text: `By ${place.creator.name}` }));
+  $('drawer-head').replaceChildren(
+    h('button', { type: 'button', class: 'thumb-edit', title: 'Change the icon', onclick: () => pick('thumb-file', place) }, thumb(place, true)),
+    h('div', { class: 'head-text' }, h('h2', { text: place.name }), meta,
+      h('div', { class: 'online' },
+        h('label', { class: 'inline check' }, onlineSwitch(place), h('span', { text: place.enabled ? 'Online' : 'Offline' })),
+        state.kind !== 'off' && h('span', { class: `state ${state.kind}`, text: state.text, title: state.title || null }))),
+    h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Close', text: '×', onclick: closeDrawer }));
+
+  for (const tab of document.querySelectorAll('#drawer-tabs button')) {
+    tab.classList.toggle('active', tab.dataset.tab === drawerTab);
+    tab.setAttribute('aria-selected', String(tab.dataset.tab === drawerTab));
+  }
+  for (const pane of document.querySelectorAll('.drawer .pane')) pane.hidden = pane.dataset.pane !== drawerTab;
+  $('pane-servers').replaceChildren(...serversPane(place));
+  $('pane-files').replaceChildren(...filePane(place));
+  if (full || !$('pane-settings').firstChild || $('pane-settings').dataset.id !== place.placeId) {
+    $('pane-settings').replaceChildren(settingsForm(place));
+    $('pane-settings').dataset.id = place.placeId;
+  }
+}
+
+function serversPane(place) {
+  const servers = place.servers || [];
+  const parts = [];
+  const restartAll = btn('Restart all', 'small', () => act(() => change('POST', `/api/places/${place.placeId}/restart`, '{}'),
+    `Restarting ${place.name}`, 'Restarting. Players were saved first.'));
+  restartAll.disabled = !servers.length;
+  parts.push(h('div', { class: 'pane-head' }, h('h3', { text: servers.length ? plural(servers.length, 'server') : 'Servers' }), restartAll));
+
+  if (!servers.length) {
+    const text = !place.enabled ? 'The game is offline.'
+      : !runner.running ? 'Waiting for the always-on server.'
+        : place.keepRunning ? 'Starting one.' : 'None running. One starts when someone joins.';
+    parts.push(h('p', { class: 'empty', text }));
+  }
+  for (const server of servers) {
+    const players = Array.isArray(server.players) ? server.players : null;
+    const short = server.jobId.slice(0, 6);
+    const base = `/api/places/${place.placeId}/servers/${server.jobId}`;
+    const running = server.state === 'running';
+    const card = h('div', { class: 'card srv' },
+      h('div', { class: 'srv-top' },
+        h('code', { text: `#${short}`, title: `Job ${server.jobId}${server.address ? `, ${server.address}` : ''}` }),
+        h('span', { class: `state ${running ? 'live' : server.state === 'error' ? 'error' : 'busy'}`, text: running ? 'Running' : server.state.charAt(0).toUpperCase() + server.state.slice(1) }),
+        server.privateId && h('span', { class: 'srv-tag', text: `Private: ${server.privateName || 'private server'}` }),
+        h('span', { class: 'grow' }),
+        btn('Restart', 'small', () => act(() => change('POST', `${base}/restart`, '{}'), `Restarting #${short}`, `#${short} is restarting`)),
+        btn('Stop', 'small', async () => {
+          if (players && players.length && !await ask(`Stop #${short}?`, `${plural(players.length, 'player')} will be saved and sent back to the launcher.`, 'Stop', true)) return;
+          act(() => change('POST', `${base}/stop`, '{}'), `Stopping #${short}`, `#${short} stopped`);
+        })),
+      server.state === 'error' && h('div', { class: 'srv-error', text: server.lastError || 'It did not start.' }),
+      running && (players && players.length
+        ? h('div', { class: 'chips' }, players.map((name) => h('span', { class: 'chip', text: name })))
+        : h('div', { class: 'muted', text: players ? `Empty${server.idleSince ? ` for ${duration(Date.now() - Date.parse(server.idleSince))}` : ''}` : 'Busy' })),
+      running && h('div', { class: 'srv-foot' },
+        h('span', { text: `${players ? players.length : '?'} / ${server.maxPlayers || place.maxPlayers} players` }),
+        server.memoryMB && h('span', { text: `${server.memoryMB} MB` }),
+        server.startedAt && h('span', { text: `Up ${duration(Date.now() - Date.parse(server.startedAt))}` })));
+    parts.push(card);
+  }
+
+  if (place.teamCreate) {
+    const edit = place.cloudEdit;
+    const editors = edit && Array.isArray(edit.editors) ? edit.editors : [];
+    parts.push(h('h3', { text: 'Team Create' }));
+    parts.push(h('p', { class: 'muted', text: !edit ? 'Nobody is editing.' : edit.state !== 'running' ? edit.state : editors.length ? `Editing now: ${editors.join(', ')}` : 'Open, nobody editing.' }));
+  }
+
+  const privates = place.privateServers || [];
+  if (privates.length) {
+    parts.push(h('h3', { text: `Private servers (${privates.length})` }));
+    parts.push(h('div', { class: 'card list' }, privates.map((item) => h('div', { class: 'list-row' },
+      h('div', { class: 'text' }, h('b', { text: item.name }),
+        h('small', { text: `${item.owner}, ${plural(item.members, 'member')}${item.friends ? ', friends can join' : ''}` })),
+      btn('Delete', 'small danger', async () => {
+        if (!await ask(`Delete "${item.name}"?`, `It belongs to ${item.owner}. Anyone in it is saved and sent back.`, 'Delete', true)) return;
+        act(() => change('DELETE', `/api/private-servers/${item.id}`), `Deleting ${item.name}`, `${item.name} deleted`);
+      })))));
+  }
+  return parts;
+}
+
+function settingsForm(place) {
+  const id = place.placeId;
+  const ownedHere = Boolean(place.creator && place.creator.source === 'owner');
+  const input = (props) => h('input', props);
+  const name = input({ value: place.name, maxLength: 60, required: true });
+  const description = h('textarea', { value: place.description || '', maxLength: 1000, rows: 3 });
+  const maxPlayers = input({ type: 'number', min: 1, max: 50, value: String(place.maxPlayers) });
+  const avatar = h('select', {}, h('option', { value: 'R6', text: 'R6' }), h('option', { value: 'R15', text: 'R15' }));
+  avatar.value = place.avatarType === 'R15' ? 'R15' : 'R6';
+  const keepRunning = input({ type: 'checkbox', class: 'switch', checked: place.keepRunning });
+  const teamCreate = input({ type: 'checkbox', class: 'switch', checked: place.teamCreate });
+  const universe = input({ value: place.universeId || '', inputmode: 'numeric', placeholder: 'None' });
+  const creator = input({
+    maxLength: 60, disabled: ownedHere,
+    value: place.creator && !ownedHere ? place.creator.name : '',
+    placeholder: ownedHere ? `${place.creator.name} (Studio owner)` : 'From the universe, or type a name',
+  });
+  const owner = input({ value: place.owner ? place.owner.name : '', placeholder: 'Admins only' });
+  const editors = input({ value: place.editors.map((editor) => editor.name).join(', '), placeholder: 'Names, separated by commas' });
+  const field = (label, control, hint) => h('label', { class: 'field' }, h('span', { text: label }), control, hint && h('small', { text: hint }));
+  const toggle = (title, hint, control) => h('label', { class: 'switch-row' }, h('div', {}, h('b', { text: title }), h('small', { text: hint })), control);
+
+  const save = h('button', { type: 'submit', class: 'btn primary', text: 'Save' });
+  const form = h('form', { class: 'settings', autocomplete: 'off' },
+    field('Name', name),
+    field('Description', description),
+    h('div', { class: 'pair' }, field('Players per server', maxPlayers), field('Avatars', avatar, 'Used by servers started after saving.')),
+    h('div', { class: 'switches' },
+      toggle('Keep a server running', 'Otherwise one starts on join and stops when empty.', keepRunning),
+      toggle('Team Create', 'The owner and editors build it together in Studio.', teamCreate)),
+    h('h3', { text: 'Studio access' }),
+    h('div', { class: 'pair' }, field('Owner', owner), field('Editors', editors)),
+    h('h3', { text: 'Credit' }),
+    h('div', { class: 'pair' }, field('Roblox universe ID', universe, 'For its icon and creator.'), field('Creator', creator)),
+    h('div', { class: 'save-bar' }, save, btn('Reset', '', () => $('pane-settings').replaceChildren(settingsForm(place)))));
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     act(async () => {
       const fields = {
         name: name.value, description: description.value, universeId: universe.value.trim(), teamCreate: teamCreate.checked,
-        keepRunning: keepRunning.checked, maxPlayers: Number(maxPlayers.value) || undefined, avatarType: avatarType.value,
+        keepRunning: keepRunning.checked, maxPlayers: Number(maxPlayers.value) || undefined, avatarType: avatar.value,
       };
       if (!ownedHere) fields.creator = creator.value.trim();
       await change('POST', `/api/places/${id}`, JSON.stringify(fields));
-      const editorNames = editors.value.split(',').map((n) => n.trim()).filter(Boolean);
-      await change('POST', `/api/places/${id}/access`, JSON.stringify({ owner: owner.value.trim(), editors: editorNames }));
-      editing.delete(id);
-    }, `Saving "${name.value}"…`);
+      const names = editors.value.split(',').map((item) => item.trim()).filter(Boolean);
+      await change('POST', `/api/places/${id}/access`, JSON.stringify({ owner: owner.value.trim(), editors: names }));
+      $('pane-settings').dataset.id = '';
+    }, `Saving ${name.value}`, 'Saved');
   });
   return form;
 }
 
-function renderPlaces(force) {
-  if (!data) return;
-  const list = $('places');
-  // Keep open edit forms as they are; only refresh the status lines.
-  if (!force && editing.size > 0) {
-    for (const place of data.places) {
-      const old = list.querySelector(`[data-pill="${place.placeId}"]`);
-      if (old) {
-        const pill = statusPill(place);
-        pill.dataset.pill = place.placeId;
-        old.replaceWith(pill);
-      }
-      const oldServers = list.querySelector(`[data-servers="${place.placeId}"]`);
-      if (oldServers) oldServers.replaceWith(serverList(place));
-    }
-    return;
+function filePane(place) {
+  const fact = (label, value) => [h('dt', { text: label }), h('dd', {}, value)];
+  const parts = [
+    h('dl', { class: 'card facts' },
+      fact('File', h('code', { text: `Server\\content\\${String(place.file || '?').replace(/\//g, '\\')}` })),
+      fact('Size', size(place.fileSize)),
+      fact('Version', `${place.version}${place.versionSource ? ` (${place.versionSource})` : ''}`),
+      place.uploadedFrom ? fact('Uploaded from', place.uploadedFrom) : [],
+      fact('Added', when(place.createdAt)),
+      fact('Changed', when(place.updatedAt))),
+    h('div', { class: 'btn-row' },
+      btn('Replace file', '', () => pick('replace-file', place)),
+      btn('Convert again', '', async () => {
+        if (!await ask(`Convert ${place.name} again?`, 'It picks up converter fixes made since the upload. Running servers restart on the new version, and the old file is kept.', 'Convert')) return;
+        act(() => change('POST', `/api/places/${place.placeId}/reconvert`, '{}'), `Converting ${place.name}`, 'Converted');
+      }),
+      btn('Change icon', '', () => pick('thumb-file', place))),
+  ];
+  if (place.notes && place.notes.length) {
+    parts.push(h('details', { class: 'notes' }, h('summary', { text: `Conversion notes (${place.notes.length})` }), h('pre', { text: place.notes.join('\n') })));
   }
-  list.textContent = '';
-  if (data.places.length === 0) list.append(el('div', 'empty', 'No games yet. Upload one above.'));
-  for (const place of data.places) list.append(placeCard(place));
+  parts.push(h('div', { class: 'danger-zone' },
+    h('div', {}, h('b', { text: 'Delete this game' }), h('p', { text: `Saves are kept, and place ${place.placeId} is never given to another game.` })),
+    btn('Delete', 'danger', async () => {
+      if (!await ask(`Delete ${place.name}?`, `The file moves to places\\deleted. Saves and the icon stay, and place ${place.placeId} is never reused.`, 'Delete', true)) return;
+      const done = await act(() => change('DELETE', `/api/places/${place.placeId}`), `Deleting ${place.name}`, `${place.name} deleted`);
+      if (done) closeDrawer();
+    })));
+  return parts;
 }
 
-async function refresh() {
-  try {
-    const response = await fetch('/api/places', { headers: authHeaders(), cache: 'no-store' });
-    data = await response.json();
-    if (!$('join-server').value && data.server && data.server.tailscaleUrl) $('join-server').value = data.server.tailscaleUrl;
-    renderServer();
-    renderPlaces(false);
-    $('list-state').textContent = '';
-  } catch (error) {
-    $('server-line').textContent = 'Cannot reach the web server.';
-  }
+function pick(inputId, place) {
+  pendingPlace = place;
+  $(inputId).value = '';
+  $(inputId).click();
 }
 
-// Runs a change, shows what happens, refreshes.
-async function act(work, message) {
-  if (busy) return;
-  busy = true;
-  setStatus($('list-state'), message);
-  try {
-    const result = await work();
-    setStatus($('list-state'), 'Done.', 'good');
-    await refresh();
-    return result;
-  } catch (error) {
-    setStatus($('list-state'), error.message, 'error');
-    await refresh();
-    return null;
-  } finally {
-    busy = false;
-  }
-}
-
-// --- forms -------------------------------------------------------------------------------
-
-$('host-key').value = storedKey();
-$('key-form').addEventListener('submit', (event) => {
-  event.preventDefault();
-  storeKey($('host-key').value.trim());
-  unlock();
+$('replace-file').addEventListener('change', async () => {
+  const file = $('replace-file').files[0];
+  const place = pendingPlace;
+  if (!file || !place) return;
+  if (!await ask(`Replace the file of ${place.name}?`, `New file: ${file.name} (${size(file.size)}). The old version is kept, and running servers restart after saving players.`, 'Replace')) return;
+  act((note) => {
+    const query = place.universeId ? `?universeId=${encodeURIComponent(place.universeId)}` : '';
+    return uploadFile(`/api/places/${place.placeId}/file${query}`, file, (percent) => note.say(percent < 100 ? `Uploading ${percent}%` : 'Converting'));
+  }, `Uploading ${file.name}`, `${place.name} updated`);
 });
-$('key-forget').addEventListener('click', () => {
-  storeKey('');
-  storeToken('');
-  $('host-key').value = '';
-  lock('Forgotten.');
+
+$('thumb-file').addEventListener('change', () => {
+  const file = $('thumb-file').files[0];
+  const place = pendingPlace;
+  if (!file || !place) return;
+  if (file.size > 4 * 1024 * 1024) { toast('Icons can be up to 4 MB.', 'error'); return; }
+  act(() => change('POST', `/api/thumbnails/${place.placeId}`, file, 'application/octet-stream'), 'Uploading the icon', 'Icon changed');
 });
+
+// --- upload a game ---------------------------------------------------------------------------
+
+let uploadedId = null;
+function openUpload() {
+  $('upload-form').reset();
+  $('upload-enabled').checked = true;
+  $('upload-file-name').textContent = 'Choose a .rbxlx file, or drop it here';
+  $('upload-fields').hidden = false;
+  $('upload-done').hidden = true;
+  $('upload-button').hidden = false;
+  $('upload-open-game').hidden = true;
+  $('upload-cancel').textContent = 'Cancel';
+  $('upload-status').textContent = '';
+  $('upload-status').className = 'modal-status';
+  $('upload').showModal();
+}
+function closeUpload() { if (!$('upload-button').disabled) $('upload').close(); }
+$('upload-open').addEventListener('click', openUpload);
+$('upload-close').addEventListener('click', closeUpload);
+$('upload-cancel').addEventListener('click', closeUpload);
+$('upload').addEventListener('cancel', (event) => { if ($('upload-button').disabled) event.preventDefault(); });
+$('upload-open-game').addEventListener('click', () => { $('upload').close(); if (uploadedId) location.hash = `games/${uploadedId}`; });
+
+$('upload-file').addEventListener('change', () => {
+  const file = $('upload-file').files[0];
+  $('upload-file-name').textContent = file ? `${file.name} (${size(file.size)})` : 'Choose a .rbxlx file, or drop it here';
+  if (file && !$('upload-name').value) $('upload-name').value = file.name.replace(/\.rbx[lm]x?$/i, '').slice(0, 60);
+});
+const drop = $('upload-drop');
+drop.addEventListener('dragover', () => drop.classList.add('over'));
+for (const type of ['dragleave', 'drop']) drop.addEventListener(type, () => drop.classList.remove('over'));
 
 $('upload-form').addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -446,225 +538,64 @@ $('upload-form').addEventListener('submit', async (event) => {
   const from = $('upload-from').value.trim();
   if (!file) return;
   if (from && !/^\d{1,15}$/.test(from)) {
-    setStatus(status, 'The Roblox place ID is a number.', 'error');
+    status.textContent = 'The Roblox place ID is a number.';
+    status.className = 'modal-status error';
     return;
   }
   const query = new URLSearchParams({ name: $('upload-name').value.trim(), description: $('upload-description').value.trim(), enabled: $('upload-enabled').checked ? '1' : '0' });
   if (from) query.set('fromPlace', from);
   $('upload-button').disabled = true;
+  $('upload-cancel').disabled = true;
   $('upload-progress').hidden = false;
-  $('upload-notes').hidden = true;
-  setStatus(status, 'Uploading…');
+  status.className = 'modal-status';
+  status.textContent = 'Uploading';
   busy = true;
   try {
     const result = await uploadFile(`/api/places?${query}`, file, (percent) => {
       $('upload-progress').value = percent;
-      if (percent === 100) setStatus(status, 'Converting…');
+      status.textContent = percent < 100 ? `Uploading ${percent}%` : 'Converting';
     });
-    setStatus(status, `Uploaded as place ${result.place.placeId}.`, 'good');
-    $('upload-notes').textContent = [`Place ID ${result.place.placeId} - "${result.place.name}"`, '', ...(result.notes || [])].join('\n');
-    $('upload-notes').hidden = false;
-    $('upload-form').reset();
-    $('upload-enabled').checked = true;
+    uploadedId = result.place.placeId;
+    $('upload-fields').hidden = true;
+    $('upload-done').hidden = false;
+    $('upload-done-line').textContent = `${result.place.name} is place ${result.place.placeId}.`;
+    $('upload-notes').textContent = (result.notes || []).join('\n');
+    $('upload-notes-box').hidden = !(result.notes || []).length;
+    $('upload-button').hidden = true;
+    $('upload-open-game').hidden = false;
+    $('upload-cancel').textContent = 'Close';
+    status.textContent = '';
   } catch (error) {
-    setStatus(status, error.message, 'error');
+    status.textContent = error.message;
+    status.className = 'modal-status error';
   } finally {
     busy = false;
     $('upload-button').disabled = false;
+    $('upload-cancel').disabled = false;
     $('upload-progress').hidden = true;
     $('upload-progress').value = 0;
     refresh();
   }
 });
 
-$('replace-file').addEventListener('change', () => {
-  const file = $('replace-file').files[0];
-  const place = pendingPlace;
-  if (!file || !place) return;
-  if (!confirm(`Replace the file of "${place.name}" (place ${place.placeId})?\n\nThe old version is kept in Server\\content\\places\\old. If the game is online it restarts after saving its players.`)) return;
-  act(async () => {
-    const query = place.universeId ? `?universeId=${encodeURIComponent(place.universeId)}` : '';
-    const result = await uploadFile(`/api/places/${place.placeId}/file${query}`, file, (percent) => setStatus($('list-state'), `Uploading ${percent}%…`));
-    return result;
-  }, `Uploading a new version of "${place.name}"…`);
-});
+// --- polling ---------------------------------------------------------------------------------
 
-$('thumb-file').addEventListener('change', () => {
-  const file = $('thumb-file').files[0];
-  const place = pendingPlace;
-  if (!file || !place) return;
-  if (file.size > 4 * 1024 * 1024) {
-    setStatus($('list-state'), 'Thumbnails can be up to 4 MB.', 'error');
-    return;
-  }
-  act(() => change('POST', `/api/thumbnails/${place.placeId}`, file, 'application/octet-stream'), `Setting the thumbnail of "${place.name}"…`);
-});
-
-// --- join code --------------------------------------------------------------------------------
-// "RBX1-" + base64url of {s: server address, k: Tailscale auth key, n: name};
-// made here in the browser, never stored on the server.
-
-$('join-form').addEventListener('submit', (event) => {
-  event.preventDefault();
-  const server = $('join-server').value.trim().replace(/\/$/, '');
-  const key = $('join-key').value.trim();
-  if (!/^https?:\/\/[A-Za-z0-9.[\]:-]+$/.test(server)) {
-    setStatus($('join-state'), 'The server address looks like http://100.x.y.z', 'error');
-    return;
-  }
-  if (!/^tskey-[A-Za-z0-9-]{10,200}$/.test(key)) {
-    setStatus($('join-state'), 'A Tailscale auth key starts with tskey-', 'error');
-    return;
-  }
-  const json = JSON.stringify({ s: server, k: key, n: document.title });
-  const base64url = btoa(unescape(encodeURIComponent(json))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  $('join-output').textContent = `RBX1-${base64url}`;
-  $('join-output').hidden = false;
-  $('join-copy').hidden = false;
-  setStatus($('join-state'), 'Share this code with your players (privately).', 'good');
-});
-
-$('join-copy').addEventListener('click', async () => {
+async function refresh() {
   try {
-    await navigator.clipboard.writeText($('join-output').textContent);
-    setStatus($('join-state'), 'Copied.', 'good');
+    const response = await fetch('/api/places', { headers: authHeaders(), cache: 'no-store' });
+    const data = await response.json();
+    places = data.places || [];
+    runner = data.runner || { running: false };
+    if (!$('join-server').value && data.server && data.server.tailscaleUrl) $('join-server').value = data.server.tailscaleUrl;
+    renderGames();
+    if (openId !== null) renderDrawer(false);
+    renderServerDot();
   } catch (error) {
-    setStatus($('join-state'), 'Select the code and copy it.', 'error');
-  }
-});
-
-// --- missing assets ------------------------------------------------------------------------
-
-let missing = [];
-let pendingAsset = null;
-
-async function loadMissing() {
-  try {
-    missing = (await (await fetch('/api/assets/missing', { headers: authHeaders(), cache: 'no-store' })).json()).assets || [];
-    renderMissing();
-  } catch (error) {
-    $('missing-state').textContent = 'Could not load the list.';
+    $('games-sub').textContent = "Can't reach the web server.";
   }
 }
 
-function renderMissing() {
-  const filter = $('missing-filter').value;
-  const known = ['Audio', 'Image', 'Animation'];
-  const shown = missing.filter((asset) => !filter || (filter === 'other' ? !known.includes(asset.type) : asset.type === filter));
-  const rows = $('missing-rows');
-  rows.textContent = '';
-  const open = missing.filter((asset) => !asset.replaced).length;
-  $('missing-state').textContent = `${open} missing, ${missing.length - open} replaced${missing.some((asset) => !asset.type) ? ' · looking up names…' : ''}`;
-  if (shown.length === 0) {
-    const row = el('tr');
-    const cell = el('td', 'who', 'Nothing here.');
-    cell.colSpan = 5;
-    row.append(cell);
-    rows.append(row);
-    return;
-  }
-  for (const asset of shown) {
-    const row = el('tr');
-    row.append(el('td', '', asset.type || '…'));
-    const name = el('td');
-    name.append(document.createTextNode(asset.name || '(unknown)'));
-    if (asset.creator) name.append(el('div', 'hint', `by ${asset.creator}`));
-    row.append(name, el('td', 'who', asset.id), el('td', 'who', asset.reason));
-    const actions = el('td', 'actions');
-    if (asset.replaced) {
-      actions.append(el('span', 'ok', `Replaced (${asset.replacement})`));
-      actions.append(button('Remove', 'ghost', () => act(async () => {
-        await change('DELETE', `/api/assets/${asset.id}/replacement`);
-        await loadMissing();
-      }, `Removing the replacement for ${asset.name || asset.id}…`)));
-    } else {
-      actions.append(button('Upload replacement', 'ghost', () => {
-        pendingAsset = asset;
-        $('missing-file').value = '';
-        $('missing-file').click();
-      }));
-    }
-    row.append(actions);
-    rows.append(row);
-  }
-}
-
-$('missing-filter').addEventListener('change', renderMissing);
-$('missing-file').addEventListener('change', () => {
-  const file = $('missing-file').files[0];
-  const asset = pendingAsset;
-  if (!file || !asset) return;
-  if (file.size > 20 * 1024 * 1024) {
-    setStatus($('list-state'), 'Replacements can be up to 20 MB.', 'error');
-    return;
-  }
-  act(async () => {
-    await uploadFile(`/api/assets/${asset.id}/replacement`, file);
-    await loadMissing();
-  }, `Uploading a replacement for ${asset.name || asset.id}…`);
-});
-
-// --- Studio accounts -----------------------------------------------------------------------
-
-async function loadAccounts() {
-  const rows = $('account-rows');
-  if (!storedKey() && !storedToken()) {
-    $('accounts-state').textContent = 'Enter the host key to see them.';
-    rows.textContent = '';
-    return;
-  }
-  try {
-    const response = await fetch('/api/studio/accounts', { headers: authHeaders(), cache: 'no-store' });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
-    renderAccounts(result.accounts);
-  } catch (error) {
-    $('accounts-state').textContent = error.message;
-  }
-}
-
-function renderAccounts(list) {
-  const rows = $('account-rows');
-  rows.textContent = '';
-  $('accounts-state').textContent = `${list.length} account${list.length === 1 ? '' : 's'}`;
-  if (list.length === 0) {
-    const row = el('tr');
-    const cell = el('td', 'who', 'Nobody has logged in to Studio yet.');
-    cell.colSpan = 5;
-    row.append(cell);
-    rows.append(row);
-    return;
-  }
-  for (const account of list) {
-    const row = el('tr');
-    row.append(el('td', '', account.name), el('td', 'who', account.userId), el('td', 'who', account.lastLoginAt ? when(account.lastLoginAt) : 'never'));
-    const adminCell = el('td');
-    const admin = el('input');
-    admin.type = 'checkbox';
-    admin.checked = account.admin;
-    admin.addEventListener('change', () => act(async () => {
-      await change('POST', `/api/studio/accounts/${encodeURIComponent(account.name)}`, JSON.stringify({ admin: admin.checked }));
-      await loadAccounts();
-    }, admin.checked ? `Making ${account.name} an admin…` : `${account.name} is no longer an admin…`));
-    adminCell.append(admin);
-    const actions = el('td', 'actions');
-    actions.append(button('Delete', 'danger', () => {
-      if (!confirm(`Delete the Studio account ${account.name}?
-
-They are logged out. Logging in with that name again makes a new account with whatever password is typed (how a forgotten password is reset). Whoever logs in with that name next also gets the games it owns, so only delete it for its owner.`)) return;
-      act(async () => {
-        await change('DELETE', `/api/studio/accounts/${encodeURIComponent(account.name)}`);
-        await loadAccounts();
-      }, `Deleting ${account.name}…`);
-    }));
-    row.append(adminCell, actions);
-    rows.append(row);
-  }
-}
-
-$('key-form').addEventListener('submit', () => setTimeout(loadAccounts, 0));
-
-// --- Announcements -------------------------------------------------------------------------
+// --- announcements --------------------------------------------------------------------------
 
 async function loadNews() {
   try {
@@ -673,43 +604,38 @@ async function loadNews() {
     if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
     renderNews(result.announcements || []);
   } catch (error) {
-    $('news-state').textContent = error.message;
+    $('news-list').replaceChildren(h('p', { class: 'empty', text: error.message }));
   }
 }
 
 function renderNews(list) {
-  const box = $('news-list');
-  box.textContent = '';
-  $('news-state').textContent = list.length ? `${list.length} showing` : 'None showing';
-  for (const item of list) {
-    const row = el('div', `news-item${item.level === 'important' ? ' important' : ''}`);
-    const body = el('div', 'body');
-    if (item.title) body.append(el('div', 'head', item.title));
-    body.append(el('div', 'text', item.text));
-    const meta = [`Posted ${when(item.postedAt)}`, item.expiresAt ? `until ${when(item.expiresAt)}` : 'until removed'];
-    if (item.level === 'important') meta.push('important');
-    body.append(el('div', 'meta', meta.join(' · ')));
-    row.append(body, button('Remove', 'danger', async () => {
-      if (!confirm('Remove this announcement from every launcher?')) return;
-      const status = $('news-status');
-      try {
-        setStatus(status, 'Removing…');
-        await change('DELETE', `/api/announcements/${encodeURIComponent(item.id)}`);
-        setStatus(status, 'Removed.', 'good');
-        await loadNews();
-      } catch (error) {
-        setStatus(status, error.message, 'error');
-      }
-    }));
-    box.append(row);
+  $('nav-news').textContent = list.length || '';
+  if (!list.length) {
+    $('news-list').replaceChildren(h('p', { class: 'empty', text: 'Nothing posted right now.' }));
+    return;
   }
+  $('news-list').replaceChildren(...list.map((item) => h('div', { class: `card news-item${item.level === 'important' ? ' important' : ''}` },
+    h('div', { class: 'body' },
+      item.title && h('div', { class: 'head', text: item.title }),
+      h('div', { class: 'text', text: item.text }),
+      h('div', { class: 'meta' }, h('span', { text: `Posted ${when(item.postedAt)}` }),
+        h('span', { text: item.expiresAt ? `Until ${when(item.expiresAt)}` : 'Until removed' }),
+        item.level === 'important' && h('span', { class: 'pop', text: 'Pops up' }))),
+    btn('Remove', 'small', async () => {
+      if (!await ask('Remove this announcement?', 'It disappears from every launcher.', 'Remove', true)) return;
+      try {
+        await change('DELETE', `/api/announcements/${encodeURIComponent(item.id)}`);
+        toast('Removed', 'good');
+      } catch (error) {
+        toast(error.message, 'error');
+      }
+      loadNews();
+    }))));
 }
 
 $('news-form').addEventListener('submit', async (event) => {
   event.preventDefault();
-  const status = $('news-status');
   try {
-    setStatus(status, 'Posting…');
     await change('POST', '/api/announcements', JSON.stringify({
       title: $('news-title').value,
       text: $('news-text').value,
@@ -719,153 +645,268 @@ $('news-form').addEventListener('submit', async (event) => {
     $('news-title').value = '';
     $('news-text').value = '';
     $('news-important').checked = false;
-    setStatus(status, 'Posted. Launchers show it within a few minutes.', 'good');
-    await loadNews();
+    toast('Posted. Launchers pick it up within a few minutes.', 'good');
+    loadNews();
   } catch (error) {
-    setStatus(status, error.message, 'error');
+    toast(error.message, 'error');
   }
 });
 
-// --- Server: updates, restarting it, its logs ------------------------------------------------
+// --- Studio accounts ---------------------------------------------------------------------------
 
-let serverInfo = null;
+async function loadAccounts() {
+  try {
+    const response = await fetch('/api/studio/accounts', { headers: authHeaders(), cache: 'no-store' });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+    renderAccounts(result.accounts || []);
+  } catch (error) {
+    $('account-rows').replaceChildren(h('tr', {}, h('td', { class: 'empty-cell', colSpan: 5, text: error.message })));
+  }
+}
 
-async function loadServerPanel() {
+function renderAccounts(list) {
+  if (!list.length) {
+    $('account-rows').replaceChildren(h('tr', {}, h('td', { class: 'empty-cell', colSpan: 5, text: 'Nobody has logged in to Studio yet.' })));
+    return;
+  }
+  $('account-rows').replaceChildren(...list.map((account) => h('tr', {},
+    h('td', {}, h('b', { text: account.name })),
+    h('td', { class: 'num sub hide-sm', text: account.userId }),
+    h('td', { class: 'sub', text: account.lastLoginAt ? when(account.lastLoginAt) : 'Never' }),
+    h('td', {}, h('input', {
+      type: 'checkbox', class: 'switch', checked: account.admin, 'aria-label': `${account.name} is an admin`,
+      onchange: (event) => {
+        const on = event.target.checked;
+        act(async () => {
+          await change('POST', `/api/studio/accounts/${encodeURIComponent(account.name)}`, JSON.stringify({ admin: on }));
+          await loadAccounts();
+        }, on ? `Making ${account.name} an admin` : `Removing ${account.name} as admin`, on ? `${account.name} is an admin` : `${account.name} is no longer an admin`);
+      },
+    })),
+    h('td', { class: 'actions' }, btn('Delete', 'small danger', async () => {
+      if (!await ask(`Delete ${account.name}?`, 'They are logged out. The next login with this name makes a new account with a new password, and it gets the games this one owns, so only do this for its owner.', 'Delete', true)) return;
+      act(async () => {
+        await change('DELETE', `/api/studio/accounts/${encodeURIComponent(account.name)}`);
+        await loadAccounts();
+      }, `Deleting ${account.name}`, `${account.name} deleted`);
+    })))));
+}
+
+// --- missing assets ---------------------------------------------------------------------------
+
+const KNOWN_TYPES = ['Audio', 'Image', 'Animation'];
+async function loadMissing() {
+  try {
+    const response = await fetch('/api/assets/missing', { headers: authHeaders(), cache: 'no-store' });
+    missing = (await response.json()).assets || [];
+    renderMissing();
+  } catch (error) {
+    $('asset-rows').replaceChildren(h('tr', {}, h('td', { class: 'empty-cell', colSpan: 5, text: "Couldn't load the list." })));
+  }
+}
+
+function renderMissing() {
+  const matches = (asset, filter) => !filter || (filter === 'other' ? !KNOWN_TYPES.includes(asset.type) : asset.type === filter);
+  const open = missing.filter((asset) => !asset.replaced);
+  $('nav-assets').textContent = open.length || '';
+  for (const button of document.querySelectorAll('#assets-filter button')) {
+    const count = open.filter((asset) => matches(asset, button.dataset.filter)).length;
+    button.classList.toggle('active', button.dataset.filter === assetFilter);
+    let badge = button.querySelector('.n');
+    if (!badge) { badge = h('span', { class: 'n' }); button.append(badge); }
+    badge.textContent = count || '';
+  }
+  const shown = missing.filter((asset) => matches(asset, assetFilter));
+  if (!shown.length) {
+    $('asset-rows').replaceChildren(h('tr', {}, h('td', { class: 'empty-cell', colSpan: 5, text: 'Nothing missing here.' })));
+    return;
+  }
+  $('asset-rows').replaceChildren(...shown.map((asset) => h('tr', {},
+    h('td', {}, h('div', { class: 'game-name', text: asset.name || 'Unknown' }), asset.creator && h('div', { class: 'sub', text: asset.creator })),
+    h('td', { class: 'hide-sm', text: asset.type || '…' }),
+    h('td', { class: 'num sub mono hide-sm', text: asset.id }),
+    h('td', { class: 'sub hide-sm', text: asset.reason }),
+    h('td', { class: 'actions' }, asset.replaced
+      ? [h('span', { class: 'replaced', text: 'Replaced', title: asset.replacement }), btn('Undo', 'small', () => act(async () => {
+        await change('DELETE', `/api/assets/${asset.id}/replacement`);
+        await loadMissing();
+      }, 'Removing the replacement', 'Replacement removed'))]
+      : btn('Replace', 'small', () => { pendingAsset = asset; $('missing-file').value = ''; $('missing-file').click(); })))));
+}
+
+for (const button of document.querySelectorAll('#assets-filter button')) {
+  button.addEventListener('click', () => { assetFilter = button.dataset.filter; renderMissing(); });
+}
+$('missing-file').addEventListener('change', () => {
+  const file = $('missing-file').files[0];
+  const asset = pendingAsset;
+  if (!file || !asset) return;
+  if (file.size > 20 * 1024 * 1024) { toast('Replacements can be up to 20 MB.', 'error'); return; }
+  act(async () => {
+    await uploadFile(`/api/assets/${asset.id}/replacement`, file);
+    await loadMissing();
+  }, `Uploading ${file.name}`, `${asset.name || asset.id} replaced`);
+});
+
+// --- server ------------------------------------------------------------------------------------
+
+async function loadServer() {
   try {
     const response = await fetch('/api/server/status', { cache: 'no-store' });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     serverInfo = await response.json();
-    renderServerPanel();
+    renderServer();
   } catch (error) {
-    $('srv-state').textContent = `Could not read the server's state: ${error.message}`;
+    $('srv-sub').textContent = `Couldn't read the server's state: ${error.message}`;
   }
 }
 
-function renderServerPanel() {
-  const info = serverInfo;
-  const installed = info.installed;
-  const runner = info.runner || {};
-  const checks = runner.updates || null;
-  $('srv-state').textContent = runner.running ? '' : 'The always-on server is not running: updates and restarts wait for it.';
-  $('srv-installed').textContent = installed.publicLabel
-    ? `${installed.publicLabel}${installed.privateLabel ? `; private files ${installed.privateLabel}` : ''}`
-    : `Not recorded (set up before the updater)${installed.privateLabel ? `; private files ${installed.privateLabel}` : ''}`;
+function renderServerDot() {
+  const dot = $('nav-server');
+  const waiting = serverInfo && serverInfo.staged.some((item) => !item.failed);
+  const failed = serverInfo && serverInfo.staged.some((item) => item.failed);
+  dot.className = `dot ${!runner.running || failed ? 'bad' : waiting ? 'warn' : 'good'}`;
+  dot.title = !runner.running ? 'Not running' : failed ? 'An update failed' : waiting ? 'Update ready' : 'Running';
+}
 
-  const box = $('srv-updates');
-  box.textContent = '';
+function renderServer() {
+  const info = serverInfo;
+  const installed = info.installed || {};
+  const status = info.runner || {};
+  const checks = status.updates || null;
+  const live = places.reduce((sum, place) => sum + (place.servers || []).filter((server) => server.state === 'running').length, 0);
+  $('srv-sub').textContent = status.running ? '' : "The always-on server isn't running. Updates and restarts wait for it.";
+
+  const stat = (label, value, note, kind) => h('div', { class: 'card stat' },
+    h('div', { class: 'label', text: label }), h('div', { class: `value ${kind || ''}`, text: value }), note && h('div', { class: 'note', text: note }));
+  const last = info.lastResult;
+  $('srv-stats').replaceChildren(
+    stat('Status', status.running ? 'Running' : 'Stopped', runner.idleStopMinutes ? `Empty servers stop after ${runner.idleStopMinutes} min` : null, status.running ? 'good' : 'bad'),
+    stat('Game servers', `${live}${runner.maxGames ? ` of ${runner.maxGames}` : ''}`, 'running now'),
+    stat('Version', installed.publicLabel || 'Not recorded', installed.privateLabel ? `Private files ${installed.privateLabel}` : null),
+    stat('Last update', last ? (last.ok ? 'Installed' : 'Failed') : 'None yet', last ? `${when(last.at)}${last.ok ? '' : `: ${last.error}`}` : null, last && !last.ok ? 'bad' : ''));
+
   const waiting = info.staged.filter((item) => !item.failed);
   const failed = info.staged.filter((item) => item.failed);
-  let line;
-  if (waiting.length > 0) {
-    line = `Ready to install: ${waiting.map((item) => `${item.kind === 'private' ? 'private files' : 'server files'} ${item.label}`).join(', ')}`
-      + (checks && checks.autoUpdate === false ? '' : ' (installs once nobody has played for 3 minutes)');
+  const label = (item) => `${item.kind === 'private' ? 'Private files' : 'Server files'} ${item.label}`;
+  const box = $('srv-updates');
+  box.replaceChildren();
+  if (waiting.length) {
+    box.append(h('b', { text: `Ready to install: ${waiting.map(label).join(', ')}` }));
+    if (!checks || checks.autoUpdate !== false) box.append(h('small', { text: 'Installs by itself once nobody has played for 3 minutes.' }));
+    for (const item of waiting) if (item.notes) box.append(h('small', { text: item.notes }));
   } else if (checks && checks.checking) {
-    line = 'Checking…';
+    box.append(h('b', { text: 'Checking for updates' }));
   } else if (checks && checks.lastError) {
-    line = `Could not check: ${checks.lastError}`;
-  } else if (checks && checks.lastCheck) {
-    line = `Up to date (checked ${when(checks.lastCheck)})`;
+    box.append(h('b', { class: 'bad', text: "Couldn't check for updates" }), h('small', { text: checks.lastError }));
   } else {
-    line = 'Not checked yet (it checks a few minutes after starting, then every few hours)';
-  }
-  box.append(el('div', checks && checks.lastError && waiting.length === 0 ? 'bad' : '', line));
-  for (const item of waiting) {
-    if (item.notes) box.append(el('div', 'hint', item.notes));
+    box.append(h('b', { text: 'Up to date' }), h('small', { text: checks && checks.lastCheck ? `Checked ${when(checks.lastCheck)}` : 'Not checked yet' }));
   }
   for (const item of failed) {
-    box.append(el('div', 'bad', `${item.label} did not work: ${item.failed}`));
-    box.append(button('Discard it', 'danger', async () => {
-      try {
-        await change('POST', `/api/server/update/discard?build=${item.build}`);
-        await loadServerPanel();
-      } catch (error) {
-        setStatus($('srv-status'), error.message, 'error');
-      }
-    }));
+    box.append(h('div', { class: 'bad', text: `${label(item)} didn't work: ${item.failed}` }),
+      h('div', {}, btn('Discard it', 'small danger', async () => {
+        try {
+          await change('POST', `/api/server/update/discard?build=${item.build}`);
+          loadServer();
+        } catch (error) {
+          toast(error.message, 'error');
+        }
+      })));
   }
   $('srv-install').hidden = waiting.length === 0;
-
-  const last = info.lastResult;
-  const lastBox = $('srv-last');
-  lastBox.textContent = '';
-  if (!last) {
-    lastBox.textContent = 'None yet';
-  } else {
-    lastBox.append(el('div', last.ok ? 'good' : 'bad', `${last.ok ? 'Installed' : 'Failed'}: ${last.updates || 'update'}`));
-    lastBox.append(el('div', 'hint', `${when(last.at)}${last.ok ? '' : ` · ${last.error}${last.restored === false ? ' · the server did not come back by itself' : ''}`}`));
-  }
+  renderServerDot();
 }
 
-async function serverAction(url, waitingText, doneText) {
-  const status = $('srv-status');
+async function serverAction(url, message, done) {
   try {
-    setStatus(status, waitingText);
-    await change('POST', url);
-    setStatus(status, doneText, 'good');
-    setTimeout(loadServerPanel, 4000);
-    setTimeout(loadServerPanel, 15000);
+    const note = toast(message, 'busy', true);
+    await change('POST', url).finally(() => note.close());
+    toast(done, 'good');
+    setTimeout(loadServer, 4000);
+    setTimeout(loadServer, 15000);
   } catch (error) {
-    setStatus(status, error.message, 'error');
+    toast(error.message, 'error');
   }
 }
 
-$('srv-check').addEventListener('click', () => serverAction('/api/server/update/check', 'Asking the server to check…', 'Checking: the result shows here within a few seconds.'));
-
-$('srv-install').addEventListener('click', () => {
-  if (!confirm('Install the update now?\n\nPlayers in games are saved and sent a message; the server is back in about a minute. If the new version does not start, the old one is put back.')) return;
-  serverAction('/api/server/update/install', 'Asking the server to install…', 'Installing: the server is back in about a minute (refresh this page then).');
+$('srv-check').addEventListener('click', () => serverAction('/api/server/update/check', 'Asking the server to check', 'Checking. The result shows here in a few seconds.'));
+$('srv-install').addEventListener('click', async () => {
+  if (!await ask('Install the update now?', 'Players are saved and get a message. The server is back in about a minute, and if the new version fails the old one comes back.', 'Install')) return;
+  serverAction('/api/server/update/install', 'Asking the server to install', 'Installing. Reload this page in a minute.');
 });
-
-$('srv-restart').addEventListener('click', () => {
-  if (!confirm('Restart the whole server?\n\nPlayers in games are saved and sent a message; the web server and every game start again within about a minute.')) return;
-  serverAction('/api/server/restart', 'Asking the server to restart…', 'Restarting: back in about a minute (refresh this page then).');
+$('srv-restart').addEventListener('click', async () => {
+  if (!await ask('Restart the whole server?', 'Players are saved and get a message. Everything is back in about a minute.', 'Restart', true)) return;
+  serverAction('/api/server/restart', 'Asking the server to restart', 'Restarting. Reload this page in a minute.');
 });
-
-$('srv-upload-button').addEventListener('click', () => {
-  if (needKey()) $('srv-upload').click();
-});
-
+$('srv-upload-button').addEventListener('click', () => $('srv-upload').click());
 $('srv-upload').addEventListener('change', async () => {
   const file = $('srv-upload').files[0];
   $('srv-upload').value = '';
   if (!file) return;
-  const status = $('srv-status');
   const progress = $('srv-progress');
+  const note = toast(`Uploading ${file.name}`, 'busy', true);
   try {
     progress.hidden = false;
     progress.value = 0;
-    setStatus(status, `Uploading ${file.name}…`);
     const result = await uploadFile('/api/server/update/upload', file, (percent) => { progress.value = percent; });
-    setStatus(status, `Checked and ready: ${result.staged.kind === 'private' ? 'private files' : 'server files'} ${result.staged.label} (${result.staged.files} files). Press Install now, or it installs once nobody is playing.`, 'good');
-    await loadServerPanel();
+    toast(`Ready: ${result.staged.kind === 'private' ? 'private files' : 'server files'} ${result.staged.label}, ${result.staged.files} files`, 'good');
+    loadServer();
   } catch (error) {
-    setStatus(status, error.message, 'error');
+    toast(error.message, 'error');
   } finally {
+    note.close();
     progress.hidden = true;
   }
 });
 
-$('srv-log-show').addEventListener('click', async () => {
-  if (!needKey()) return;
+async function loadLog() {
+  for (const button of document.querySelectorAll('#log-tabs button')) button.classList.toggle('active', button.dataset.log === logName);
   const out = $('srv-log');
   try {
-    const response = await fetch(`/api/server/logs?name=${encodeURIComponent($('srv-log-name').value)}&lines=300`, { headers: authHeaders(), cache: 'no-store' });
+    const response = await fetch(`/api/server/logs?name=${encodeURIComponent(logName)}&lines=300`, { headers: authHeaders(), cache: 'no-store' });
     const text = await response.text();
     if (!response.ok) {
       let message = text;
       try { message = JSON.parse(text).error; } catch (error) { /* plain text */ }
       throw new Error(message || `HTTP ${response.status}`);
     }
-    out.textContent = text;
-    out.hidden = false;
+    out.textContent = text || '(empty)';
     out.scrollTop = out.scrollHeight;
   } catch (error) {
-    setStatus($('srv-status'), error.message, 'error');
+    out.textContent = error.message;
+  }
+}
+for (const button of document.querySelectorAll('#log-tabs button')) {
+  button.addEventListener('click', () => { logName = button.dataset.log; loadLog(); });
+}
+$('log-reload').addEventListener('click', loadLog);
+
+// --- join codes ---------------------------------------------------------------------------------
+// "RBX1-" + base64url of {s: server address, k: Tailscale auth key, n: name},
+// made here in the browser and never sent to the server.
+
+$('join-form').addEventListener('submit', (event) => {
+  event.preventDefault();
+  const server = $('join-server').value.trim().replace(/\/$/, '');
+  const key = $('join-key').value.trim();
+  if (!/^https?:\/\/[A-Za-z0-9.[\]:-]+$/.test(server)) { toast('The server address looks like http://100.x.y.z', 'error'); return; }
+  if (!/^tskey-[A-Za-z0-9-]{10,200}$/.test(key)) { toast('A Tailscale auth key starts with tskey-', 'error'); return; }
+  const json = JSON.stringify({ s: server, k: key, n: JOIN_CODE_NAME });
+  const base64url = btoa(unescape(encodeURIComponent(json))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  $('join-output').textContent = `RBX1-${base64url}`;
+  $('join-result').hidden = false;
+});
+$('join-copy').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText($('join-output').textContent);
+    toast('Copied', 'good');
+  } catch (error) {
+    toast('Select the code and copy it.', 'error');
   }
 });
 
-// --- lock -------------------------------------------------------------------------------
-// Nothing shows until the server accepts the host key or a manage token.
+// --- lock ---------------------------------------------------------------------------------------
 
 let unlocked = false;
 let started = false;
@@ -873,8 +914,8 @@ let started = false;
 function lock(message) {
   unlocked = false;
   document.body.classList.add('locked');
-  $('server-line').textContent = 'Locked: for admins only';
   $('key-state').textContent = message || '';
+  if (!message) $('host-key').focus();
 }
 
 async function unlock() {
@@ -883,32 +924,52 @@ async function unlock() {
   try {
     response = await fetch('/api/manage/whoami', { headers: authHeaders(), cache: 'no-store' });
   } catch (error) {
-    return lock('Cannot reach the web server.');
+    return lock("Can't reach the web server.");
   }
   if (!response.ok) {
     const hadToken = Boolean(storedToken());
-    storeToken('');
-    if (storedKey()) return lock('The server did not accept this key.');
-    return lock(hadToken ? 'That link has run out: open Manage games from the launcher again.' : '');
+    store('manageToken', '');
+    if (storedKey()) return lock("That key wasn't accepted.");
+    return lock(hadToken ? 'That link has expired. Open Manage games from the launcher again.' : '');
   }
   const who = await response.json().catch(() => ({}));
   unlocked = true;
   document.body.classList.remove('locked');
-  $('key-state').textContent = who.via === 'account' ? `Signed in as ${who.name} (admin).` : 'Host key accepted.';
+  $('who').textContent = who.via === 'account' ? who.name : 'Host key';
   if (started) return refresh();
   started = true;
-  refresh();
+  await refresh();
+  route();
+  loadServer();
   loadNews();
-  loadServerPanel();
   loadMissing();
-  loadAccounts();
-  setInterval(() => { if (!busy && unlocked) loadServerPanel(); }, 15000);
-  setInterval(() => { if (!busy && unlocked) loadAccounts(); }, 15000);
-  setInterval(() => { if (!busy && unlocked) refresh(); }, 5000);
-  setInterval(() => { if (!busy && unlocked) loadMissing(); }, 15000);
+  setInterval(() => { if (!busy && unlocked && !document.hidden) refresh(); }, 5000);
+  setInterval(() => {
+    if (busy || !unlocked || document.hidden) return;
+    loadServer();
+    if (view === 'accounts') loadAccounts();
+    if (view === 'assets') loadMissing();
+    if (view === 'announcements') loadNews();
+  }, 15000);
   return undefined;
 }
 
+$('brand-host').textContent = location.host;
+$('lock-host').textContent = location.host;
+$('host-key').value = storedKey();
+$('key-form').addEventListener('submit', (event) => {
+  event.preventDefault();
+  store('hostKey', $('host-key').value.trim());
+  unlock();
+});
+$('key-forget').addEventListener('click', () => {
+  store('hostKey', '');
+  store('manageToken', '');
+  $('host-key').value = '';
+  lock('');
+});
+window.addEventListener('hashchange', () => {
+  if (takeTokenFromAddress()) unlock();
+  else if (unlocked) route();
+});
 unlock();
-// The same page opened again from the launcher, with a new token.
-window.addEventListener('hashchange', () => { if (takeTokenFromAddress()) unlock(); });
