@@ -36,6 +36,12 @@ function maxPlayersOf(place) {
   const n = Math.round(Number(place && place.maxPlayers));
   return n >= 1 && n <= MAX_MAX_PLAYERS ? n : DEFAULT_MAX_PLAYERS;
 }
+
+// Avatars in the game's servers (/manage): "R6" (the default) or "R15"
+// (lib/hosting.js gives R15 games an R15 StarterCharacter).
+function avatarTypeOf(place) {
+  return place && place.avatarType === 'R15' ? 'R15' : 'R6';
+}
 const KEEP_OLD_VERSIONS = 3;
 
 function now() {
@@ -148,6 +154,7 @@ function describe(placeId, place) {
     description: place.description || '',
     enabled: Boolean(place.enabled),
     keepRunning: place.keepRunning === true,
+    avatarType: avatarTypeOf(place),
     maxPlayers: maxPlayersOf(place),
     file: place.file,
     fileSize: size,
@@ -285,6 +292,7 @@ function update(placeId, fields) {
   if (fields.description !== undefined) place.description = cleanText(fields.description, 1000);
   if (fields.enabled !== undefined) place.enabled = Boolean(fields.enabled);
   if (fields.keepRunning !== undefined && fields.keepRunning !== null) place.keepRunning = Boolean(fields.keepRunning);
+  if (fields.avatarType === 'R6' || fields.avatarType === 'R15') place.avatarType = fields.avatarType;
   if (fields.maxPlayers !== undefined && fields.maxPlayers !== null && fields.maxPlayers !== '') {
     const n = Math.round(Number(fields.maxPlayers));
     if (n >= 1 && n <= MAX_MAX_PLAYERS) place.maxPlayers = n;
@@ -420,7 +428,7 @@ function writeRunnerStatus(status) {
 
 module.exports = {
   load, exists, ensure, list, get, create, replaceFile, update, setAccess, remove, filePath, placeKey,
-  creatorOf, setLookedUpCreator, maxPlayersOf,
+  creatorOf, setLookedUpCreator, maxPlayersOf, avatarTypeOf,
   requestRestart, requestStart, requestStopServer, requestCloudEdit, requestServer, readRequests, runnerStatus, writeRunnerStatus,
   LIBRARY, CONTROL, STATUS,
 };

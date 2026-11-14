@@ -1134,6 +1134,7 @@ async function placesApi(ctx, match) {
     const place = places.update(placeId, {
       name: body.name, description: body.description, enabled: body.enabled, universeId: body.universeId,
       teamCreate: body.teamCreate, creator: body.creator, keepRunning: body.keepRunning, maxPlayers: body.maxPlayers,
+      avatarType: body.avatarType,
     });
     return sendJson(ctx, 200, { place });
   }

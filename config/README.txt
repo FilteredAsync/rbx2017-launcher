@@ -160,7 +160,10 @@ use an override file (section 3) if you have a replacement.
 2. config\assets.json
 ---------------------
   baseUrl                   Address the client and RCC use for this web server.
-  avatarType                "auto" (use the avatar's R6/R15 setting), "R6" or "R15".
+  avatarType                "auto" (use the avatar's R6/R15 setting), "R6" or "R15":
+                            what avatar-fetch answers. Game servers make R6
+                            characters unless the game is set to R15 on /manage
+                            (Edit > Avatars).
   defaultFaceId             Classic face used for a dynamic head that has no
                             other mapping. 144075659 = "Smile".
   dynamicHeads              Dynamic head asset ID -> classic head and/or face:

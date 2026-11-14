@@ -230,6 +230,47 @@ function startCall(placeId, port, domain, scriptTimeout, cloudEdit = false) {
 // friend requests to friends.
 const FRIEND_SERVICE = 'pcall(function() game:GetService("FriendService") end)\r\n';
 
+// The admins' server console (lib/adminconsole.js); nothing when this PC has
+// no accounts or library.
+function adminConsoleCall(placeId) {
+  try {
+    return require('./adminconsole').script(placeId);
+  } catch (error) {
+    return '';
+  }
+}
+
+// R15 games (/manage, "Avatars"). The 2017 RCC makes R15 characters only
+// through its own avatar loading, which never runs here (see appearanceHook),
+// so everyone came out R6. A game set to R15 gets the engine's own R15 rig
+// (content/fonts/characterR15_3.rbxm, its joints built from its attachments,
+// the classic face) as StarterPlayer.StarterCharacter, unless the place has
+// a StarterCharacter of its own. The engine adds the R15 Animate script.
+const R15_STARTER = `pcall(function()
+local starter = game:GetService("StarterPlayer")
+if starter:FindFirstChild("StarterCharacter") then return end
+local rig = game:GetObjects("rbxasset://fonts/characterR15_3.rbxm")[1]
+rig.Humanoid:BuildRigFromAttachments()
+local head = rig:FindFirstChild("Head")
+if head and not head:FindFirstChild("face") then
+	local face = Instance.new("Decal")
+	face.Name = "face"
+	face.Texture = "rbxasset://textures/face.png"
+	face.Parent = head
+end
+rig.Name = "StarterCharacter"
+rig.Parent = starter
+print("[host] R15 characters")
+end)\r\n`;
+
+function avatarTypeCall(placeId) {
+  try {
+    const places = require('./places');
+    if (places.exists() && places.avatarTypeOf(places.load().places[String(placeId)]) === 'R15') return R15_STARTER;
+  } catch (error) { /* no place library on this PC */ }
+  return '';
+}
+
 // GamePassService:PlayerHasPass asks this address (answered by
 // lib/marketplace.js: game passes count as owned). gameserver.lua never sets
 // it, so RCC had none and every PlayerHasPass failed ("LuaWebService error").
@@ -311,7 +352,7 @@ async function startGameJob(placeId, port, domain, scriptTimeout, log, soapPort 
   // before and after the place loads, in case the place file has its own) is not.
   const limit = !cloudEdit && Number(maxPlayers) >= 1
     ? `pcall(function() game:GetService("Players").MaxPlayersInternal = ${Math.round(Number(maxPlayers))} end)\r\n` : '';
-  const script = `${source}\r\n${creatorCall(placeId)}${cloudEdit ? '' : FRIEND_SERVICE + gamePassCall(domain)}${limit}${startCall(placeId, port, domain, scriptTimeout, Boolean(cloudEdit))}\r\n${limit}${cloudEdit ? '' : `${appearanceHook()}\r\n${PLAYERGUI_HOOK}`}\r\n`;
+  const script = `${source}\r\n${creatorCall(placeId)}${cloudEdit ? '' : FRIEND_SERVICE + gamePassCall(domain)}${limit}${startCall(placeId, port, domain, scriptTimeout, Boolean(cloudEdit))}\r\n${limit}${cloudEdit ? '' : `${avatarTypeCall(placeId)}${appearanceHook()}\r\n${PLAYERGUI_HOOK}\r\n${adminConsoleCall(placeId)}`}\r\n`;
   soap('Execute', executeEnvelope('GameServer', script), 0, soapPort).then((result) => {
     if (result.status < 200 || result.status >= 300) log(`RCC answered the game job with HTTP ${result.status}`);
   }, (error) => log(`game job connection ended: ${error.code || error.message}`));

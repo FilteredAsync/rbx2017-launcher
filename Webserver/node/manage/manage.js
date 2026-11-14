@@ -239,7 +239,7 @@ function placeCard(place) {
     if (place.editors.length) who.push(`editors: ${place.editors.map((e) => e.name).join(', ')}`);
     info.append(el('div', 'pid', `Studio: ${who.join(' · ')}`));
   }
-  info.append(el('div', 'pid', `Up to ${place.maxPlayers} players per server · ${place.keepRunning ? 'one server always running' : 'servers start when someone joins'}`));
+  info.append(el('div', 'pid', `Up to ${place.maxPlayers} players per server · ${place.avatarType === 'R15' ? 'R15' : 'R6'} avatars · ${place.keepRunning ? 'one server always running' : 'servers start when someone joins'}`));
   const pill = statusPill(place);
   pill.dataset.pill = id;
   info.append(pill, serverList(place), privateList(place));
@@ -339,17 +339,26 @@ function editForm(place) {
   maxPlayers.value = String(place.maxPlayers);
   const maxPlayersLabel = el('label', '', 'Players per server (more players get another server)');
   maxPlayersLabel.append(maxPlayers);
+  const avatarType = el('select');
+  for (const [value, text] of [['R6', 'R6 (classic, 6 parts)'], ['R15', 'R15 (15 parts)']]) {
+    const option = el('option', '', text);
+    option.value = value;
+    avatarType.append(option);
+  }
+  avatarType.value = place.avatarType === 'R15' ? 'R15' : 'R6';
+  const avatarTypeLabel = el('label', '', 'Avatars (servers started after saving use it)');
+  avatarTypeLabel.append(avatarType);
   const row = el('div', 'row');
   const save = el('button', '', 'Save');
   save.type = 'submit';
   row.append(save, button('Cancel', 'ghost', () => { editing.delete(id); renderPlaces(true); }));
-  form.append(nameLabel, descriptionLabel, universeLabel, creatorLabel, ownerLabel, editorsLabel, maxPlayersLabel, keepRunningLabel, teamCreateLabel, row);
+  form.append(nameLabel, descriptionLabel, universeLabel, creatorLabel, ownerLabel, editorsLabel, maxPlayersLabel, avatarTypeLabel, keepRunningLabel, teamCreateLabel, row);
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     act(async () => {
       const fields = {
         name: name.value, description: description.value, universeId: universe.value.trim(), teamCreate: teamCreate.checked,
-        keepRunning: keepRunning.checked, maxPlayers: Number(maxPlayers.value) || undefined,
+        keepRunning: keepRunning.checked, maxPlayers: Number(maxPlayers.value) || undefined, avatarType: avatarType.value,
       };
       if (!ownedHere) fields.creator = creator.value.trim();
       await change('POST', `/api/places/${id}`, JSON.stringify(fields));
