@@ -122,7 +122,8 @@ function fontEnum(fontXml) {
 
 // --- Scripts -----------------------------------------------------------------
 
-const COMPOUND = /^(\s*)([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*(\/\/|\.\.|[-+*/%^])=\s*(.+?)\s*$/;
+// Target: a name with fields and one-level indexes (t[k].x, s[a.b][c.d].n).
+const COMPOUND = /^(\s*)([A-Za-z_]\w*(?:\.[A-Za-z_]\w*|\[[^[\]\n]+\])*)\s*(\/\/|\.\.|[-+*/%^])=\s*(.+?)\s*$/;
 
 // "x += expr -- note" -> "x = x + (expr) -- note"; null when it is not that
 // simple (string quotes, a second statement, a long comment).
@@ -432,6 +433,197 @@ function misplaced(className, parentClass) {
   return false;
 }
 
+// Newer chat. A place may carry its own copy of Roblox's chat system in the
+// Chat service; newer copies (since about 2019, recognisable by their
+// ChatLocalization) need what 2017 lacks (if-then-else expressions, utf8,
+// LocalizationService, VoiceChatService), so the game had no working chat.
+// The Chat service's own children are then set aside (renamed, scripts
+// disabled), and the 2017 server installs its own chat, as for any game
+// without a copy. Older or partial copies (e.g. only ChatSettings) stay.
+function hasNewerChat(input) {
+  const open = [];
+  for (const piece of pieces(input)) {
+    const text = piece.toString('latin1');
+    for (const match of text.matchAll(/<!\[CDATA\[[\s\S]*?\]\]>|<Item\s+class="([^"]+)"[^>]*>|<\/Item>|<string\s+name="Name">([^<]*)<\/string>/g)) {
+      if (match[0].startsWith('<![')) continue;
+      if (match[1] !== undefined) { open.push({ className: match[1], named: false }); continue; }
+      if (match[0] === '</Item>') { open.pop(); continue; }
+      const top = open[open.length - 1];
+      if (!top || top.named) continue;
+      top.named = true;
+      if (match[2] === 'ChatLocalization' && open.some((item) => item.className === 'Chat')) return true;
+    }
+  }
+  return false;
+}
+
+// A copy of Roblox's own UI scripts (TopBar, Modules.PlayerlistModule,
+// BackpackScript...) that place-saving tools took from CoreGui and put in
+// StarterGui as a ScreenGui named RobloxGui. On Roblox these never ran from
+// there; on 2017 they would run as the game's own scripts, next to the 2017
+// topbar, backpack and player list (twice of each, and the newer copies
+// fail). -> the referents of that ScreenGui and everything in it.
+function dumpedCoreGui(input) {
+  const open = [];
+  const found = new Set();
+  for (const piece of pieces(input)) {
+    const text = piece.toString('latin1');
+    for (const match of text.matchAll(/<!\[CDATA\[[\s\S]*?\]\]>|<Item\s+class="([^"]+)"([^>]*)>|<\/Item>|<string\s+name="Name">([^<]*)<\/string>/g)) {
+      if (match[0].startsWith('<![')) continue;
+      if (match[1] !== undefined) {
+        const referent = (/referent="([^"]+)"/.exec(match[2]) || [])[1];
+        const owner = open.find((item) => item.candidate);
+        if (owner && referent) owner.inside.push(referent);
+        open.push({ className: match[1], referent, named: false, candidate: false, inside: [], core: false });
+        continue;
+      }
+      if (match[0] === '</Item>') {
+        const item = open.pop();
+        if (item && item.candidate && item.core) {
+          found.add(item.referent);
+          for (const referent of item.inside) found.add(referent);
+        }
+        continue;
+      }
+      const top = open[open.length - 1];
+      if (!top || top.named) continue;
+      top.named = true;
+      const parent = open[open.length - 2];
+      if (top.className === 'ScreenGui' && match[3] === 'RobloxGui' && parent && parent.className === 'StarterGui' && top.referent) top.candidate = true;
+      if (parent && parent.candidate && ['Modules', 'TopBar', 'CoreScripts'].includes(match[3])) parent.core = true;
+    }
+  }
+  return found;
+}
+
+// Localization tables. Newer games get their text through
+// LocalizationTable:GetTranslator(locale):FormatByKey(key) (2018); the 2017
+// engine has no GetTranslator, and its clients do not even get the tables
+// (LocalizationService's contents), so games like Jailbreak stopped loading
+// their shops and menus. Each table's English text goes into a ModuleScript
+// in ReplicatedStorage (LOCALIZATION_FOLDER), which the GetTranslator
+// stand-in of lib/luacompat.js reads.
+const LOCALIZATION_FOLDER = 'LocalizationTables (2017)';
+
+function localizationTables(input) {
+  const tables = new Map(); // name -> { key: English text }
+  let present = false;
+  for (const piece of pieces(input)) {
+    const text = piece.toString('latin1');
+    if (text.includes(`<string name="Name">${LOCALIZATION_FOLDER}</string>`)) present = true;
+    for (const match of text.matchAll(/<Item\s+class="LocalizationTable"[^>]*>\s*<Properties>([\s\S]*?)<\/Properties>/g)) {
+      const name = xmlUnescape((/<string\s+name="Name">([^<]*)<\/string>/.exec(match[1]) || [])[1] || '');
+      const contents = /<string\s+name="Contents">([\s\S]*?)<\/string>/.exec(match[1]);
+      if (!name || !contents || tables.has(name)) continue;
+      let entries;
+      try {
+        entries = JSON.parse(xmlUnescape(contents[1]));
+      } catch (error) {
+        continue;
+      }
+      if (!Array.isArray(entries)) continue;
+      const strings = {};
+      for (const entry of entries) {
+        if (entry && typeof entry.key === 'string' && entry.key !== '' && typeof entry.source === 'string') strings[entry.key] = entry.source;
+      }
+      if (Object.keys(strings).length > 0) tables.set(name, strings);
+    }
+  }
+  return present ? new Map() : tables;
+}
+
+// A Lua string literal of text whose characters below 256 are bytes (the
+// file is read as Latin-1, so UTF-8 text arrives as its bytes).
+function luaString(text) {
+  let out = '"';
+  for (const char of text) {
+    const code = char.codePointAt(0);
+    const bytes = code > 255 ? [...Buffer.from(char, 'utf8')] : [code];
+    for (const b of bytes) {
+      if (b === 0x5c) out += '\\\\';
+      else if (b === 0x22) out += '\\"';
+      else if (b === 0x0a) out += '\\n';
+      else if (b >= 0x20 && b < 0x7f) out += String.fromCharCode(b);
+      else out += `\\${String(b).padStart(3, '0')}`;
+    }
+  }
+  return `${out}"`;
+}
+
+// The folder of ModuleScripts (XML Items) for ReplicatedStorage.
+function localizationFolder(tables) {
+  let n = 0;
+  const modules = [...tables].map(([name, strings]) => {
+    const source = `return {\n${Object.entries(strings).map(([key, value]) => `[${luaString(key)}] = ${luaString(value)},`).join('\n')}\n}\n`;
+    n++;
+    return `<Item class="ModuleScript" referent="RBX2017LOCALIZATION${n}"><Properties><string name="Name">${xmlEscape(name)}</string>`
+      + `<ProtectedString name="Source">${xmlEscape(source)}</ProtectedString></Properties></Item>`;
+  });
+  return `<Item class="Folder" referent="RBX2017LOCALIZATION0"><Properties><string name="Name">${LOCALIZATION_FOLDER}</string></Properties>${modules.join('')}</Item>`;
+}
+
+// PlayerModule. Newer Roblox gives every player a PlayerModule (camera and
+// controls) in PlayerScripts, and games use it, e.g. Jailbreak's cars read
+// PlayerModule.ControlModule:GetMoveVector(); the 2017 engine has its own
+// camera and control scripts and no PlayerModule, so such modules stopped
+// loading. A game whose scripts look for one gets a stand-in in
+// StarterPlayerScripts: GetMoveVector from the keys (WASD, arrows) and the
+// gamepad's left stick, the rest doing nothing (2017's controls stay).
+const PLAYER_MODULE = String.raw`-- Stand-in for the PlayerModule of newer Roblox (added by the 2017 converter).
+local PlayerModule = {}
+function PlayerModule:GetControls() return require(script.ControlModule) end
+function PlayerModule:GetCameras() return require(script.CameraModule) end
+return PlayerModule
+`;
+const CONTROL_MODULE = String.raw`-- Stand-in ControlModule (added by the 2017 converter): the move input only.
+local UserInputService = game:GetService("UserInputService")
+local Controls = {}
+local function down(a, b) return UserInputService:IsKeyDown(a) or UserInputService:IsKeyDown(b) end
+function Controls:GetMoveVector()
+	local focused = false
+	pcall(function() focused = UserInputService:GetFocusedTextBox() ~= nil end)
+	if focused then return Vector3.new() end
+	local x, z = 0, 0
+	if down(Enum.KeyCode.W, Enum.KeyCode.Up) then z = z - 1 end
+	if down(Enum.KeyCode.S, Enum.KeyCode.Down) then z = z + 1 end
+	if down(Enum.KeyCode.A, Enum.KeyCode.Left) then x = x - 1 end
+	if down(Enum.KeyCode.D, Enum.KeyCode.Right) then x = x + 1 end
+	pcall(function()
+		for _, input in ipairs(UserInputService:GetGamepadState(Enum.UserInputType.Gamepad1)) do
+			if input.KeyCode == Enum.KeyCode.Thumbstick1 and input.Position.Magnitude > 0.2 then x, z = input.Position.X, -input.Position.Y end
+		end
+	end)
+	return Vector3.new(x, 0, z)
+end
+function Controls:GetIsJumping() return UserInputService:IsKeyDown(Enum.KeyCode.Space) end
+function Controls:GetActiveController() return nil end
+function Controls:Enable() end
+function Controls:Disable() end
+return Controls
+`;
+
+function needsPlayerModule(input) {
+  let used = false;
+  for (const piece of pieces(input)) {
+    const text = piece.toString('latin1');
+    if (text.includes('<string name="Name">PlayerModule</string>')) return false;
+    if (!used && /PlayerModule/.test(text)) used = /(?:WaitForChild|FindFirstChild)\(\s*(?:&quot;|")PlayerModule(?:&quot;|")|\.PlayerModule\b/.test(text);
+  }
+  return used;
+}
+
+function playerModuleItems() {
+  const module = (name, source, children = '') => `<Item class="ModuleScript" referent="RBX2017PLAYERMODULE${name}"><Properties><string name="Name">${name}</string>`
+    + `<ProtectedString name="Source">${xmlEscape(source)}</ProtectedString></Properties>${children}</Item>`;
+  return module('PlayerModule', PLAYER_MODULE, module('ControlModule', CONTROL_MODULE) + module('CameraModule', 'return {}\n'));
+}
+
+function setAside(props) {
+  let out = props.replace(/(<string\s+name="Name">)([^<]*)(<\/string>)/, (match, open, name, close) => `${open}${name} (newer, unused)${close}`);
+  out = out.replace(/<bool\s+name="Disabled">false<\/bool>/, '<bool name="Disabled">true</bool>');
+  return out;
+}
+
 // input: Buffer of an .rbxlx/.rbxmx. options.universeId: the Roblox universe
 // the place came from, for rbxgameasset:// names.
 // -> { output: Buffer, counts, summary: [lines] }
@@ -447,7 +639,7 @@ function convertPlace(input, options) {
   const counts = {
     robloxLinks: 0, thumbnails: 0, gameAssets: 0, contentIds: 0, fonts: 0, droppedProperties: 0,
     attributes: 0, sharedStrings: 0, newCsg: 0, taskCalls: 0, compoundAssignments: 0, materials: 0, unionCollision: 0, unionShapes: 0, filteringEnabled: 0,
-    compatScripts: 0, compatChanges: new Map(), madeFolders: new Map(),
+    compatScripts: 0, compatChanges: new Map(), madeFolders: new Map(), chatSetAside: 0, coreGuiSetAside: 0, localizationTables: 0, playerModule: false,
     gameAssetNames: new Set(), unsupportedThumbnails: new Set(), luauScripts: [], unknownClasses: new Map(),
   };
   const known = classesOf2017();
@@ -455,6 +647,11 @@ function convertPlace(input, options) {
   // Classes of the open <Item>s (as written out), across pieces; a model's
   // top-level items have no parent and are left as they are.
   const openItems = [];
+  const newerChat = hasNewerChat(input);
+  const setAsideRefs = new Set();
+  const coreGuiRefs = dumpedCoreGui(input);
+  const translations = localizationTables(input);
+  const playerModule = needsPlayerModule(input);
   for (const piece of pieces(dropSharedStrings(input, counts))) {
     // Latin-1 keeps every byte as it was; only ASCII markup is touched.
     let text = piece.toString('latin1');
@@ -468,12 +665,43 @@ function convertPlace(input, options) {
         openItems.push('Folder');
         return `<Item class="Folder"${rest}>`;
       }
+      if (newerChat && openItems[openItems.length - 1] === 'Chat') {
+        const referent = /referent="([^"]+)"/.exec(rest);
+        if (referent) setAsideRefs.add(referent[1]);
+      }
+      // The dumped core UI's ScreenGui becomes a folder (nothing of it shows).
+      if (className === 'ScreenGui' && coreGuiRefs.size > 0 && openItems[openItems.length - 1] === 'StarterGui') {
+        const referent = /referent="([^"]+)"/.exec(rest);
+        if (referent && coreGuiRefs.has(referent[1])) {
+          openItems.push('Folder');
+          return `<Item class="Folder"${rest}>`;
+        }
+      }
       openItems.push(className);
       return match;
     });
     text = text.replace(/(<Item\s+class="([^"]+)"[^>]*>\s*<Properties>)([\s\S]*?)(<\/Properties>)/g, (match, open, className, props, close) => {
       if (known !== null && !known.has(className)) counts.unknownClasses.set(className, (counts.unknownClasses.get(className) || 0) + 1);
-      const converted = convertProperties(className, props, options, counts);
+      let converted = convertProperties(className, props, options, counts);
+      const referent = setAsideRefs.size > 0 || coreGuiRefs.size > 0 ? /referent="([^"]+)"/.exec(open) : null;
+      if (referent && setAsideRefs.has(referent[1])) {
+        converted = setAside(converted);
+        counts.chatSetAside++;
+      }
+      if (referent && coreGuiRefs.has(referent[1])) {
+        if (className === 'Folder') converted = setAside(converted);
+        else converted = converted.replace(/<bool\s+name="Disabled">false<\/bool>/, '<bool name="Disabled">true</bool>');
+        counts.coreGuiSetAside++;
+      }
+      // The localization tables' text, as ReplicatedStorage's first child.
+      if (className === 'ReplicatedStorage' && translations.size > 0 && counts.localizationTables === 0) {
+        counts.localizationTables = translations.size;
+        return open + converted + close + localizationFolder(translations);
+      }
+      if (className === 'StarterPlayerScripts' && playerModule && !counts.playerModule) {
+        counts.playerModule = true;
+        return open + converted + close + playerModuleItems();
+      }
       return converted === props ? match : open + converted + close;
     });
     output.push(Buffer.from(text, 'latin1'));
@@ -581,6 +809,10 @@ function summarize(counts, options) {
   changed(counts.unionShapes, 'unions given collision shaped like them (made from their mesh; 2017 cannot read their newer collision data)');
   changed(counts.unionCollision, 'unions given box collision (2017 cannot read their newer collision data)');
   changed(counts.materials, 'part materials the 2017 engine lacks (Glass, ForceField...) -> the nearest it has');
+  if (counts.chatSetAside > 0) lines.push('  a newer chat system the 2017 engine cannot run set aside; the game gets the 2017 chat');
+  if (counts.coreGuiSetAside > 0) lines.push('  a copy of Roblox\'s own UI scripts saved into StarterGui (RobloxGui) set aside; players get the 2017 topbar, backpack and player list');
+  if (counts.playerModule) lines.push('  a stand-in PlayerModule (move input) added to StarterPlayerScripts, which the game\'s scripts look for');
+  if (counts.localizationTables > 0) lines.push(`  ${counts.localizationTables} localization table${counts.localizationTables === 1 ? '' : 's'} given to clients as ModuleScripts (ReplicatedStorage.${LOCALIZATION_FOLDER}) for the GetTranslator stand-in`);
   if (counts.madeFolders.size > 0) {
     lines.push(`  ${[...counts.madeFolders].map(([name, n]) => `${n} ${name}${n === 1 ? '' : 's'}`).join(', ')} where the 2017 engine does not allow them (it would refuse the whole place) -> folders of the same name`);
   }
