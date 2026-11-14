@@ -20,12 +20,19 @@
   --good: #3ad47d;
   --bad: #ff6159;
   --gold: #f6b900;
+  --online: #00a2ff;  /* launcher open */
+  --studio: #f68b1f;  /* in Roblox Studio */
   --select: #ffffff;
   font-family: "Source Sans Pro", "Segoe UI", system-ui, sans-serif;
   color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
+/* Like a console app: text and pictures can't be selected or dragged, except
+   where you type, and logs and codes you may want to copy. */
+body { user-select: none; -webkit-user-select: none; }
+input, textarea, select, .log, code, [contenteditable] { user-select: text; -webkit-user-select: text; }
+img, svg { -webkit-user-drag: none; }
 html, body { margin: 0; height: 100%; color: var(--text); font-size: 16px; overflow: hidden; }
 /* Only the root gets a fill: a body background would cover the canvas. */
 html { background: var(--bg); }
@@ -241,7 +248,10 @@ button.link:focus-visible { outline: 2px solid #fff; }
 .player-name { font-size: 20px; font-weight: 600; padding: 8px 12px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .player-where { font-size: 14px; color: var(--muted); padding: 0 12px 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .player-card.you .player-name::after { content: " (you)"; color: var(--muted); font-weight: 400; }
-.player-card.online .player-where { color: var(--good); }
+.player-card.p-game .player-where { color: var(--good); }
+.player-card.p-studio .player-where { color: var(--studio); }
+.player-card.p-online .player-where { color: var(--online); }
+.player-card:not(.p-offline) .player-where::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: currentColor; margin-right: 6px; vertical-align: 1px; }
 .card-actions { display: flex; gap: 6px; padding: 0 10px 10px; }
 .card-actions button { flex: 1; padding: 6px 8px; font-size: 13px; }
 .section-title { font-size: 19px; letter-spacing: .5px; margin: 22px 0 0; }
@@ -477,9 +487,35 @@ body.in-game .settings-hint { display: none !important; }
 .profile-info { flex: 1; display: flex; flex-direction: column; min-width: 0; padding-top: 10px; }
 .profile-name { font-size: 44px; font-weight: 300; line-height: 1.1; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .profile-badge { font-size: 13px; font-weight: 800; letter-spacing: 1px; background: #f2b33d; color: #2a1a00; padding: 3px 9px; }
-.profile-where { font-size: 18px; margin-top: 10px; color: var(--muted); }
-.profile-where.online { color: var(--good); }
-.profile-meta { color: var(--muted); font-size: 15px; margin-top: 6px; }
+.profile-line { display: flex; align-items: center; gap: 14px; margin-top: 10px; flex-wrap: wrap; }
+.profile-where { font-size: 18px; color: var(--muted); display: inline-flex; align-items: center; gap: 8px; }
+.profile-where:not(.p-offline)::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: currentColor; }
+.profile-where.p-game { color: var(--good); }
+.profile-where.p-studio { color: var(--studio); }
+.profile-where.p-online { color: var(--online); }
+.profile-tag { font-size: 13px; font-weight: 600; padding: 3px 10px; background: rgba(255, 255, 255, .1); color: #dbe6ee; }
+.profile-stats { display: flex; gap: 34px; margin-top: 20px; }
+.profile-stats:empty { display: none; }
+.profile-stat { display: flex; flex-direction: column; }
+.profile-stat b { font-size: 30px; font-weight: 300; line-height: 1; }
+.profile-stat span { color: var(--muted); font-size: 14px; margin-top: 4px; }
+.profile-game { display: flex; align-items: center; gap: 16px; margin-top: 22px; padding: 12px; background: rgba(58, 212, 125, .1); border-left: 4px solid var(--good); }
+.profile-game-pic { position: relative; width: 64px; height: 64px; flex: none; overflow: hidden; }
+.profile-game-pic .cover-title { font-size: 11px; }
+.profile-game-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.profile-game-text span { color: var(--good); font-size: 14px; }
+.profile-game-text b { font-size: 20px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.play-button.small { font-size: 18px; padding: 10px 30px; }
+.profile-joined { color: var(--muted); font-size: 13px; margin-top: 16px; }
+.profile-joined:empty { display: none; }
+.profile-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.profile-actions .profile-report-link { margin-left: auto; font-size: 14px; color: var(--muted); }
+.profile-report { display: grid; gap: 10px; margin-top: 18px; padding: 14px 16px; background: rgba(255, 97, 89, .08); border-left: 4px solid var(--bad); }
+.profile-report .detail-head { margin: 0; }
+.profile-report .detail-head span { font-size: 18px; }
+.profile-report select, .profile-report textarea { width: 100%; max-width: 460px; }
+.profile-report textarea { background: rgba(0, 0, 0, .35); border: 2px solid rgba(255, 255, 255, .1); color: var(--text); padding: 10px 12px; font: inherit; resize: vertical; }
+.profile-report .row { margin-top: 0; }
 .profile-bio { font-size: 16px; line-height: 1.5; margin-top: 16px; white-space: pre-line; overflow-wrap: anywhere; }
 .profile-bio.empty { color: var(--muted); font-style: italic; }
 .profile-bio-form textarea { width: 100%; margin-top: 16px; resize: vertical; background: rgba(0, 0, 0, .3); border: 1px solid var(--line); color: #fff; padding: 10px; font: inherit; }
@@ -493,7 +529,10 @@ body.in-game .settings-hint { display: none !important; }
   background: linear-gradient(180deg, rgba(48, 92, 116, .9), rgba(28, 58, 76, .9)); border: 3px solid rgba(255, 255, 255, .12); }
 .friend-bubble .bubble-pic img { width: 100%; height: 100%; object-fit: cover; }
 .friend-bubble .bubble-pic svg { height: 60%; fill: rgba(255, 255, 255, .18); }
-.friend-bubble.online .bubble-pic { border-color: var(--good); }
+.friend-bubble.p-online .bubble-pic { border-color: var(--online); }
+.friend-bubble.p-game .bubble-pic { border-color: var(--good); }
+.friend-bubble.p-studio .bubble-pic { border-color: var(--studio); }
+.friend-bubble.p-studio .bubble-where { color: var(--studio); }
 .friend-bubble .bubble-name { font-size: 13px; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .friend-bubble .bubble-where { font-size: 11px; color: var(--good); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .friend-bubble:focus-visible { outline: none; }
@@ -512,3 +551,17 @@ body.in-game .settings-hint { display: none !important; }
 .outfit-name-form { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center; padding: 8px 0; }
 .outfit-name-form input { flex: 1; min-width: 0; max-width: 300px; }
 .outfit-name-label { color: var(--muted); font-size: 13px; }
+
+/* Update log / What's new -------------------------------------------------------------- */
+.whats-new { width: min(760px, 86vw); max-height: 80vh; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 20px 60px rgba(0, 0, 0, .5); }
+.whats-new-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 22px; border-bottom: 1px solid var(--line); }
+.whats-new-title { font-size: 30px; font-weight: 300; }
+.changelog { overflow-y: auto; padding: 6px 22px 22px; }
+.changelog-entry { padding: 16px 0; border-bottom: 1px solid var(--line); }
+.changelog-entry:last-child { border-bottom: 0; }
+.changelog-head { display: flex; align-items: baseline; gap: 14px; }
+.changelog-head b { font-size: 22px; font-weight: 600; }
+.changelog-head span { color: var(--muted); font-size: 14px; }
+.changelog-title { font-size: 17px; margin-top: 4px; color: #dbe6ee; }
+.changelog ul { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 5px; color: #cfdbe4; font-size: 15px; line-height: 1.45; }
+#people-following.active { background: rgba(0, 162, 255, .25); }

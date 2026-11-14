@@ -6,7 +6,7 @@
 
 const $ = (id) => document.getElementById(id);
 const JOIN_CODE_NAME = 'Server management'; // the "n" of join codes, unchanged from the old page
-const VIEWS = ['games', 'announcements', 'accounts', 'assets', 'server', 'join'];
+const VIEWS = ['games', 'reports', 'announcements', 'accounts', 'assets', 'server', 'join'];
 
 let places = [];
 let runner = { running: false };
@@ -20,6 +20,10 @@ let pendingPlace = null;     // which game the hidden file inputs are for
 let pendingAsset = null;
 let assetFilter = 'Audio';
 let logName = 'server';
+let reportList = [];
+let reportFilter = 'open';
+let reportsShown = '';       // what the report list shows, so polling leaves it alone
+const openChats = new Set(); // reports whose chat is unfolded
 
 // --- small helpers ---------------------------------------------------------------------
 
@@ -174,6 +178,7 @@ function route() {
   for (const link of document.querySelectorAll('.nav a')) link.classList.toggle('active', link.dataset.nav === view);
   if (view === 'games' && arg) showDrawer(arg);
   else hideDrawer();
+  if (view === 'reports') loadReports();
   if (view === 'accounts') loadAccounts();
   if (view === 'assets') loadMissing();
   if (view === 'announcements') loadNews();
@@ -595,6 +600,80 @@ async function refresh() {
   }
 }
 
+// --- reports --------------------------------------------------------------------------------
+
+async function loadReports() {
+  try {
+    const response = await fetch('/api/reports', { headers: authHeaders(), cache: 'no-store' });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+    reportList = result.reports || [];
+    renderReports();
+  } catch (error) {
+    reportsShown = '';
+    $('report-list').replaceChildren(h('p', { class: 'empty', text: error.message }));
+  }
+}
+
+const reportMatches = (report, filter) => !filter || report.status === filter;
+
+function reportCard(report) {
+  const open = report.status === 'open';
+  const who = report.reportedId === null || report.reportedId === undefined ? 'The game' : (report.reportedName || `User ${report.reportedId}`);
+  const game = report.gameName || (report.placeId ? `Place ${report.placeId}` : null);
+  const messages = report.messages || [];
+  return h('div', { class: `card report-item${open ? '' : ' resolved'}` },
+    h('div', { class: 'body' },
+      h('div', { class: 'head' }, h('span', { class: 'who', text: who }), report.reason ? h('span', { class: 'reason', text: report.reason }) : null),
+      report.text ? h('div', { class: 'text', text: report.text }) : null,
+      h('div', { class: 'meta' },
+        h('span', { text: report.reporterName ? `Reported by ${report.reporterName}` : 'Reporter unknown' }),
+        game ? h('span', { text: game, title: report.jobId ? `Server ${report.jobId}` : null }) : null,
+        report.source === 'launcher' ? h('span', { text: 'From the launcher' }) : null,
+        h('span', { text: when(report.at) }),
+        open ? null : h('span', { text: `Resolved${report.resolvedBy ? ` by ${report.resolvedBy}` : ''}` })),
+      messages.length ? h('details', {
+        class: 'notes', open: openChats.has(report.id),
+        ontoggle: (event) => { if (event.target.open) openChats.add(report.id); else openChats.delete(report.id); },
+      }, h('summary', { text: `Chat (${messages.length})` }), h('pre', { text: messages.join('\n') })) : null),
+    h('div', { class: 'actions' },
+      open ? btn('Resolve', 'small', () => act(async () => {
+        await change('POST', `/api/reports/${report.id}/resolve`, '{}');
+        await loadReports();
+      }, 'Resolving', 'Resolved')) : null,
+      btn('Delete', 'small danger', async () => {
+        if (!await ask('Delete this report?', '', 'Delete', true)) return;
+        act(async () => {
+          await change('DELETE', `/api/reports/${report.id}`);
+          await loadReports();
+        }, 'Deleting', 'Deleted');
+      })));
+}
+
+function renderReports() {
+  $('nav-reports').textContent = reportList.filter((report) => report.status === 'open').length || '';
+  for (const button of document.querySelectorAll('#reports-filter button')) {
+    button.classList.toggle('active', button.dataset.filter === reportFilter);
+    let badge = button.querySelector('.n');
+    if (!badge) { badge = h('span', { class: 'n' }); button.append(badge); }
+    badge.textContent = reportList.filter((report) => reportMatches(report, button.dataset.filter)).length || '';
+  }
+  // Rebuilt only when something changed, so an open chat or a focused button survives polling.
+  const signature = JSON.stringify([reportList, reportFilter]);
+  if (signature === reportsShown) return;
+  reportsShown = signature;
+  const shown = reportList.filter((report) => reportMatches(report, reportFilter));
+  if (!shown.length) {
+    $('report-list').replaceChildren(h('p', { class: 'empty', text: reportFilter === 'open' ? 'No open reports.' : 'No reports here.' }));
+    return;
+  }
+  $('report-list').replaceChildren(...shown.map(reportCard));
+}
+
+for (const button of document.querySelectorAll('#reports-filter button')) {
+  button.addEventListener('click', () => { reportFilter = button.dataset.filter; renderReports(); });
+}
+
 // --- announcements --------------------------------------------------------------------------
 
 async function loadNews() {
@@ -943,10 +1022,12 @@ async function unlock() {
   loadServer();
   loadNews();
   loadMissing();
+  loadReports();
   setInterval(() => { if (!busy && unlocked && !document.hidden) refresh(); }, 5000);
   setInterval(() => {
     if (busy || !unlocked || document.hidden) return;
     loadServer();
+    loadReports(); // every view: the open count is in the sidebar
     if (view === 'accounts') loadAccounts();
     if (view === 'assets') loadMissing();
     if (view === 'announcements') loadNews();

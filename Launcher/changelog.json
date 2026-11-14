@@ -1,0 +1,188 @@
+[
+  {
+    "version": "1.8.0",
+    "date": "2026-11-14",
+    "title": "See who's online, follow players, mix body parts",
+    "items": [
+      "Friends show where they are: a blue ring when their launcher is open, green in a game, orange in Studio.",
+      "Follow players. Profiles are new too: friends, followers and following, the game someone is in with a Join button, and Report.",
+      "Reports, from profiles or from Report Abuse in a game, go to your server's admins.",
+      "People stays up to date while it's open.",
+      "Avatar: mix body parts from different packages with the new Torsos, Arms and Legs categories.",
+      "This update log is under Settings › About.",
+      "The launcher knows its server, so there's no address to set.",
+      "Games no longer says how many are online, and text and pictures can't be selected by accident."
+    ]
+  },
+  {
+    "version": "1.7.3",
+    "date": "2026-11-14",
+    "title": "The game opens inside the launcher",
+    "items": [
+      "Games now open inside the launcher window. To get the old separate window back: Settings › Menu › Game window.",
+      "The game screen is cleaner. It shows who made the game and how many are playing, and lists servers only when there's more than one to pick from. Private servers are under New and Enter code.",
+      "The Studio button now says Studio."
+    ]
+  },
+  {
+    "version": "1.7.2",
+    "date": "2026-11-14",
+    "title": "Faster downloads, and the game inside the launcher (to try)",
+    "items": [
+      "Smaller downloads. The game files are now a 72 MB download (was 84 MB) and Roblox Studio 100 MB (was 122 MB).",
+      "Updates download only what changed. When the server's game files or Studio change, the launcher fetches just the changed files, often a few hundred KB instead of everything. It checks every file afterwards; if anything doesn't match, it downloads the full set instead.",
+      "Downloads continue where they stopped. A dropped connection no longer starts the download over: the launcher tries again from where it was, up to four times. If you close the launcher mid-download, it carries on within a day.",
+      "Games and Studio load faster the first time. Meshes and models come from the server compressed (often 4 to 5 times smaller), and a big place opened in Studio downloads 20 times smaller. Pictures and sounds were already compressed and stay as they are.",
+      "New, to try: the game inside the launcher. Settings › Menu › Game window › Inside the launcher puts the game in the launcher's window, under a bar with Full screen, Pop out (back to a window of its own) and Leave game. It's off by default while players try it out: tell your host how it plays.",
+      "Quitting the launcher during a game now asks first, and leaves the game properly.",
+      "The faster downloads need a server updated on or after 2026-11-14; with older servers everything works as before."
+    ]
+  },
+  {
+    "version": "1.7.1",
+    "date": "2026-11-14",
+    "title": "Find out why the game didn't start, and free up space",
+    "items": [
+      "When Roblox closes right after starting, the loading screen now says so instead of just disappearing: the exit code, and what to check (your antivirus's quarantine, or the real Roblox being open).",
+      "The launcher keeps a log of joins and of how the game started and closed. If the game won't start, open it from Settings › About › Open launcher log, or from the loading screen, and send launcher.log to your host.",
+      "If Windows or an antivirus blocks the game, the launcher now says so, and closes the local connection it opened for the game (it used to stay open until the launcher was closed).",
+      "Settings › Storage (new) shows what the launcher and the game keep on your PC: game assets, game logs and crash reports, launcher update files, unfinished downloads and Roblox Studio. Each has a button to free the space. Game assets moved here from Settings › Network.",
+      "Old files are cleaned up by themselves each time the launcher starts: game logs and crash reports older than a week, launcher updates that are already installed, and unfinished downloads. The real Roblox's own files are never touched.",
+      "Uninstalling now also removes the launcher's data folder (menu settings and its log), its update downloads and the 2017 game's logs."
+    ]
+  },
+  {
+    "version": "1.7.0",
+    "date": "2026-11-13",
+    "title": "Games load faster the second time",
+    "items": [
+      "Game assets are kept on your PC. Meshes, textures and sounds you download in a game are saved, so the next time you play they load from your disk instead of from the server. The launcher checks with the server once a day that they are still current, and uses the kept copy if the server is slow to answer.",
+      "Settings › Network shows how much is kept (up to 2 GB; the least used go first) and has a Clear button.",
+      "Needs a server updated on or after 2026-11-13 (Phase 4); with older servers nothing is kept and everything works as before."
+    ]
+  },
+  {
+    "version": "1.6.0",
+    "date": "2026-11-13",
+    "title": "Servers on demand and private servers",
+    "items": [
+      "Play starts a server when needed. A game no longer has to be running already: press Play and, if no server has room, your server starts one while the launcher shows \"Starting a server…\".",
+      "Several servers per game. A game's details list its servers, who is in each, and a Join button for each one. Play picks the fullest server that still has room.",
+      "Private servers. Signed-in players can make private servers in a game's details. You, your friends, and anyone you give the invite code to can join.",
+      "Joining a friend now takes you to the exact server they are in.",
+      "Needs a server updated on or after 2026-11-13 (servers on demand); older servers still work, without the new parts."
+    ]
+  },
+  {
+    "version": "1.5.5",
+    "date": "2026-11-13",
+    "title": "People, profiles and outfits",
+    "items": [
+      "People (was Friends): find anyone on your server by name, or list everyone. Your friend requests and friends are below, with Join for friends who are in a game.",
+      "Profiles: click anyone to see their avatar, bio, when they joined, how many friends they have and where they're playing. Add, accept or remove friends from there, or join their game. Edit your own bio on your profile.",
+      "Friends on Home: a row of your friends at the top of Home, green when they're in a game.",
+      "Outfits: Avatar → Outfits saves what you're wearing under a name, with a picture. Click an outfit to wear it again; rename or delete them any time.",
+      "Server admins have an ADMIN badge."
+    ]
+  },
+  {
+    "version": "1.5.4",
+    "date": "2026-11-13",
+    "title": "Loading screen and who's playing",
+    "items": [
+      "Loading screen: pressing Play shows the game, who made it and what's happening (updating game files, joining, starting Roblox) until the game window opens. Cancel stops it.",
+      "Who's playing: every game shows how many players are in it right now, counted by the server, and who made it.",
+      "Cleaner Games tab: Refresh and Open Studio are icon buttons; the log moved to Settings → About.",
+      "Manage games is for admins: the button only shows for admin accounts, and opens the server's management page already unlocked."
+    ]
+  },
+  {
+    "version": "1.5.3",
+    "date": "2026-11-13",
+    "title": "Game sound works",
+    "items": [
+      "Game sound works: footsteps, jumps and every other in-game sound play again. The fix is in your server's new game files, and the launcher now picks it up by itself.",
+      "Game files update before you play: when your server has newer game files, pressing Play downloads them first and shows the progress, then starts the game. No more trips to Setup.",
+      "Clean updates: a game files update replaces the whole Client folder, so files the new version dropped no longer linger."
+    ]
+  },
+  {
+    "version": "1.5.2",
+    "date": "2026-11-13",
+    "title": "Announcements, and servers that move",
+    "items": [
+      "Announcements: notices from your host appear on the Home screen within a couple of minutes. Important ones also pop up. Dismissed ones stay hidden.",
+      "Servers that move follow you: when your host moves the server to another PC, the launcher switches to the new address by itself and you stay signed in."
+    ]
+  },
+  {
+    "version": "1.5.1",
+    "date": "2026-11-13",
+    "title": "Check for updates",
+    "items": [
+      "Settings → About has a Check for updates button, and checks by itself whenever you open it.",
+      "Once an update has downloaded, About shows Restart to update.",
+      "The launcher also checks every 30 minutes instead of every 6 hours, so new versions show up sooner."
+    ]
+  },
+  {
+    "version": "1.5.0",
+    "date": "2026-11-13",
+    "title": "Friends and the real logo",
+    "items": [
+      "The Friends tab replaces Players.",
+      "Add friends by name, or with Add friend on anyone who's in a game right now.",
+      "Accept or decline requests; a red badge on the tab shows how many are waiting.",
+      "See which game each friend is in, and open it to join them.",
+      "In game: \"Send Friend Request\" in the player list works too, and games that check whether players are friends now know.",
+      "Home shows how many of your friends are playing.",
+      "Guests can't have friends (like in 2016): sign up to use them.",
+      "The real logo: the launcher now shows the 2015-2017 ROBLOX logo from the Xbox One app, with \"Powering Imagination\" on the start screen. It comes from your host's server, so it appears after the update.",
+      "For hosts: update the server files for friends and the logo. README-SERVER.txt describes both."
+    ]
+  },
+  {
+    "version": "1.4.0",
+    "date": "2026-11-13",
+    "title": "Accounts, guests and your own avatar",
+    "items": [
+      "The launcher now looks and works like the 2016-2017 Xbox One app.",
+      "Press A to start, then Sign in, Sign up, or Play as a guest. Accounts live on your host's server and are the same ones Roblox Studio uses. Your name in games comes from your account, so nobody can play as you.",
+      "Guests join as \"Guest_1234\" in the 2016 guest look. Like the guests of that era, they can't chat, edit avatars or use Studio.",
+      "Avatar tab: a 3D avatar you can spin with the mouse, LT/RT or the right stick. Pick hats, hair, faces, heads, shirts, pants, t-shirts, packages, accessories and body colors. Classic items show by default and you can search the whole catalog. Changes save on their own and show up in every game.",
+      "A new account starts with the Roblox avatar of the same name.",
+      "Copy my Roblox avatar fetches it again at any time.",
+      "Wear by ID puts on any item by its number.",
+      "Players tab: see who's playing and in which game.",
+      "Settings: Account, Network (server address, join codes, game files), Menu (music, background), and for hosts Host a game, Web server and Setup.",
+      "Menu music now comes from your host's server.",
+      "New default background: \"Classic\". Neon grid and Sunset are still in Settings → Menu.",
+      "For hosts: the server needs this release's server files (accounts for players, guests, avatars). While players update, \"allowNamedJoins\": true in config\\assets.json lets older launchers keep joining under their typed names. README-SERVER.txt explains this under \"Accounts, guests and avatars\"."
+    ]
+  },
+  {
+    "version": "1.3.0",
+    "date": "2026-11-12",
+    "title": "Roblox Studio",
+    "items": [
+      "GAMES → Open Studio downloads Roblox Studio from your host's server the first time (about 120 MB) and starts it.",
+      "Log in on Studio's start page with a username and password. Your first login with a name creates your account; use your Roblox username so your avatar shows up in games.",
+      "Edit your games, or start a New place from a baseplate.",
+      "FILE → Publish to ROBLOX As… puts a game on the server for everyone to play (online right away if you tick it). Publish to ROBLOX updates it later.",
+      "Team Create: turn it on in VIEW → Team Create and build in the same place together. Owners choose who may edit.",
+      "Updating the launcher keeps your downloaded Studio.",
+      "For hosts: the server needs this release's server files (Studio download, accounts, Team Create). Studio accounts and Team Create are explained in README-SERVER.txt, and /manage has a new Studio accounts section."
+    ]
+  },
+  {
+    "version": "1.2.0",
+    "date": "2026-11-12",
+    "title": "Join codes and automatic updates",
+    "items": [
+      "Join codes: one code gets a new player in, with Tailscale installed and signed in for them.",
+      "Automatic updates: from this version on, the launcher downloads new releases in the background and installs them when it closes, or right away with the Restart to update button.",
+      "Fixed: on a fresh install the launcher quit at first start (\"Put the launcher inside the RobloxClient folder\") before it could download the game files.",
+      "For hosts: the server's /manage page now makes join codes and lists sounds and images Roblox no longer hands out, with replacement uploads. See README-SERVER.txt in the server package."
+    ]
+  }
+]

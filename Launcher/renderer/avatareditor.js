@@ -28,6 +28,12 @@
     { key: 'pants', label: 'Pants' },
     { key: 'tshirts', label: 'T-Shirts' },
     { key: 'packages', label: 'Packages' },
+    // Single parts out of packages, to mix (servers from 1.8.0 on).
+    { key: 'torsos', label: 'Torsos', gap: true },
+    { key: 'rightarms', label: 'Right arms' },
+    { key: 'leftarms', label: 'Left arms' },
+    { key: 'rightlegs', label: 'Right legs' },
+    { key: 'leftlegs', label: 'Left legs' },
     { key: 'face', label: 'Face accessories', gap: true },
     { key: 'neck', label: 'Neck' },
     { key: 'shoulder', label: 'Shoulder' },

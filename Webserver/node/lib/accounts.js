@@ -294,6 +294,7 @@ function remove(name) {
   // Its friendships go with it (required here: friends.js needs no accounts).
   try { require('./friends').forget(data.accounts[key].userId); } catch (error) { /* no friends file */ }
   try { require('./privateservers').forget(data.accounts[key].userId); } catch (error) { /* no private servers file */ }
+  try { require('./follows').forget(data.accounts[key].userId); } catch (error) { /* no follows file */ }
   delete data.accounts[key];
   for (const [hash, session] of Object.entries(data.sessions)) {
     if (session.name === key) delete data.sessions[hash];

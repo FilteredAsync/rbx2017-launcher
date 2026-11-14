@@ -329,6 +329,24 @@ main { padding: 30px 36px 80px; max-width: 1180px; width: 100%; }
 .news-item .meta { color: var(--muted); font-size: 13px; margin-top: 6px; display: flex; gap: 12px; flex-wrap: wrap; }
 .pop { color: var(--warn-ink); font-weight: 600; }
 
+/* --- reports ------------------------------------------------------------------------ */
+
+#reports-filter { margin-bottom: 14px; }
+.reports { display: grid; gap: 12px; }
+.report-item { padding: 14px 16px; display: flex; gap: 14px; align-items: flex-start; border-left: 3px solid var(--bad); }
+.report-item.resolved { border-left-color: var(--line-strong); }
+.report-item .body { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.report-item .head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.report-item .who { font-weight: 700; color: var(--strong); font-size: 16px; overflow-wrap: anywhere; }
+.report-item .reason { font-size: 12px; font-weight: 600; padding: 1px 7px; border-radius: 3px; background: var(--bad-soft); color: var(--bad); }
+.report-item.resolved .reason { background: var(--surface-2); color: var(--muted); }
+.report-item .text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.report-item .meta { color: var(--muted); font-size: 13px; display: flex; gap: 4px 12px; flex-wrap: wrap; }
+.report-item .notes { margin-top: 4px; }
+.report-item .notes summary { font-size: 14px; }
+.report-item .notes pre { max-height: 240px; }
+.report-item .actions { display: flex; gap: 6px; flex: none; }
+
 /* --- missing assets / accounts ----------------------------------------------------- */
 
 #assets-filter { margin-bottom: 14px; }
@@ -423,4 +441,5 @@ pre.log { max-height: 480px; min-height: 120px; }
   .hide-sm { display: none; }
   .search { width: 140px !important; }
   .settings .pair { grid-template-columns: 1fr; }
+  .report-item { flex-direction: column; align-items: stretch; }
 }

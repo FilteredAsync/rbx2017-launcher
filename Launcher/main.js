@@ -337,12 +337,77 @@ async function followMovedServer() {
   } catch (error) {
     return false; // not reachable (yet): try again later
   }
-  joining.saveConfig(Object.assign({}, joining.loadConfig() || {}, { centralUrl: target }));
+  // movedFrom: a server move wins over the address built into the launcher (fixedServer).
+  joining.saveConfig(Object.assign({}, joining.loadConfig() || {}, { centralUrl: target, movedFrom: url }));
   account.carrySession(url, target);
   syncMenuMusic(target);
   send('server-moved', { from: url, to: target });
   send('status-changed');
   return true;
+}
+
+// --- the built-in server address ---------------------------------------------------------
+// Release builds play on one server: Launcher/default-server.txt, packed into
+// the build on the PC that makes it and kept out of the public repository.
+// Players then never see or change the address. Running from source (no such
+// file), it is set in Settings as before.
+let fixedServerUrl;
+function fixedServer() {
+  if (fixedServerUrl === undefined) {
+    fixedServerUrl = null;
+    try {
+      fixedServerUrl = lib('proxy').normalizeCentralUrl(fs.readFileSync(path.join(__dirname, 'default-server.txt'), 'utf8').trim());
+    } catch (error) { /* not a release build */ }
+  }
+  return fixedServerUrl;
+}
+
+// At start: play on the built-in server, unless the server moved players on.
+function applyFixedServer() {
+  const fixed = fixedServer();
+  if (!fixed) return;
+  const joining = lib('joining');
+  const config = joining.loadConfig() || {};
+  const current = config.centralUrl ? lib('proxy').normalizeCentralUrl(config.centralUrl) : null;
+  if (current === fixed || (current && config.movedFrom)) return;
+  joining.saveConfig(Object.assign({}, config, { centralUrl: fixed }));
+  logger('launcher')(`Server set to the built-in address${current ? ` (was ${current})` : ''}.`);
+}
+
+// --- presence -------------------------------------------------------------------------------
+// Every 30 s, and whenever it changes, the server hears that this launcher is
+// open and whether Studio or a game is running (Webserver/node/lib/presence.js),
+// so friends see a blue (online), orange (Studio) or green (in game) ring.
+let studioPid = null;
+let presenceTimer = null;
+
+function studioAlive() {
+  if (!studioPid) return false;
+  try {
+    process.kill(studioPid, 0);
+    return true;
+  } catch (error) {
+    studioPid = null;
+    return false;
+  }
+}
+
+function presenceNow() {
+  if (playSession) return { state: 'game', placeId: playSession.placeId || null };
+  if (studioAlive()) return { state: 'studio' };
+  return { state: 'online' };
+}
+
+function sendPresence(state) {
+  let url;
+  try { url = account.serverUrl(); } catch (error) { return Promise.resolve(); }
+  return account.presence(url, state || presenceNow()).catch(() => {}); // signed out, or the server is older
+}
+
+function startPresence() {
+  if (presenceTimer) return;
+  sendPresence();
+  presenceTimer = setInterval(() => sendPresence(), 30000);
 }
 
 function checkMovedServer() {
@@ -453,6 +518,8 @@ async function openStudio(centralUrl) {
   const child = spawn(STUDIO_EXE(), [], { cwd: path.dirname(STUDIO_EXE()), detached: true, stdio: 'ignore' });
   child.on('error', (error) => log(`Could not start Studio: ${error.message}`));
   child.unref();
+  studioPid = child.pid || null;
+  sendPresence();
   log(`Roblox Studio started (server ${url}). Log in on its start page.`);
   send('status-changed');
   return true;
@@ -771,9 +838,11 @@ function registerIpc() {
       joiningNetwork = false;
     }
     const joining = lib('joining');
-    joining.saveConfig(Object.assign({}, joining.loadConfig() || {}, { centralUrl: result.server }));
-    syncMenuMusic(result.server);
-    return result;
+    // A build with a built-in server keeps it; the code then only brings Tailscale.
+    const server = fixedServer() || result.server;
+    joining.saveConfig(Object.assign({}, joining.loadConfig() || {}, { centralUrl: server }));
+    syncMenuMusic(server);
+    return Object.assign({}, result, { server });
   });
   ipcMain.handle('games:thumbnail', (event, options) => gameThumbnail(options && options.centralUrl, options && options.placeId, options && options.version));
   // Opens <web server>/manage in the default browser (only that page).
@@ -805,6 +874,7 @@ function registerIpc() {
       hasMusic: musicStamp() !== null,
       musicStamp: musicStamp(),
       ...capabilities(),
+      fixedServer: Boolean(fixedServer()),
       needsFiles: !capabilities().canPlay && !capabilities().canHost,
       update: updateStatus,
       filesVersion: (installedFiles() || {}).version || null,
@@ -862,7 +932,9 @@ function registerIpc() {
     const target = ticket.game || { id: request && request.gameId, name: game && game.name, placeId: game && game.placeId, address: request && request.address };
     if (!target.address) throw new Error('The server did not say where the game runs. Update its server files.');
     playSession = await joining.joinGame({ centralUrl: url, ticket: ticket.ticket, name: ticket.name, game: target, log });
+    playSession.placeId = target.placeId ? String(target.placeId) : null;
     send('status-changed');
+    sendPresence();
     if (embed) embedClient(playSession);
     // joinGame logs how the client closed; a client that closed soon after
     // starting (or could not start) is shown on the loading screen.
@@ -873,6 +945,7 @@ function registerIpc() {
       playSession = null;
       gameClosed();
       send('status-changed');
+      sendPresence();
     });
     return { name: ticket.name, guest: Boolean(ticket.guest) };
   }
@@ -974,6 +1047,7 @@ function registerIpc() {
     return updateStatus;
   });
   ipcMain.handle('server:set', (event, centralUrl) => {
+    if (fixedServer()) return fixedServer();
     const url = lib('proxy').normalizeCentralUrl(centralUrl);
     if (url === null) throw new Error('That server address does not look right (use http://host or host:port).');
     const joining = lib('joining');
@@ -985,9 +1059,13 @@ function registerIpc() {
   ipcMain.handle('auth:signin', async (event, options) => {
     const result = await account.signIn(options || {});
     syncMenuMusic();
+    sendPresence();
     return result;
   });
-  ipcMain.handle('auth:signout', () => account.signOut());
+  ipcMain.handle('auth:signout', async () => {
+    await sendPresence({ state: 'offline' });
+    return account.signOut();
+  });
   ipcMain.handle('avatar:get', () => account.avatar());
   ipcMain.handle('avatar:save', (event, body) => account.saveAvatar(undefined, body));
   ipcMain.handle('avatar:copy', () => account.copyAvatar());
@@ -1008,6 +1086,18 @@ function registerIpc() {
   ipcMain.handle('people:search', (event, search) => account.people(undefined, search));
   ipcMain.handle('people:profile', (event, userId) => account.profile(undefined, userId));
   ipcMain.handle('profile:bio', (event, bio) => account.saveBio(undefined, bio));
+  ipcMain.handle('follows:list', () => account.following());
+  ipcMain.handle('follows:set', async (event, { userId, on }) => account.follow(undefined, userId, Boolean(on)));
+  ipcMain.handle('players:report', (event, body) => account.report(undefined, body || {}));
+  // The update log (changelog.json, newest first), for Settings > About and "What's new".
+  ipcMain.handle('app:changelog', () => {
+    try {
+      const list = JSON.parse(fs.readFileSync(path.join(__dirname, 'changelog.json'), 'utf8'));
+      return Array.isArray(list) ? list : [];
+    } catch (error) {
+      return [];
+    }
+  });
   ipcMain.handle('outfits:list', () => account.outfits());
   ipcMain.handle('outfits:save', (event, body) => account.saveOutfit(undefined, body || {}));
   ipcMain.handle('outfits:action', (event, { id, verb, body }) => account.outfitAction(undefined, id, verb, body));
@@ -1147,8 +1237,10 @@ app.whenReady().then(() => {
     }
     return new Response(fs.readFileSync(music), { headers: { 'Content-Type': 'audio/mpeg' } });
   });
+  applyFixedServer();
   registerIpc();
   createWindow();
+  startPresence();
   const files = installedFiles();
   logger('launcher')(`Launcher ${app.getVersion()} started (${app.isPackaged ? 'installed' : 'from source'}, Windows ${os.release()}, folder ${ROOT}, `
     + `game files ${files ? files.version : capabilities().canPlay ? 'local' : 'none'}, server ${(lib('joining').loadConfig() || {}).centralUrl || 'not set'}).`);

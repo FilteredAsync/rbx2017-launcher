@@ -325,5 +325,9 @@ module.exports = function accountModule({ ROOT, lib }) {
       if (!['request', 'accept', 'decline', 'cancel', 'remove'].includes(verb)) throw new Error('unknown friends action');
       return authed(centralUrl, 'POST', `friends/${verb}`, { body });
     },
+    presence: (centralUrl, body) => authed(centralUrl, 'POST', 'presence', { body, timeoutMs: 8000 }),
+    following: (centralUrl) => authed(centralUrl, 'GET', 'following', { timeoutMs: 8000 }),
+    follow: (centralUrl, userId, on) => authed(centralUrl, 'POST', on ? 'follow' : 'unfollow', { body: { userId: String(userId) } }),
+    report: (centralUrl, { userId, reason, text }) => authed(centralUrl, 'POST', 'report', { body: { userId: String(userId), reason: String(reason || '').slice(0, 100), text: String(text || '').slice(0, 1000) } }),
   };
 };

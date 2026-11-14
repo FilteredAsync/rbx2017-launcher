@@ -37,7 +37,7 @@
       <button class="primary wide" id="acct-go">Sign in</button>
       <div class="account-or"><span>or</span></div>
       <button class="ghost wide" id="acct-guest">Play as a guest</button>
-      <div class="account-server"><span id="acct-server"></span><button class="link" id="acct-server-change">Change server</button></div>
+      <div class="account-server" id="acct-server-row"><span id="acct-server"></span><button class="link" id="acct-server-change">Change server</button></div>
     </div>
   </section>
 
@@ -164,6 +164,7 @@
         <input id="people-search" placeholder="Find a player" maxlength="20" spellcheck="false">
         <button class="icon-btn accent" id="people-search-go" title="Search" aria-label="Search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg></button>
         <button type="button" class="ghost" id="people-everyone">Everyone</button>
+        <button type="button" class="ghost hidden" id="people-following">Following</button>
         <span class="status" id="friends-status"></span>
       </form>
       <div class="hidden" id="people-results">
@@ -212,7 +213,7 @@
           </div>
 
           <div class="set-panel hidden" id="set-network">
-            <div class="panel">
+            <div class="panel" id="server-panel">
               <div class="label">Server</div>
               <p class="lead">The web server you play on: your host's Tailscale address, a playit address, or http://127.0.0.1 on the host PC. Accounts belong to a server.</p>
               <div class="grid two">
@@ -243,7 +244,7 @@
               <div class="label">Game files</div>
               <p class="lead" id="files-lead">The game files come from your server (about 75 MB). Connect Tailscale, enter the server address your host gave you, and download them.</p>
               <div class="grid two">
-                <label>Server address
+                <label id="files-server-field">Server address
                   <input id="files-server" placeholder="http://100.101.102.103" spellcheck="false">
                   <span class="hint">Your host's Tailscale address. It is also used to find games.</span>
                 </label>
@@ -420,6 +421,7 @@
               <div class="row">
                 <button class="primary" id="about-check">Check for updates</button>
                 <button class="primary hidden" id="about-restart">Restart to update</button>
+                <button class="ghost" id="about-changelog">Update log</button>
               </div>
               <div class="row">
                 <button class="ghost" id="open-root">Open RobloxClient folder</button>
@@ -470,20 +472,53 @@
       <div class="profile-pic" id="profile-pic"></div>
       <div class="profile-info">
         <div class="profile-name"><span id="profile-name"></span><span class="profile-badge hidden" id="profile-admin">ADMIN</span></div>
-        <div class="profile-where" id="profile-where"></div>
-        <div class="profile-meta" id="profile-meta"></div>
+        <div class="profile-line">
+          <span class="profile-where" id="profile-where"></span>
+          <span class="profile-tag hidden" id="profile-follows-you">Follows you</span>
+        </div>
+        <div class="profile-stats" id="profile-stats"></div>
+        <div class="profile-game hidden" id="profile-game"></div>
         <div class="profile-bio" id="profile-bio"></div>
         <form class="profile-bio-form hidden" id="profile-bio-form">
-          <textarea id="profile-bio-text" maxlength="200" rows="4" placeholder="Say something about yourself (200 characters)"></textarea>
+          <textarea id="profile-bio-text" maxlength="200" rows="4" placeholder="Say something about yourself"></textarea>
           <div class="row">
             <button class="primary" id="profile-bio-save">Save</button>
             <button type="button" class="ghost" id="profile-bio-cancel">Cancel</button>
           </div>
         </form>
-        <div class="row profile-actions" id="profile-actions"></div>
+        <div class="profile-actions" id="profile-actions"></div>
+        <form class="profile-report hidden" id="profile-report">
+          <div class="detail-head"><span>Report <b id="profile-report-name"></b></span></div>
+          <select id="profile-report-reason">
+            <option value="">Pick a reason</option>
+            <option>Bullying or harassment</option>
+            <option>Swearing</option>
+            <option>Scamming</option>
+            <option>Cheating or exploiting</option>
+            <option>Inappropriate name or avatar</option>
+            <option>Something else</option>
+          </select>
+          <textarea id="profile-report-text" maxlength="1000" rows="3" placeholder="What happened? (optional)"></textarea>
+          <div class="row">
+            <button class="danger" type="submit">Send report</button>
+            <button type="button" class="ghost" id="profile-report-cancel">Cancel</button>
+          </div>
+        </form>
         <div class="status" id="profile-status"></div>
+        <div class="profile-joined" id="profile-joined"></div>
       </div>
       <button class="ghost profile-back" id="profile-back">Back</button>
+    </div>
+  </div>
+
+  <!-- What's new: once after an update, and from Settings > About -->
+  <div class="overlay hidden" id="news-overlay">
+    <div class="whats-new">
+      <div class="whats-new-head">
+        <span class="whats-new-title" id="whats-new-title">What's new</span>
+        <button class="ghost" id="whats-new-close">Close</button>
+      </div>
+      <div class="changelog" id="whats-new-list"></div>
     </div>
   </div>
 

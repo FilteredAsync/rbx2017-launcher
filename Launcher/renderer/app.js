@@ -175,7 +175,7 @@ function showScreen(name) {
   document.body.classList.toggle('on-account', name === 'account');
   document.body.classList.toggle('on-avatar', name === 'shell' && view === 'avatar');
   if (name === 'start') focusEl($('start-press'));
-  if (name === 'shell') setTimeout(popNews, 400);
+  if (name === 'shell') setTimeout(() => { popNews(); whatsNewAfterUpdate(); }, 400);
   if (name === 'account') {
     $('acct-server').textContent = serverAddress() ? `Server: ${serverAddress()}` : 'No server set yet';
     focusEl($('acct-name').value ? $('acct-pass') : $('acct-name'));
@@ -361,6 +361,11 @@ let SETTINGS = ['account', 'network', 'storage', 'menu', 'host', 'server', 'setu
 let capabilitiesApplied = false;
 function applyCapabilities() {
   capabilitiesApplied = true;
+  // Release builds have their server built in: nothing to type or change.
+  if (state.fixedServer) {
+    for (const id of ['server-panel', 'files-server-field', 'acct-server-row']) $(id).classList.add('hidden');
+    $('files-lead').textContent = 'Download the game files (about 75 MB) to play.';
+  }
   if (state.canHost) return;
   SETTINGS = SETTINGS.filter((name) => name !== 'host' && name !== 'server');
   for (const name of ['host', 'server']) {
@@ -429,6 +434,7 @@ function focusEl(node) {
 
 // What the arrows and the stick move between on the current screen.
 function navPool() {
+  if (!$('news-overlay').classList.contains('hidden')) return focusables('#news-overlay');
   if (!$('profile-overlay').classList.contains('hidden')) return focusables('#profile-overlay');
   if (!$('overlay').classList.contains('hidden')) return focusables('#overlay');
   if (screen === 'start') return [$('start-press')];
@@ -471,6 +477,7 @@ function move(dx, dy) {
 
 function goBack() {
   if (loading) return;
+  if (!$('news-overlay').classList.contains('hidden')) { closeWhatsNew(); return; }
   if (!$('profile-overlay').classList.contains('hidden')) { closeProfile(); return; }
   if (!$('overlay').classList.contains('hidden')) { closeDetail(); return; }
   if (screen === 'account') { showScreen('start'); return; }
@@ -660,10 +667,9 @@ let onlinePlayers = [];
 function renderHome() {
   renderFriendsStrip();
   const rows = [
-    ['Server', serverAddress() ? hostOf(serverAddress()) : 'Not set'],
-    ['Games online', String(lastGames.length)],
-    ['Players online', String(onlinePlayers.length)],
-    ...(me && friendData ? [['Friends playing', `${friendData.friends.filter((friend) => friend.online).length} of ${friendData.friends.length}`]] : []),
+    ...(state && state.fixedServer ? [] : [['Server', serverAddress() ? hostOf(serverAddress()) : 'Not set']]),
+    ['Players in games', String(onlinePlayers.length)],
+    ...(me && friendData ? [['Friends online', `${friendData.friends.filter((friend) => presenceOf(friend) !== 'offline').length} of ${friendData.friends.length}`]] : []),
   ];
   if (state && state.canHost) {
     rows.push(['Web server', state.web.running ? 'Running' : 'Stopped']);
@@ -1048,7 +1054,7 @@ async function refreshState() {
   showUpdate(state.update);
   if (!formsFilled) fillForms();
   $('presence-dot').className = `presence-dot${state.web.tailscaleUrl ? ' on' : ''}`;
-  $('start-foot').textContent = `Launcher ${state.version}${serverAddress() ? ` · ${serverAddress()}` : ''}`;
+  $('start-foot').textContent = `Launcher ${state.version}${serverAddress() && !state.fixedServer ? ` · ${serverAddress()}` : ''}`;
 
   // Games / play
   // The client closed (or failed) before its window took over.
@@ -1142,7 +1148,7 @@ async function findGames(quiet) {
   $('play-refresh').disabled = true;
   try {
     lastGames = await api.games(serverAddress());
-    setStatus('play-status', lastGames.length ? `${lastGames.length} game${lastGames.length === 1 ? '' : 's'} online.` : 'No games are online right now.');
+    setStatus('play-status', lastGames.length ? '' : 'No games are online right now.');
   } catch (error) {
     lastGames = [];
     setStatus('play-status', message(error), 'error');
@@ -1213,6 +1219,8 @@ let refreshingPlayers = false;
 let friendData = null; // { friends, incoming, outgoing } for the signed-in account
 let peopleResults = null; // the last search: { title, people }
 
+// Also refreshes an open search or Following list and an open profile, so
+// what they say about people stays current.
 async function refreshOnlinePlayers(quiet) {
   if (refreshingPlayers || !serverAddress()) return;
   refreshingPlayers = true;
@@ -1228,10 +1236,22 @@ async function refreshOnlinePlayers(quiet) {
   } finally {
     refreshingPlayers = false;
     updateFriendsBadge();
+    if (view === 'players' && peopleResults) await reloadPeopleResults();
     if (view === 'players') renderPlayers();
     renderFriendsStrip();
+    refreshOpenProfile();
   }
 }
+
+// presence: game | studio | online | offline. Servers before 1.8.0 only say
+// who is in a game.
+function presenceOf(person) {
+  if (!person) return 'offline';
+  if (person.presence) return person.presence;
+  return person.online || person.gameId ? 'game' : 'offline';
+}
+
+const PRESENCE_WORDS = { studio: 'In Studio', online: 'Online', offline: 'Offline' };
 
 function updateFriendsBadge() {
   const count = friendData && me ? friendData.incoming.length : 0;
@@ -1262,11 +1282,10 @@ function onlineGame(person) {
 // A card: picture, name and where they are; clicking it opens their profile.
 // actions: [[label, verb, className]], buttons under it ('join' joins their game).
 function personCard(person, where, actions = []) {
-  const card = el('div', 'player-card');
+  const card = el('div', `player-card p-${presenceOf(person)}`);
   const main = el('button', 'card-main nav-target');
   main.dataset.player = person.name;
   if (me && me.account.name.toLowerCase() === person.name.toLowerCase()) card.classList.add('you');
-  if (person.gameId || person.online) card.classList.add('online');
   const pic = el('div', 'player-pic');
   personPicture(pic, person.userId);
   main.append(pic, el('div', 'player-name', person.name), el('div', 'player-where', where));
@@ -1277,7 +1296,7 @@ function personCard(person, where, actions = []) {
     const row = el('div', 'card-actions');
     for (const [label, verb, kind] of actions) {
       const button = el('button', kind || 'ghost', label);
-      button.addEventListener('click', () => (verb === 'join' ? joinPerson(person) : friendAction(verb, person)));
+      button.addEventListener('click', () => (verb === 'join' ? joinPerson(person) : verb === 'unfollow' ? setFollow(person, false) : friendAction(verb, person)));
       row.append(button);
     }
     card.append(row);
@@ -1309,8 +1328,22 @@ async function friendAction(verb, person, statusId = 'friends-status') {
   updateFriendsBadge();
   renderPlayers();
   renderFriendsStrip();
-  if (ok && peopleResults) searchPeople(peopleResults.search, true);
+  if (ok && peopleResults) reloadPeopleResults().then(renderPlayers);
   return ok;
+}
+
+// Follow or unfollow -> the updated profile, or null.
+async function setFollow(person, on, statusId = 'friends-status') {
+  setStatus(statusId, '');
+  try {
+    const profile = await api.setFollow(person.userId, on);
+    setStatus(statusId, on ? `Following ${person.name}` : `Unfollowed ${person.name}`, 'good');
+    if (peopleResults) reloadPeopleResults().then(renderPlayers);
+    return profile;
+  } catch (error) {
+    setStatus(statusId, message(error), 'error');
+    return null;
+  }
 }
 
 // Joins the very server someone is in (a private one only if you may).
@@ -1329,23 +1362,44 @@ function joinPerson(person) {
 // Where someone is, and how you two relate.
 function relation(person) {
   const status = person.friendStatus;
-  if (status === 'Friend') return ' · friend';
-  if (status === 'FriendRequestSent') return ' · request sent';
-  if (status === 'FriendRequestReceived') return ' · wants to be your friend';
+  if (status === 'Friend') return ' · Friend';
+  if (status === 'FriendRequestSent') return ' · Request sent';
+  if (status === 'FriendRequestReceived') return ' · Wants to be friends';
   return '';
 }
 
 function whereText(person) {
+  const presence = presenceOf(person);
+  if (presence !== 'game') return PRESENCE_WORDS[presence];
   const game = person.online || (person.gameId ? { gameName: person.gameName, privateServer: person.privateServer } : null);
-  return game ? `in ${game.gameName}${game.privateServer ? ' (private server)' : ''}` : 'offline';
+  if (game) return `In ${game.gameName}${game.privateServer ? ' (private)' : ''}`;
+  return person.gameName ? `In ${person.gameName}` : 'In a game';
 }
 
-async function searchPeople(search, quiet) {
-  const text = String(search || '').trim();
-  if (!quiet) setStatus('friends-status', text ? `Looking for "${text}"…` : 'Loading everyone…');
+// The list in the People tab's results area: a search, everyone, or who you follow.
+async function fetchPeople(mode, search) {
+  if (mode === 'following') {
+    const data = await api.following();
+    return { mode, search: '', people: data.following || [], followers: data.followers || [] };
+  }
+  const data = await api.people(search);
+  return { mode: 'search', search, people: data.people || [] };
+}
+
+async function reloadPeopleResults() {
+  if (!peopleResults) return;
+  const shown = peopleResults;
   try {
-    const data = await api.people(text);
-    peopleResults = { search: text, people: data.people || [] };
+    const fresh = await fetchPeople(shown.mode, shown.search);
+    if (peopleResults === shown) peopleResults = fresh;
+  } catch (error) { /* keep the last list; the next refresh tries again */ }
+}
+
+async function searchPeople(search, quiet, mode = 'search') {
+  const text = String(search || '').trim();
+  if (!quiet) setStatus('friends-status', mode === 'following' ? 'Loading…' : text ? `Looking for "${text}"…` : 'Loading everyone…');
+  try {
+    peopleResults = await fetchPeople(mode, text);
     if (!quiet) setStatus('friends-status', '');
   } catch (error) {
     setStatus('friends-status', message(error), 'error');
@@ -1361,31 +1415,39 @@ $('people-search-form').addEventListener('submit', (event) => {
   searchPeople(text);
 });
 $('people-everyone').addEventListener('click', () => { $('people-search').value = ''; searchPeople(''); });
+$('people-following').addEventListener('click', () => { $('people-search').value = ''; searchPeople('', false, 'following'); });
 $('friends-signin').addEventListener('click', () => { setAccountMode('signup'); showScreen('account'); });
 
 function renderPlayers() {
   const focusedName = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.player : null;
   $('friends-guest').classList.toggle('hidden', Boolean(me));
   $('friends-area').classList.toggle('hidden', !me);
+  $('people-following').classList.toggle('hidden', !me);
+  $('people-following').classList.toggle('active', Boolean(peopleResults && peopleResults.mode === 'following'));
 
-  // Search results.
+  // Search results, everyone, or who you follow.
   $('people-results').classList.toggle('hidden', !peopleResults);
   if (peopleResults) {
     const grid = $('people-grid');
     grid.textContent = '';
-    const { search, people } = peopleResults;
-    const playing = people.filter((person) => person.online).length;
-    $('people-title').textContent = search
-      ? `PLAYERS NAMED "${search.toUpperCase()}" (${people.length})`
-      : `EVERYONE ON THIS SERVER (${people.length}${playing ? `, ${playing} playing` : ''})`;
+    const { mode, search, people } = peopleResults;
+    const online = people.filter((person) => presenceOf(person) !== 'offline').length;
+    $('people-title').textContent = mode === 'following'
+      ? `FOLLOWING (${people.length})`
+      : search ? `PLAYERS NAMED "${search.toUpperCase()}" (${people.length})`
+        : `EVERYONE (${people.length}${online ? `, ${online} online` : ''})`;
     for (const person of people) {
       const actions = [];
       if (person.online && onlineGame(person) && !person.self) actions.push(['Join', 'join', 'primary']);
-      if (me && !person.self && person.friendStatus === 'NotFriend') actions.push(['Add friend', 'request']);
+      if (mode === 'following') actions.push(['Unfollow', 'unfollow']);
+      else if (me && !person.self && person.friendStatus === 'NotFriend') actions.push(['Add friend', 'request']);
       if (me && person.friendStatus === 'FriendRequestReceived') actions.push(['Accept', 'accept', 'primary']);
       grid.append(personCard(person, `${whereText(person)}${relation(person)}`, actions));
     }
-    if (!people.length) grid.append(el('div', 'empty-note', search ? `Nobody here is called anything like "${search}".` : 'Nobody has an account here yet.'));
+    if (!people.length) {
+      grid.append(el('div', 'empty-note', mode === 'following' ? "You don't follow anyone yet. Open someone's profile to follow them."
+        : search ? `Nobody here is called anything like "${search}".` : 'Nobody has an account here yet.'));
+    }
   }
 
   if (me) {
@@ -1404,8 +1466,8 @@ function renderPlayers() {
     const list = $('friend-grid');
     list.textContent = '';
     const mine = friendData ? friendData.friends : [];
-    const playing = mine.filter((friend) => friend.online).length;
-    $('friends-title').textContent = mine.length ? `FRIENDS (${playing} of ${mine.length} playing)` : 'FRIENDS';
+    const online = mine.filter((friend) => presenceOf(friend) !== 'offline').length;
+    $('friends-title').textContent = mine.length ? `FRIENDS (${online} of ${mine.length} online)` : 'FRIENDS';
     for (const friend of mine) {
       list.append(personCard(friend, whereText(friend), friend.online && onlineGame(friend) ? [['Join', 'join', 'primary']] : []));
     }
@@ -1425,15 +1487,17 @@ function renderFriendsStrip() {
   if (!me) return;
   const strip = $('friends-strip');
   strip.textContent = '';
-  const playing = mine.filter((friend) => friend.online).length;
-  $('home-friends-note').textContent = mine.length ? `${playing} of ${mine.length} playing` : '';
+  const online = mine.filter((friend) => presenceOf(friend) !== 'offline').length;
+  $('home-friends-note').textContent = mine.length ? `${online} of ${mine.length} online` : '';
   for (const friend of mine.slice(0, 24)) {
-    const bubble = el('button', `friend-bubble nav-target${friend.online ? ' online' : ''}`);
+    const presence = presenceOf(friend);
+    // Rings like Roblox's: blue online, green in a game, orange in Studio.
+    const bubble = el('button', `friend-bubble nav-target p-${presence}`);
     const pic = el('div', 'bubble-pic');
     personPicture(pic, friend.userId, 150);
     bubble.append(pic, el('div', 'bubble-name', friend.name));
-    if (friend.online) bubble.append(el('div', 'bubble-where', friend.online.gameName));
-    bubble.title = friend.online ? `${friend.name}: in ${friend.online.gameName}` : `${friend.name}: offline`;
+    if (presence === 'game' || presence === 'studio') bubble.append(el('div', 'bubble-where', presence === 'studio' ? 'Studio' : whereText(friend).replace(/^In /, '')));
+    bubble.title = `${friend.name}: ${whereText(friend)}`;
     bubble.addEventListener('click', () => openProfile(friend));
     strip.append(bubble);
   }
@@ -1464,25 +1528,54 @@ function profileButton(label, kind, onClick) {
   return button;
 }
 
+// Big numbers with small labels; counts the server does not send are left out.
+function renderProfileStats(person) {
+  const box = $('profile-stats');
+  box.textContent = '';
+  for (const [count, one, many] of [[person.friendCount, 'Friend', 'Friends'], [person.followerCount, 'Follower', 'Followers'], [person.followingCount, 'Following', 'Following']]) {
+    if (!Number.isFinite(count)) continue;
+    const stat = el('div', 'profile-stat');
+    stat.append(el('b', '', String(count)), el('span', '', count === 1 ? one : many));
+    box.append(stat);
+  }
+}
+
+// The game they're in, with its picture and Join.
+function renderProfileGame(person) {
+  const box = $('profile-game');
+  box.textContent = '';
+  const game = presenceOf(person) === 'game' ? onlineGame(person) : null;
+  box.classList.toggle('hidden', !game || person.self);
+  if (!game || person.self) return;
+  const pic = el('div', 'profile-game-pic');
+  pic.append(cover(game));
+  const text = el('div', 'profile-game-text');
+  text.append(el('span', '', person.online && person.online.privateServer ? 'In a private server' : 'Playing'), el('b', '', game.name));
+  const join = el('button', 'play-button small', 'Join');
+  join.addEventListener('click', () => joinPerson(person));
+  box.append(pic, text, join);
+}
+
 function renderProfile(person) {
   $('profile-name').textContent = person.name;
   $('profile-admin').classList.toggle('hidden', !person.admin);
-  const game = onlineGame(person);
-  $('profile-where').textContent = person.online ? `Playing ${person.online.gameName}` : 'Offline';
-  $('profile-where').classList.toggle('online', Boolean(person.online));
-  const meta = [];
-  if (person.joinedAt) meta.push(`Joined ${new Date(person.joinedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}`);
-  if (Number.isFinite(person.friendCount)) meta.push(`${person.friendCount} friend${person.friendCount === 1 ? '' : 's'}`);
-  $('profile-meta').textContent = meta.join(' · ');
+  const presence = presenceOf(person);
+  $('profile-where').textContent = whereText(person);
+  $('profile-where').className = `profile-where p-${presence}`;
+  $('profile-follows-you').classList.toggle('hidden', !person.followsYou);
+  renderProfileStats(person);
+  renderProfileGame(person);
+  $('profile-joined').textContent = person.joinedAt
+    ? `Joined ${new Date(person.joinedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}` : '';
   const bio = $('profile-bio');
   bio.textContent = person.bio || (person.self ? 'You have no bio yet.' : 'No bio yet.');
   bio.classList.toggle('empty', !person.bio);
   $('profile-bio-form').classList.add('hidden');
+  $('profile-report').classList.add('hidden');
   bio.classList.remove('hidden');
 
   const actions = $('profile-actions');
   actions.textContent = '';
-  if (person.online && game && !person.self) actions.append(profileButton('Join', 'primary', () => joinPerson(person)));
   if (person.self) {
     actions.append(profileButton('Edit bio', 'ghost', () => {
       $('profile-bio-text').value = person.bio || '';
@@ -1499,7 +1592,21 @@ function renderProfile(person) {
     else if (status === 'FriendRequestSent') actions.append(profileButton('Take back request', 'ghost', act('cancel')));
     else if (status === 'FriendRequestReceived') {
       actions.append(profileButton('Accept friend request', 'primary', act('accept')), profileButton('Decline', 'ghost', act('decline')));
-    } else actions.append(profileButton('Add friend', person.online ? 'ghost' : 'primary', act('request')));
+    } else actions.append(profileButton('Add friend', 'primary', act('request')));
+    if (person.following !== undefined) {
+      actions.append(profileButton(person.following ? 'Unfollow' : 'Follow', 'ghost', async () => {
+        const updated = await setFollow(person, !person.following, 'profile-status');
+        if (updated && profilePerson) renderProfile(Object.assign(updated, { self: false }));
+      }));
+    }
+    const report = profileButton('Report', 'link profile-report-link', () => {
+      $('profile-report-name').textContent = person.name;
+      $('profile-report-reason').value = '';
+      $('profile-report-text').value = '';
+      $('profile-report').classList.remove('hidden');
+      focusEl($('profile-report-reason'));
+    });
+    actions.append(report);
   }
 }
 
@@ -1528,6 +1635,28 @@ async function openProfile(person, keepStatus) {
   }
 }
 
+// Keeps an open profile current (People refreshes every 15 s), unless you're typing in it.
+function refreshOpenProfile() {
+  if (!profilePerson || $('profile-overlay').classList.contains('hidden')) return;
+  if (!$('profile-bio-form').classList.contains('hidden') || !$('profile-report').classList.contains('hidden')) return;
+  openProfile(profilePerson, true);
+}
+
+$('profile-report-cancel').addEventListener('click', () => $('profile-report').classList.add('hidden'));
+$('profile-report').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const person = profilePerson;
+  const reason = $('profile-report-reason').value;
+  if (!person) return;
+  if (!reason) { setStatus('profile-status', 'Pick a reason.', 'error'); return; }
+  try {
+    await api.reportPlayer({ userId: person.userId, reason, text: $('profile-report-text').value.trim() });
+    $('profile-report').classList.add('hidden');
+    setStatus('profile-status', 'Thanks. The admins will look at it.', 'good');
+  } catch (error) {
+    setStatus('profile-status', message(error), 'error');
+  }
+});
 $('profile-back').addEventListener('click', closeProfile);
 $('profile-bio-cancel').addEventListener('click', () => {
   $('profile-bio-form').classList.add('hidden');
@@ -1950,6 +2079,59 @@ $('open-root').addEventListener('click', () => api.openFolder('root'));
 $('open-config').addEventListener('click', () => api.openFolder('config'));
 $('open-logs').addEventListener('click', () => api.openFolder('logs'));
 $('open-launcher-log').addEventListener('click', () => api.openLauncherLog());
+
+// --- update log ------------------------------------------------------------------------------
+// changelog.json (shipped in the app, newest first): Settings > About > Update
+// log shows all of it; after an update, "What's new" shows the new version once.
+
+let changelogEntries = null;
+async function loadChangelog() {
+  if (!changelogEntries) changelogEntries = await api.changelog().catch(() => []);
+  return changelogEntries;
+}
+
+function changelogEntry(entry) {
+  const box = el('div', 'changelog-entry');
+  const head = el('div', 'changelog-head');
+  head.append(el('b', '', entry.version));
+  if (entry.date) head.append(el('span', '', new Date(`${entry.date}T12:00:00`).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })));
+  box.append(head);
+  if (entry.title) box.append(el('div', 'changelog-title', entry.title));
+  const list = el('ul');
+  for (const item of entry.items || []) list.append(el('li', '', item));
+  box.append(list);
+  return box;
+}
+
+// version: that release only ("What's new"), or null for every release.
+async function showWhatsNew(version) {
+  const all = await loadChangelog();
+  const entries = version ? all.filter((entry) => entry.version === version) : all;
+  if (!entries.length) return false;
+  $('whats-new-title').textContent = version ? `What's new in ${version}` : 'Update log';
+  $('whats-new-list').replaceChildren(...entries.map(changelogEntry));
+  $('whats-new-list').scrollTop = 0;
+  $('news-overlay').classList.remove('hidden');
+  focusEl($('whats-new-close'));
+  return true;
+}
+
+function closeWhatsNew() {
+  $('news-overlay').classList.add('hidden');
+  const first = firstFocusable(`#view-${view}`);
+  if (first) focusEl(first);
+}
+
+// Once per version, the first time the menu opens after an update.
+async function whatsNewAfterUpdate() {
+  if (!state || storage('seenVersion') === state.version) return;
+  storage('seenVersion', state.version);
+  await showWhatsNew(state.version);
+}
+
+$('about-changelog').addEventListener('click', () => showWhatsNew(null));
+$('whats-new-close').addEventListener('click', closeWhatsNew);
+$('news-overlay').addEventListener('click', (event) => { if (event.target === $('news-overlay')) closeWhatsNew(); });
 
 // --- about and updates ---------------------------------------------------------------------
 

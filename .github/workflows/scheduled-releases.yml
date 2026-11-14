@@ -1,0 +1,40 @@
+name: Scheduled releases
+
+# Publishes the draft releases made by tools/schedule-release.js once their
+# publish-at time has passed, and updates announcements.json
+# (.github/scripts/publish-due.js). GitHub often starts scheduled runs a few
+# minutes late.
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Only show what would be published
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: scheduled-releases
+  cancel-in-progress: false
+
+jobs:
+  publish-due:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Publish due releases
+        run: node .github/scripts/publish-due.js
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DRY_RUN: ${{ inputs.dry_run && '1' || '' }}

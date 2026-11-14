@@ -7,7 +7,9 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const net = require('net');
+const os = require('os');
 const path = require('path');
+const zlib = require('zlib');
 const core = require('./core');
 const assets = require('./assets');
 const avatar = require('./avatar');
@@ -28,6 +30,7 @@ const missingassets = require('./missingassets');
 const places = require('./places');
 const privateservers = require('./privateservers');
 const rbxm = require('./rbxm');
+const reports = require('./reports');
 const social = require('./social');
 const thumbs = require('./thumbs');
 const www = require('./www');
@@ -1323,6 +1326,134 @@ async function announcementsApi(ctx, match) {
   }
 }
 
+// Player reports (lib/reports.js). The game server posts the in-game Report
+// menu's reports here as XML (Server/gameserver.lua sets this address with
+// Players:SetAbuseReportUrl):
+//   <report userID placeID gameJobID><comment>AbuserID:<id>;<reason>;<text></comment>
+//     <messages><message userID guid>chat</message>...</messages></report>
+// AbuserID 0 is a report on the game; its text is "User Report: ... Place Title: ...".
+//   POST   /AbuseReport/InGameChatHandler.ashx   game servers only (fromGameServer)
+//   GET    /api/reports                          -> { reports, open }; host key or manage token
+//   POST   /api/reports/<id>/resolve
+//   DELETE /api/reports/<id>
+
+function xmlUnescape(text) {
+  const named = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+  return String(text).replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').replace(/&(?:#x([0-9a-f]{1,6})|#(\d{1,7})|(amp|lt|gt|quot|apos));/gi, (all, hex, dec, name) => {
+    if (name) return named[name.toLowerCase()];
+    const code = hex ? parseInt(hex, 16) : parseInt(dec, 10);
+    return code > 0 && code < 0x110000 ? String.fromCodePoint(code) : '';
+  });
+}
+
+function xmlAttributes(text) {
+  const found = Object.create(null);
+  for (const match of String(text).matchAll(/([A-Za-z_][\w.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)) {
+    found[match[1].toLowerCase()] = xmlUnescape(match[2] !== undefined ? match[2] : match[3]);
+  }
+  return found;
+}
+
+// The report's fields, or null when the body is not a report.
+function parseAbuseReport(xml) {
+  const root = /<report\b([^>]*)>/i.exec(xml);
+  if (!root) return null;
+  const attributes = xmlAttributes(root[1]);
+  const child = (name) => {
+    const match = new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)</${name}>`, 'i').exec(xml);
+    return match ? xmlUnescape(match[1]).trim() : '';
+  };
+  const field = (name) => (attributes[name.toLowerCase()] !== undefined ? attributes[name.toLowerCase()] : child(name));
+  const comment = child('comment');
+  const parts = /^AbuserID:\s*(-?\d+)\s*;([^;]*);?([\s\S]*)$/i.exec(comment);
+  let text = parts ? parts[3] : comment;
+  // A report on the game carries the place's details after the player's words.
+  const gameReport = /^\s*User Report:\s*([\s\S]*?)\s*Place Title:/i.exec(text);
+  if (gameReport) text = gameReport[1];
+  // The text box's placeholder, sent when nothing was typed.
+  if (/^(?:Short Description\s*)?\(Optional\)$/i.test(text.trim())) text = '';
+  const names = new Map();
+  const nameOf = (id) => {
+    if (!names.has(id)) names.set(id, reports.nameOf(id));
+    return names.get(id);
+  };
+  const messages = [];
+  for (const match of xml.matchAll(/<message\b([^>]*?)(?:\/>|>([\s\S]*?)<\/message>)/gi)) {
+    const line = xmlUnescape(match[2] || '').trim();
+    if (!line) continue;
+    const from = nameOf(xmlAttributes(match[1]).userid);
+    messages.push(from ? `${from}: ${line}` : line);
+  }
+  return {
+    reporterId: field('userID'),
+    reportedId: parts ? parts[1] : null,
+    reason: parts ? parts[2] : '',
+    text,
+    placeId: field('placeID'),
+    jobId: field('gameJobID'),
+    messages,
+  };
+}
+
+const sameAddress = (a, b) => String(a || '').replace(/^::ffff:/i, '').toLowerCase() === String(b || '').replace(/^::ffff:/i, '').toLowerCase();
+
+// RCC on this PC (loopback, or one of this PC's own addresses), or on a PC a
+// listed game was registered from: that PC's RCC reaches this server through
+// its launcher proxy, so the request comes from the same address.
+function fromGameServer(remote) {
+  const address = String(remote || '').replace(/^::ffff:/i, '');
+  if (address === '::1' || /^127\./.test(address)) return true;
+  const own = Object.values(os.networkInterfaces()).some((list) => (list || []).some((item) => sameAddress(item.address, address)));
+  if (own) return true;
+  return games.listAll().some((listed) => {
+    const game = games.get(listed.id);
+    return Boolean(game && sameAddress(game.registeredFrom, address));
+  });
+}
+
+async function abuseReport(ctx) {
+  const textHeaders = { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' };
+  if (ctx.method !== 'POST') return send(ctx, 405, textHeaders, 'use POST');
+  if (!fromGameServer(ctx.remote)) return send(ctx, 403, textHeaders, 'Only game servers can send reports here.');
+  let body = await ctx.body();
+  if (body[0] === 0x1f && body[1] === 0x8b) {
+    try { body = zlib.gunzipSync(body, { maxOutputLength: 16 * reports.MAX_BODY }); } catch (error) { body = body.subarray(0, 0); }
+  }
+  const fields = parseAbuseReport(body.subarray(0, reports.MAX_BODY).toString('utf8'));
+  if (!fields) return send(ctx, 400, textHeaders, 'not a report');
+  // RCC sends no job ID here; a single listed server of the place from that PC is the one.
+  if (!fields.jobId) {
+    const servers = games.listAll().filter((listed) => listed.placeId === String(fields.placeId)
+      && sameAddress((games.get(listed.id) || {}).registeredFrom, ctx.remote));
+    if (servers.length === 1) fields.jobId = servers[0].id;
+  }
+  try {
+    reports.add(Object.assign({ source: 'game' }, fields));
+  } catch (error) {
+    return send(ctx, error.status || 400, textHeaders, error.message);
+  }
+  return send(ctx, 200, textHeaders, '');
+}
+
+async function reportsApi(ctx, match) {
+  const id = match[1] ? match[1].toLowerCase() : null;
+  const action = match[2] ? match[2].toLowerCase() : null;
+  if (!admin.allowed(ctx)) return sendJson(ctx, 403, admin.DENIED);
+  if (id === null) {
+    if (ctx.method !== 'GET' && ctx.method !== 'HEAD') return sendJson(ctx, 405, { error: 'use GET' });
+    const list = reports.list();
+    return sendJson(ctx, 200, { reports: list, open: list.filter((item) => item.status === 'open').length });
+  }
+  if (action === 'resolve') {
+    if (ctx.method !== 'POST') return sendJson(ctx, 405, { error: 'use POST' });
+    const found = admin.who(ctx);
+    const report = reports.resolve(id, found && found.name ? found.name : 'Host key');
+    return report ? sendJson(ctx, 200, { report }) : sendJson(ctx, 404, { error: 'no such report' });
+  }
+  if (ctx.method !== 'DELETE') return sendJson(ctx, 405, { error: 'use DELETE' });
+  return reports.remove(id) ? sendJson(ctx, 200, { ok: true }) : sendJson(ctx, 404, { error: 'no such report' });
+}
+
 // The always-on server itself (dedicated.js), for /manage: updates
 // (lib/updates.js), restarting the whole server and reading its logs.
 //   GET  /api/server/status                  versions, waiting updates, the last result
@@ -1466,6 +1597,8 @@ const ROUTES = [
   [/^download\/(roblox-logo(?:-tagline)?\.png)$/i, launcherLogoRoute],
   [/^api\/assets\/(?:missing|(\d{1,15})\/replacement)\/?$/i, assetsApi],
   [/^api\/announcements(?:\/([0-9a-f]{12}))?\/?$/i, announcementsApi],
+  [/^api\/reports(?:\/([0-9a-f]{12})(?:\/(resolve))?)?\/?$/i, reportsApi],
+  [/^abusereport\/ingamechathandler\.ashx\/?$/i, abuseReport],
   [/^api\/manage\/(token|whoami)\/?$/i, (ctx, match) => admin.route(ctx, match, sendJson)],
   [/^api\/server\/(status|update\/check|update\/install|update\/upload|update\/discard|restart|logs)\/?$/i, serverApi],
   [new RegExp(`^asset(?:/index\\.php)?/?$`, 'i'), assetEndpoint],

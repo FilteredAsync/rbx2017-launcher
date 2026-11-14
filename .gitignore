@@ -11,6 +11,9 @@
 !/start-web.sh
 !/packaging/
 !/tools/
+# Scheduled releases (tools/schedule-release.js) and the project's notices to every launcher.
+!/.github/
+!/announcements.json
 
 !/config/
 /config/*
@@ -27,6 +30,8 @@
 !/Launcher/account.js
 !/Launcher/cleanup.js
 !/Launcher/embed.js
+!/Launcher/changelog.json
+# Launcher/default-server.txt (the server address packed into builds) stays untracked.
 !/Launcher/package.json
 !/Launcher/package-lock.json
 !/Launcher/build/

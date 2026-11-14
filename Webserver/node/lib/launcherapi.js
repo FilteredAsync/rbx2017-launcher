@@ -27,8 +27,13 @@
 //   POST friends/request  (session) {name} or {userId}
 //   POST friends/accept | decline | cancel | remove   (session) {userId}
 //   GET  people           ?search= -> accounts (online first), with where they play
-//   GET  profile/<userId> a player's profile: bio, where they play, friends
+//   GET  profile/<userId> a player's profile: bio, where they play, friends, follows
 //   POST profile          (session) {bio} -> your profile
+//   POST presence         (session) {state: "online"|"studio"|"game"|"offline", placeId?}
+//                         the launcher is open (every 30 s); lib/presence.js
+//   GET  following        (session) who you follow, and who follows you
+//   POST follow | unfollow   (session) {userId} -> their profile
+//   POST report           (session) {userId, reason, text}: reports a player to the admins
 //   GET  outfits          (session) your saved avatars
 //   POST outfits          (session) {name, image: PNG as base64} saves what you wear
 //   POST outfits/<id>/wear | rename {name} | delete   (session)
@@ -53,6 +58,8 @@ const avatar = require('./avatar');
 const avatarStore = require('./avatarstore');
 const games = require('./games');
 const friends = require('./friends');
+const follows = require('./follows');
+const presence = require('./presence');
 const places = require('./places');
 const privateservers = require('./privateservers');
 const gamethumbs = require('./gamethumbs');
@@ -80,7 +87,16 @@ const CATEGORIES = {
   pants: { types: [12], label: 'Pants' },
   tshirts: { types: [2], label: 'T-Shirts' },
   packages: { bundles: true, label: 'Packages' },
+  // Roblox's catalog does not list body parts on their own: these come out of
+  // its packages, so parts of different packages can be mixed.
+  torsos: { types: [27], fromPackages: true, label: 'Torsos' },
+  rightarms: { types: [28], fromPackages: true, label: 'Right arms' },
+  leftarms: { types: [29], fromPackages: true, label: 'Left arms' },
+  leftlegs: { types: [30], fromPackages: true, label: 'Left legs' },
+  rightlegs: { types: [31], fromPackages: true, label: 'Right legs' },
 };
+// A package's parts are named "<package> Torso", "<package> Right Arm"...
+const PART_NAMES = { 27: /\btorso$/i, 28: /\bright arm$/i, 29: /\bleft arm$/i, 30: /\bleft leg$/i, 31: /\bright leg$/i };
 // Roblox's catalog no longer lists classic faces and heads (faces became
 // dynamic-head bundles), so these are fixed lists of Roblox's own classic
 // ones, checked against economy.roblox.com. Any other ID can still be worn by
@@ -237,6 +253,35 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
       }
     }
     return result.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  // What presence needs, worked out once per request: who is in which game,
+  // and who is editing in Team Create.
+  function presenceContext() {
+    const status = runner();
+    const editing = new Set();
+    for (const edit of Object.values(status && status.cloudEdit && typeof status.cloudEdit === 'object' ? status.cloudEdit : {})) {
+      for (const name of namesIn(edit && edit.editors)) editing.add(name.toLowerCase());
+    }
+    return { online: onlinePlayers(), editing };
+  }
+
+  // -> { presence: "game"|"studio"|"online"|"offline", online: where they play or null }
+  // A game on the always-on server wins (it has the server to join), then
+  // what the player's launcher says, then Team Create.
+  function presenceOf(userId, name, context) {
+    const lower = String(name || '').toLowerCase();
+    const where = context.online.find((entry) => entry.userId === userId || entry.name.toLowerCase() === lower) || null;
+    if (where) {
+      return { presence: 'game', online: { gameId: where.gameId, gameName: where.gameName, placeId: where.placeId, privateServer: where.privateServer } };
+    }
+    const said = presence.of(userId);
+    if (said && said.state === 'game') {
+      const place = said.placeId ? libraryPlaces()[said.placeId] : null;
+      return { presence: 'game', online: null, gameName: place ? place.name : null };
+    }
+    if ((said && said.state === 'studio') || context.editing.has(lower)) return { presence: 'studio', online: null };
+    return { presence: said ? 'online' : 'offline', online: null };
   }
 
   // --- choosing a server ----------------------------------------------------------------
@@ -600,9 +645,36 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
     return item;
   }
 
+  // Package ID -> its assets [{id, name}], filled many packages at a time.
+  const packageParts = new Map();
+  async function partsFromPackages(category, keyword, cursor, classicOnly) {
+    const packages = await search('packages', keyword, cursor, classicOnly);
+    if (packages.error) return packages;
+    const missing = packages.items.map((item) => item.id).filter((id) => !packageParts.has(id));
+    if (missing.length) {
+      const answer = await queued(() => robloxJson(`https://catalog.roblox.com/v1/bundles/details?bundleIds=${missing.join(',')}`));
+      if (answer.error) return answer;
+      for (const bundle of Array.isArray(answer.data) ? answer.data : []) {
+        packageParts.set(String(bundle.id), (Array.isArray(bundle.items) ? bundle.items : [])
+          .filter((item) => item.type === 'Asset').map((item) => ({ id: String(item.id), name: String(item.name || '').trim() })));
+      }
+      if (packageParts.size > 3000) packageParts.delete(packageParts.keys().next().value);
+    }
+    const typeId = category.types[0];
+    const items = [];
+    for (const pack of packages.items) {
+      const part = (packageParts.get(pack.id) || []).find((entry) => PART_NAMES[typeId].test(entry.name));
+      if (!part) continue;
+      rememberDetails(part.id, typeId, part.name);
+      items.push({ id: part.id, kind: 'asset', name: part.name, typeId, creator: 'Roblox' });
+    }
+    return { items, nextCursor: packages.nextCursor };
+  }
+
   async function search(categoryKey, keyword, cursor, classicOnly) {
     const category = CATEGORIES[categoryKey];
     if (!category) return { error: 'Unknown category.', status: 400 };
+    if (category.fromPackages) return partsFromPackages(category, keyword, cursor, classicOnly);
     if (CLASSIC[categoryKey]) {
       const typeId = category.types[0];
       const needle = keyword.toLowerCase();
@@ -680,18 +752,18 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
 
   // --- friends ---------------------------------------------------------------------------------
 
+  // Online first: in a game, in Studio, launcher open, then offline.
+  const PRESENCE_ORDER = { game: 0, studio: 1, online: 2, offline: 3 };
+  const byPresence = (a, b) => (PRESENCE_ORDER[a.presence] - PRESENCE_ORDER[b.presence]) || a.name.localeCompare(b.name);
+
   function friendSummary(who) {
-    const online = onlinePlayers();
-    const where = (userId, name) => online.find((player) => player.userId === userId
-      || player.name.toLowerCase() === String(name || '').toLowerCase()) || null;
+    const context = presenceContext();
     const person = (userId) => {
       const account = accounts.byUserId(userId);
       const name = account ? account.name : `User ${userId}`;
-      const place = where(userId, name);
-      return { userId, name, online: place ? { gameId: place.gameId, gameName: place.gameName, placeId: place.placeId, privateServer: place.privateServer } : null };
+      return Object.assign({ userId, name }, presenceOf(userId, name, context));
     };
-    const list = friends.friendIds(who.userId).filter((id) => accounts.byUserId(id)).map(person)
-      .sort((a, b) => (Number(Boolean(b.online)) - Number(Boolean(a.online))) || a.name.localeCompare(b.name));
+    const list = friends.friendIds(who.userId).filter((id) => accounts.byUserId(id)).map(person).sort(byPresence);
     return {
       friends: list,
       incoming: friends.incoming(who.userId).filter((r) => accounts.byUserId(r.from)).map((r) => Object.assign(person(r.from), { at: r.at })),
@@ -869,6 +941,45 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
       if (who) await friendsRoute(ctx, who, friendsMatch[1] || null);
       return;
     }
+    if (action === 'presence' && method === 'POST') {
+      const who = needAccount(ctx);
+      if (!who) return;
+      const body = await jsonBody(ctx);
+      presence.report(who.userId, String(body.state || ''), body.placeId);
+      return sendJson(ctx, 200, { ok: true, everySeconds: 30 });
+    }
+    if (action === 'following' && method === 'GET') {
+      const who = needAccount(ctx);
+      if (!who) return;
+      const context = presenceContext();
+      const people = (ids) => ids.map((id) => accounts.byUserId(id)).filter(Boolean).map((found) => personFor(found, who, context)).sort(byPresence);
+      return sendJson(ctx, 200, { following: people(follows.following(who.userId)), followers: people(follows.followers(who.userId)), max: follows.MAX_FOLLOWING });
+    }
+    if ((action === 'follow' || action === 'unfollow') && method === 'POST') {
+      const who = needAccount(ctx);
+      if (!who) return;
+      const other = friendTarget(await jsonBody(ctx));
+      if (!other) return sendJson(ctx, 404, { error: 'No such player.' });
+      const result = action === 'follow' ? follows.follow(who.userId, other.userId) : follows.unfollow(who.userId, other.userId);
+      if (result.error) return sendJson(ctx, 400, { error: result.error });
+      return sendJson(ctx, 200, profileOf(accounts.profile(other.userId), who));
+    }
+    if (action === 'report' && method === 'POST') {
+      const who = needAccount(ctx);
+      if (!who) return;
+      const body = await jsonBody(ctx);
+      const other = friendTarget(body);
+      if (!other) return sendJson(ctx, 404, { error: 'No such player.' });
+      if (other.userId === who.userId) return sendJson(ctx, 400, { error: "You can't report yourself." });
+      const reason = String(body.reason || '').trim();
+      if (!reason) return sendJson(ctx, 400, { error: 'Pick a reason.' });
+      try {
+        require('./reports').add({ source: 'launcher', reporterId: who.userId, reportedId: other.userId, reason, text: String(body.text || '') });
+      } catch (error) {
+        return sendJson(ctx, 429, { error: error.message });
+      }
+      return sendJson(ctx, 200, { ok: true });
+    }
     if (action === 'announcements' && method === 'GET') {
       // The host's notices (lib/announcements.js), for every launcher.
       return sendJson(ctx, 200, { announcements: announcements.list() });
@@ -951,38 +1062,46 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
   // --- people, profiles and outfits ----------------------------------------------------------
 
   // A player as the People tab shows them, seen by viewer (an account or null).
-  function personFor(person, viewer, online) {
-    const where = online.find((entry) => entry.userId === person.userId
-      || entry.name.toLowerCase() === person.name.toLowerCase()) || null;
+  // `online` (where they play) is what launchers before 1.8.0 read; `presence`
+  // adds Studio and "launcher open".
+  function personFor(person, viewer, context) {
     const self = Boolean(viewer && viewer.userId === person.userId);
-    return {
+    return Object.assign({
       userId: person.userId,
       name: person.name,
       admin: Boolean(person.admin),
       self,
-      online: where ? { gameId: where.gameId, gameName: where.gameName, placeId: where.placeId, privateServer: where.privateServer } : null,
       friendStatus: viewer && !self ? friends.status(viewer.userId, person.userId) : null,
-    };
+      following: Boolean(viewer && !self && follows.isFollowing(viewer.userId, person.userId)),
+    }, presenceOf(person.userId, person.name, context));
+  }
+
+  // A full profile: the person plus bio and counts.
+  function profileOf(found, viewer, context = presenceContext()) {
+    const data = follows.load();
+    const live = (ids) => ids.filter((id) => accounts.byUserId(id)).length;
+    return Object.assign(personFor(found, viewer, context), {
+      bio: found.bio, joinedAt: found.joinedAt,
+      friendCount: live(friends.friendIds(found.userId)),
+      followerCount: live(follows.followers(found.userId, data)),
+      followingCount: live(follows.following(found.userId, data)),
+      followsYou: Boolean(viewer && viewer.userId !== found.userId && follows.isFollowing(found.userId, viewer.userId, data)),
+    });
   }
 
   // Answers people/profile/outfit requests; false when the action is not one.
   async function peopleRoute(ctx, action, method) {
     if (action === 'people' && method === 'GET') {
       const viewer = account(ctx);
-      const online = onlinePlayers();
-      const found = accounts.search(ctx.queryLower.search || '', 60).map((person) => personFor(person, viewer, online))
-        .sort((a, b) => Number(Boolean(b.online)) - Number(Boolean(a.online)));
+      const context = presenceContext();
+      const found = accounts.search(ctx.queryLower.search || '', 60).map((person) => personFor(person, viewer, context)).sort(byPresence);
       return sendJson(ctx, 200, { people: found });
     }
     const profileMatch = /^profile\/(\d{1,15})$/.exec(action);
     if (profileMatch && method === 'GET') {
       const found = accounts.profile(profileMatch[1]);
       if (!found) return sendJson(ctx, 404, { error: 'Nobody on this server has that user ID.' });
-      const person = personFor(found, account(ctx), onlinePlayers());
-      return sendJson(ctx, 200, Object.assign(person, {
-        bio: found.bio, joinedAt: found.joinedAt,
-        friendCount: friends.friendIds(found.userId).filter((id) => accounts.byUserId(id)).length,
-      }));
+      return sendJson(ctx, 200, profileOf(found, account(ctx)));
     }
     if (action === 'profile' && method === 'POST') {
       const who = needAccount(ctx);
@@ -991,7 +1110,7 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
       if (typeof body.bio !== 'string') return sendJson(ctx, 400, { error: 'Send the bio as text.' });
       if (body.bio.length > 2000) return sendJson(ctx, 400, { error: `A bio is at most ${accounts.MAX_BIO} characters.` });
       const saved = accounts.setBio(who.userId, body.bio);
-      return saved ? sendJson(ctx, 200, Object.assign(personFor(saved, who, onlinePlayers()), { bio: saved.bio, joinedAt: saved.joinedAt }))
+      return saved ? sendJson(ctx, 200, profileOf(saved, who))
         : sendJson(ctx, 404, { error: 'Your account is gone. Sign in again.' });
     }
     const image = /^outfit-image\/(\d{1,15})\/([0-9a-f]{12})$/.exec(action);
