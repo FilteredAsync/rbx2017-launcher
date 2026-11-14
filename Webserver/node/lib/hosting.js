@@ -230,6 +230,15 @@ function startCall(placeId, port, domain, scriptTimeout, cloudEdit = false) {
 // friend requests to friends.
 const FRIEND_SERVICE = 'pcall(function() game:GetService("FriendService") end)\r\n';
 
+// GamePassService:PlayerHasPass asks this address (answered by
+// lib/marketplace.js: game passes count as owned). gameserver.lua never sets
+// it, so RCC had none and every PlayerHasPass failed ("LuaWebService error").
+function gamePassCall(domain) {
+  if (domain === null) return '';
+  const url = `http://${domain}/Game/GamePass/GamePassHandler.ashx?Action=HasPass&UserID=%d&PassID=%d`;
+  return `pcall(function() game:GetService("GamePassService"):SetPlayerHasPassUrl(${JSON.stringify(url)}) end)\r\n`;
+}
+
 // Newer games (2018 on) put their menus in PlayerGui before the player has a
 // character; the 2017 engine makes PlayerGui only with the first character.
 // In games that spawn characters themselves (CharacterAutoLoads off, e.g.
@@ -302,7 +311,7 @@ async function startGameJob(placeId, port, domain, scriptTimeout, log, soapPort 
   // before and after the place loads, in case the place file has its own) is not.
   const limit = !cloudEdit && Number(maxPlayers) >= 1
     ? `pcall(function() game:GetService("Players").MaxPlayersInternal = ${Math.round(Number(maxPlayers))} end)\r\n` : '';
-  const script = `${source}\r\n${creatorCall(placeId)}${cloudEdit ? '' : FRIEND_SERVICE}${limit}${startCall(placeId, port, domain, scriptTimeout, Boolean(cloudEdit))}\r\n${limit}${cloudEdit ? '' : `${appearanceHook()}\r\n${PLAYERGUI_HOOK}`}\r\n`;
+  const script = `${source}\r\n${creatorCall(placeId)}${cloudEdit ? '' : FRIEND_SERVICE + gamePassCall(domain)}${limit}${startCall(placeId, port, domain, scriptTimeout, Boolean(cloudEdit))}\r\n${limit}${cloudEdit ? '' : `${appearanceHook()}\r\n${PLAYERGUI_HOOK}`}\r\n`;
   soap('Execute', executeEnvelope('GameServer', script), 0, soapPort).then((result) => {
     if (result.status < 200 || result.status >= 300) log(`RCC answered the game job with HTTP ${result.status}`);
   }, (error) => log(`game job connection ended: ${error.code || error.message}`));

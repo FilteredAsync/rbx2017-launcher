@@ -234,6 +234,10 @@ const OTHER_NAMES = { MeshContent: 'MeshId', TextureContent: 'TextureID', ImageC
 // (dropped below) or Content for the textures.
 const CHARACTER_MESH_IDS = { MeshId: 'MeshId', BaseTextureId: 'BaseTextureId', OverlayTextureId: 'OverlayTextureId', BaseTextureContent: 'BaseTextureId', OverlayTextureContent: 'OverlayTextureId', MeshContent: 'MeshId' };
 
+// Box collision for unions (see convertProperties): "CSGPHS", version 0, "BLOCK".
+const BLOCK_PHYSICS = Buffer.concat([Buffer.from('CSGPHS', 'latin1'), Buffer.alloc(4), Buffer.from('BLOCK', 'latin1')]).toString('base64');
+const BOX_COLLISION_FILL = 0.75;
+
 // Part materials the 2017 engine lacks (newer, or terrain-only) -> nearest it has.
 const MATERIALS_2017 = new Set([256, 272, 288, 512, 528, 784, 800, 816, 832, 848, 864, 880, 1040, 1056, 1072, 1088, 1280, 1296, 1312, 1536]);
 const MATERIAL_MAP = {
@@ -257,6 +261,36 @@ function convertProperties(className, props, options, counts) {
     && !/<BinaryString\s+name="ChildData">\s*[^<\s]/.test(out)
     && !/<Content\s+name="(?:AssetId|Content)">\s*<url>[^<]*\d/.test(out)) {
     counts.newCsg++;
+  }
+
+  // Union collision. The 2017 engine loads a union's asset only to draw it;
+  // collision comes from its PhysicsData, which newer files keep elsewhere
+  // (PhysicalConfigData, a format 2017 cannot read) and 2017-era copies
+  // often lack: such unions are drawn but walked and fallen through. A
+  // union about as full as its box (UnscaledVolume / InitialSize) gets box
+  // collision ("CSGPHS" version 0 BLOCK, which 2017 reads): exact for the
+  // many unions newer Studio already gives box collision (volume = box),
+  // close for mostly solid ones. Hollow ones (arches, frames) are left alone.
+  if (className === 'UnionOperation' && !/<BinaryString\s+name="PhysicsData">\s*[^<\s]/.test(out)) {
+    const volume = Number((/<float\s+name="UnscaledVolume">([^<]+)<\/float>/.exec(out) || [])[1]);
+    const size = /<Vector3\s+name="InitialSize">\s*<X>([^<]+)<\/X>\s*<Y>([^<]+)<\/Y>\s*<Z>([^<]+)<\/Z>/.exec(out);
+    const box = size ? Number(size[1]) * Number(size[2]) * Number(size[3]) : 0;
+    if (volume > 0 && box > 0 && volume / box >= BOX_COLLISION_FILL) {
+      out = out.replace(/(?:\r?\n[ \t]*)?<BinaryString\s+name="PhysicsData">\s*<\/BinaryString>/, '');
+      out = out.replace(/(\r?\n[ \t]*)?(<\/?[A-Za-z]+[\s>])/, (match, lead, tag) => `${lead || ''}<BinaryString name="PhysicsData">${BLOCK_PHYSICS}</BinaryString>${lead || ''}${tag}`);
+      counts.unionCollision++;
+    }
+  }
+
+  // FilteringEnabled. Newer files leave it out (it is always on now) and the
+  // 2017 engine then runs the game with it off: every player's local changes
+  // (a menu script moving the lobby, a gun's effects) reach the server and
+  // all the other players. Games made since 2018 expect it on. Files from a
+  // 2017-era Studio always have it and keep their setting.
+  if (className === 'Workspace' && !/<bool\s+name="FilteringEnabled">/.test(out)) {
+    const before = out;
+    out = out.replace(/(\r?\n[ \t]*)?(<\/?[A-Za-z]+[\s>])/, (match, lead, tag) => `${lead || ''}<bool name="FilteringEnabled">true</bool>${lead || ''}${tag}`);
+    if (out !== before) counts.filteringEnabled++;
   }
 
   // ContentId (2024) is the old Content type renamed.
@@ -374,7 +408,7 @@ function convertPlace(input, options) {
   }
   const counts = {
     robloxLinks: 0, thumbnails: 0, gameAssets: 0, contentIds: 0, fonts: 0, droppedProperties: 0,
-    attributes: 0, sharedStrings: 0, newCsg: 0, taskCalls: 0, compoundAssignments: 0, materials: 0,
+    attributes: 0, sharedStrings: 0, newCsg: 0, taskCalls: 0, compoundAssignments: 0, materials: 0, unionCollision: 0, filteringEnabled: 0,
     compatScripts: 0, compatChanges: new Map(),
     gameAssetNames: new Set(), unsupportedThumbnails: new Set(), luauScripts: [], unknownClasses: new Map(),
   };
@@ -474,7 +508,9 @@ function summarize(counts, options) {
   changed(counts.sharedStrings, 'shared strings removed');
   changed(counts.taskCalls, 'task.wait/spawn/delay/defer calls -> wait/spawn/delay');
   changed(counts.compoundAssignments, 'compound assignments (x += 1) written out');
+  changed(counts.unionCollision, 'unions given box collision (2017 cannot read their newer collision data)');
   changed(counts.materials, 'part materials the 2017 engine lacks (Glass, ForceField...) -> the nearest it has');
+  if (counts.filteringEnabled > 0) lines.push('  FilteringEnabled turned on (the file leaves it out, and the 2017 engine would run the game with it off)');
   if (counts.compatScripts > 0) {
     lines.push(`  ${counts.compatScripts} scripts made to run on 2017: ${[...counts.compatChanges].sort((a, b) => b[1] - a[1]).map(([name, n]) => `${name} x${n}`).join(', ')}`);
   }

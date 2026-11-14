@@ -250,8 +250,14 @@ button opens it). Changes need the host key (config\host-key.txt).
   - Private servers: signed-in players make them in the launcher (a game's
     details). The owner, the owner's friends and anyone given its invite code
     can join; /manage lists them under their game and can delete them.
-    Stored in Webserver
-odedataprivate-servers.json.
+    Stored in Webserver\node\data\private-servers.json.
+  - In-game purchases are free (there is no Robux). Games see the real Roblox
+    names, prices and icons of their products (looked up once, kept in
+    Webserver\node\data\product-info.json); the purchase prompt offers them
+    "for FREE", developer products (e.g. Lumber Tycoon 2's money packs) are
+    granted by the game's own ProcessReceipt, and assets and game passes count
+    as owned. Signed-in players can buy; guests cannot (the 2017 prompt
+    refuses them).
   - Library: Webserver\node\data\places.json. Files: Server\content\places\
     (<placeId>.rbxlx; replaced versions in old\, deleted games in deleted\).
     Saves: Webserver\node\data\datastore-<placeId>.json. Thumbnails:

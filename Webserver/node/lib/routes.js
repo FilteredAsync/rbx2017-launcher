@@ -21,6 +21,7 @@ const datastore = require('./datastore');
 const games = require('./games');
 const gamethumbs = require('./gamethumbs');
 const placefile = require('./placefile');
+const marketplace = require('./marketplace');
 const missingassets = require('./missingassets');
 const places = require('./places');
 const privateservers = require('./privateservers');
@@ -728,15 +729,6 @@ async function filterText(ctx) {
   }));
 }
 
-const LOCAL_PRODUCTS = {
-  25386984: 'Local Money Pack 1', 25387029: 'Local Money Pack 2', 25387042: 'Local Money Pack 3',
-  25386995: 'Local Money Pack 4', 25387075: 'Local Money Pack 5', 25387014: 'Local Money Pack 6',
-};
-
-// Creator of things that are not library places: ROBLOX (user 1), as on
-// the 2017 site for catalog items.
-const ROBLOX_CREATOR = { Id: 1, Name: 'ROBLOX', CreatorType: 'User' };
-
 // A library place's creator as productinfo shows it.
 function placeCreator(place) {
   const creator = places.creatorOf(place);
@@ -744,34 +736,51 @@ function placeCreator(place) {
   return { Id: creator.id, Name: creator.name, CreatorType: creator.type };
 }
 
-// www/marketplace/productDetails.php
-function productDetails(ctx) {
-  const productId = core.phpInt(ctx.query.productId);
-  const name = LOCAL_PRODUCTS[productId] || `Local Product ${productId}`;
-  send(ctx, 200, { 'Content-Type': 'application/json; charset=utf-8' }, core.phpJson({
-    TargetId: productId, ProductType: 'Developer Product', AssetId: 0, ProductId: productId, Name: name,
-    Description: 'Local developer product.', AssetTypeId: 0,
-    Creator: ROBLOX_CREATOR,
-    IconImageAssetId: 0, Created: '2015-01-01T00:00:00Z', Updated: '2017-01-01T00:00:00Z', PriceInRobux: 0,
-    IsForSale: false, IsLimited: false, IsLimitedUnique: false, Remaining: null, MinimumMembershipLevel: 0, ContentRatingTypeId: 0,
-  }));
+// www/marketplace/productDetails.php: a developer product (lib/marketplace.js).
+async function productDetails(ctx) {
+  const info = await marketplace.productInfo(core.phpInt(ctx.queryLower.productid));
+  send(ctx, 200, { 'Content-Type': 'application/json; charset=utf-8' }, core.phpJson(info));
 }
 
 // www/marketplace/productinfo.php
-function productInfo(ctx) {
-  const assetId = core.phpInt(ctx.query.assetId);
+async function productInfo(ctx) {
+  const assetId = core.phpInt(ctx.queryLower.assetid);
   // A library place: its own name and creator (the game's loading screen
   // shows "By ..."; Studio shows both, and Team Create checks the owner).
+  // Anything else: its Roblox info (lib/marketplace.js).
   const place = places.exists() ? places.get(assetId) : null;
+  if (!place && assetId !== 1818) {
+    return send(ctx, 200, { 'Content-Type': 'application/json; charset=utf-8' }, core.phpJson(await marketplace.assetInfo(assetId)));
+  }
   if (place) creators.fillMissing();
   send(ctx, 200, { 'Content-Type': 'application/json; charset=utf-8' }, core.phpJson({
     TargetId: assetId, ProductType: 'User Product', AssetId: assetId, ProductId: 0,
     Name: place ? place.name : (assetId === 1818 ? 'Lumber Tycoon 2' : `Local Asset ${assetId}`),
     Description: place && place.description ? place.description : 'Served by the local game server.', AssetTypeId: 9,
-    Creator: place ? placeCreator(place) : ROBLOX_CREATOR,
+    Creator: place ? placeCreator(place) : { Id: 1, Name: 'ROBLOX', CreatorType: 'User' },
     IconImageAssetId: 0, Created: '2015-01-01T00:00:00Z', Updated: '2017-01-01T00:00:00Z', PriceInRobux: null,
     IsForSale: false, IsLimited: false, IsLimitedUnique: false, Remaining: null, MinimumMembershipLevel: 0, ContentRatingTypeId: 0,
   }));
+}
+
+// Developer product purchases (lib/marketplace.js): the client's purchase
+// prompt gets a receipt; the game server checks it before ProcessReceipt and
+// reports it granted.
+async function submitPurchase(ctx) {
+  if (ctx.method !== 'POST') return sendJson(ctx, 405, { error: 'use POST' });
+  sendJson(ctx, 200, marketplace.submitPurchase(launcher.playerAt(ctx.remote), await ctx.body()));
+}
+
+function validatePurchase(ctx) {
+  sendJson(ctx, 200, marketplace.validatePurchase(ctx.queryLower.receipt));
+}
+
+function pendingPurchases(ctx) {
+  sendJson(ctx, 200, marketplace.pendingPurchases(ctx.queryLower.placeid, ctx.queryLower.playerid));
+}
+
+async function completePurchase(ctx) {
+  sendJson(ctx, 200, marketplace.completePurchase(await ctx.body()));
 }
 
 // www/game/LuaWebService/HandleSocialRequest.php (the .ashx URL maps here).
@@ -1360,6 +1369,16 @@ const ROUTES = [
   [new RegExp(`^moderation/v2/filtertext${opt}$`, 'i'), filterText],
   [/^marketplace\/productdetails(?:\.php)?$/i, productDetails],
   [/^marketplace\/productinfo(?:\.php)?$/i, productInfo],
+  // MarketplaceService (lib/marketplace.js): everything is free, assets and
+  // game passes count as owned, developer products are bought with receipts.
+  [new RegExp(`^marketplace/submitpurchase${opt}$`, 'i'), submitPurchase],
+  [new RegExp(`^marketplace/validatepurchase${opt}$`, 'i'), validatePurchase],
+  [new RegExp(`^marketplace/purchase${opt}$`, 'i'), fixed('application/json; charset=utf-8', '{"success":true,"status":"Bought"}', { 'Cache-Control': 'no-store' })],
+  [new RegExp(`^gametransactions/settransactionstatuscomplete${opt}$`, 'i'), completePurchase],
+  [new RegExp(`^gametransactions/getpendingtransactions${opt}$`, 'i'), pendingPurchases],
+  [new RegExp(`^my/economy-status${opt}$`, 'i'), fixed('application/json; charset=utf-8', '{"isMarketplaceEnabled":true,"isMarketplaceEnabledForAuthenticatedUser":true,"isMarketplaceEnabledForUser":true,"isMarketplaceEnabledForGroup":true}', { 'Cache-Control': 'no-store' })],
+  [new RegExp(`^ownership/hasasset${opt}$`, 'i'), fixed('application/json; charset=utf-8', 'true', { 'Cache-Control': 'no-store' })],
+  [/^game\/gamepass\/gamepasshandler\.ashx$/i, fixed('text/plain; charset=utf-8', '<Value Type="boolean">true</Value>', { 'Cache-Control': 'no-store' })],
   [/^game\/luawebservice\/handlesocialrequest\.(?:ashx|php)$/i, socialRequest],
   [/^game\/tools\/thumbnailasset\.ashx$/i, thumbnailRoute('asset')],
   [/^(?:thumbs\/asset\.ashx|asset-thumbnail\/image)$/i, thumbnailRoute('asset')],
@@ -1375,14 +1394,14 @@ const ROUTES = [
   [/^setting\/quietget\/[^/]+\/?$/i, fixed('application/json; charset=utf-8', '{}', { 'Cache-Control': 'no-store' })],
   [new RegExp(`^device/initialize${opt}$`, 'i'), deviceInitialize],
   [new RegExp(`^v1\\.1/game-start-info${opt}$`, 'i'), gameStartInfo],
-  [new RegExp(`^currency/balance${opt}$`, 'i'), fixed('application/json; charset=utf-8', '{"robux":0}', { 'Cache-Control': 'no-store' })],
+  [new RegExp(`^currency/balance${opt}$`, 'i'), fixed('application/json; charset=utf-8', '{"robux":0,"tickets":0}', { 'Cache-Control': 'no-store' })],
   [new RegExp(`^game/validate-machine${opt}$`, 'i'), fixed('application/json', '{"success":true}', { 'Cache-Control': 'no-store' })],
   [new RegExp(`^login/negotiate\\.ashx${opt}$`, 'i'), fixed('text/plain; charset=utf-8', 'true')],
   // RCC asks this before accepting a player (api.<domain>); the retired
   // Roblox service answered true for a place the player may join.
   [new RegExp(`^universes/validate-place-join${opt}$`, 'i'), fixed('application/json; charset=utf-8', 'true', { 'Cache-Control': 'no-store' })],
-  // www/game/players/1/index.php, for any player ID.
-  [new RegExp(`^game/players/\\d+${opt}$`, 'i'), fixed('text/html', '{"ChatFilter":"whitelist"}')],
+  // www/game/players/1/index.php, for any player ID (guests' are negative).
+  [new RegExp(`^game/players/-?\\d+${opt}$`, 'i'), fixed('text/html', '{"ChatFilter":"whitelist"}')],
   // www/studio/e.png forwarded a fake analytics event to Roblox; now a no-op.
   [new RegExp(`^studio/e\\.png${opt}$`, 'i'), fixed('text/plain', '')],
 ];

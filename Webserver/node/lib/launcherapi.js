@@ -1060,6 +1060,7 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
       [/^users\/(\d{1,15})\/friends\/?$/i, gameFriendRoute('friend-list')],
     ],
     joinIdentity,
+    playerAt,
     ticketAllows,
     joinSignature,
     checkJoinSignature,
