@@ -16,7 +16,8 @@ const BRANCH = 'main';
 const OUT_FOR_MS = 2 * 86400000;
 const MAX_PAGES = 10;
 const BOT = { name: 'github-actions[bot]', email: '41898282+github-actions[bot]@users.noreply.github.com' };
-const MARKER = /[ \t]*<!--\s*publish-at:\s*(\S+?)\s*-->[ \t]*/;
+// <!-- publish-at: <time> tag: <tag> -->; the tag is optional (older schedules).
+const MARKER = /[ \t]*<!--\s*publish-at:\s*(\S+?)(?:\s+tag:\s*(\S+?))?\s*-->[ \t]*/;
 
 // --- pure parts (tested) ----------------------------------------------------------------
 
@@ -28,6 +29,14 @@ function publishAt(body) {
 }
 
 const stripMarker = (body) => String(body || '').replace(new RegExp(MARKER.source, 'g'), '').trimEnd();
+
+// The tag to publish under. GitHub can give an edited draft a placeholder
+// (untagged-...), which must never be published: the marker says the real one.
+function tagFor(release) {
+  if (release.tag_name && !/^untagged-/.test(release.tag_name)) return release.tag_name;
+  const match = MARKER.exec(String(release.body || ''));
+  return match && match[2] ? match[2] : null;
+}
 
 // "v1.8.0" -> "1.8.0"; server-<build> and others -> null.
 function launcherVersion(tag) {
@@ -53,7 +62,11 @@ function planReleases(releases, now) {
     if (!release || !release.draft) continue;
     const at = publishAt(release.body);
     if (at === null) continue;
-    const tag = release.tag_name;
+    const tag = tagFor(release);
+    if (!tag) {
+      rest.push({ type: 'warn', id: release.id, tag: release.tag_name, message: 'it has a placeholder tag and its schedule names none, so it is not published' });
+      continue;
+    }
     if (Number.isNaN(at)) {
       rest.push({ type: 'warn', id: release.id, tag, message: 'its publish-at time cannot be read, so it is not published' });
       continue;
@@ -70,7 +83,11 @@ function planReleases(releases, now) {
       tag,
       version,
       publishAt: new Date(at).toISOString(),
-      patch: { draft: false, prerelease, make_latest: version && !prerelease ? 'true' : 'false', body: stripMarker(release.body) },
+      // tag_name and target always: a PATCH without them can leave the placeholder tag.
+      patch: {
+        draft: false, prerelease, make_latest: version && !prerelease ? 'true' : 'false', body: stripMarker(release.body),
+        tag_name: tag, ...(release.target_commitish ? { target_commitish: release.target_commitish } : {}),
+      },
     });
   }
   publish.sort((a, b) => (a.version ? 1 : 0) - (b.version ? 1 : 0) || (a.version && b.version ? compareVersions(a.version, b.version) : 0));
@@ -217,7 +234,7 @@ async function main() {
   if (failed) process.exitCode = 1;
 }
 
-module.exports = { MARKER, publishAt, stripMarker, launcherVersion, planReleases, rewriteAnnouncements, releasedNotice };
+module.exports = { MARKER, publishAt, stripMarker, tagFor, launcherVersion, planReleases, rewriteAnnouncements, releasedNotice };
 
 if (require.main === module) {
   main().catch((error) => {

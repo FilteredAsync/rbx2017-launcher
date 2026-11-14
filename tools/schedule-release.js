@@ -122,7 +122,8 @@ function updateAnnouncements(data, entry, now) {
   return { ...(data && typeof data === 'object' && !Array.isArray(data) ? data : {}), announcements: [entry, ...kept] };
 }
 
-const marker = (publishAt) => `<!-- publish-at: ${new Date(publishAt).toISOString()} -->`;
+// The tag rides along: GitHub can give an edited draft a placeholder tag (untagged-...).
+const marker = (publishAt, tag) => `<!-- publish-at: ${new Date(publishAt).toISOString()} tag: ${tag} -->`;
 
 // --- checks -----------------------------------------------------------------------------
 
@@ -301,12 +302,12 @@ function main() {
 
   const entry = announcementFor(version, publishAt, now);
   const message = `Announce launcher ${version} for ${stampText(publishAt)}`;
-  const hidden = marker(publishAt);
+  const hidden = marker(publishAt, tag);
   const files = build ? build.files : [`RobloxClient-Setup-${version}.exe`, `RobloxClient-Setup-${version}.exe.blockmap`, 'latest.yml'].map((name) => path.join(DIST, name));
   const launcherArgs = ['release', 'create', tag, ...files.map(repoPath),
     '--draft', '--title', `RobloxClient Launcher ${version}`, '--notes', `${notes || ''}\n${hidden}\n`, '--target', target];
   const serverArgs = server && ['release', 'create', server.tag, repoPath(path.resolve(server.file)), '--draft', '--prerelease', '--latest=false',
-    '--title', server.title, '--notes', `${server.body}\n\n${hidden}\n`, '--target', server.commit];
+    '--title', server.title, '--notes', `${server.body}\n\n${marker(publishAt, server.tag)}\n`, '--target', server.commit];
   const notesShown = (args) => args.map((arg, i) => (args[i - 1] === '--notes' ? '<notes below>' : arg));
 
   console.log(`Launcher ${version} goes out ${stampText(publishAt)} (${new Date(publishAt).toISOString()}).`);
