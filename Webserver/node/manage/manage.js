@@ -259,6 +259,10 @@ function placeCard(place) {
   actions.append(restart);
   actions.append(button('Edit', 'ghost', () => { editing.has(id) ? editing.delete(id) : editing.add(id); renderPlaces(true); }));
   actions.append(button('Replace file', 'ghost', () => { pendingPlace = place; $('replace-file').value = ''; $('replace-file').click(); }));
+  actions.append(button('Convert again', 'ghost', () => {
+    if (!confirm(`Run "${place.name}" through the converter again?\n\nIt picks up fixes made since it was uploaded. Its servers restart on the new version (players are saved first); the old version is kept in Server\\content\\places\\old.`)) return;
+    act(() => change('POST', `/api/places/${id}/reconvert`, '{}'), `Converting "${place.name}" again…`);
+  }));
   actions.append(button('Thumbnail', 'ghost', () => { pendingPlace = place; $('thumb-file').value = ''; $('thumb-file').click(); }));
   actions.append(button('Delete', 'danger', () => {
     if (!confirm(`Delete "${place.name}" (place ${id})?\n\nIts file moves to Server\\content\\places\\deleted. Saves and the thumbnail are kept, and place ID ${id} is never reused.`)) return;

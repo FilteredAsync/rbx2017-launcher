@@ -841,6 +841,26 @@ const CLIENT_APP_SETTINGS = {
   FFlagPlayerAcceptPlayerScriptsStatus: true,
 };
 
+// Features this 2017 build already has but keeps switched off, which newer
+// games use: CollectionService tags (AddTag/HasTag/GetTagged), TweenService,
+// FindFirstChildWhichIsA and friends, mouse queries (GetMouseLocation...),
+// BindActionAtPriority, raycast/region whitelists, AnimationTrack.Looped,
+// UITableLayout, BuildRigFromAttachments, collision groups (PhysicsService).
+// Without them scripts stop with
+// "... is not enabled yet". RCC gets them here; the 2017 client reads only
+// its own Client/ClientSettings/ClientAppSettings.json, which has the same
+// list (game files). Each is sent as FFlag and DFFlag, as the build reads
+// one or the other.
+const FEATURE_FLAGS = [
+  'InstanceTaggingEnabled', 'GenericTweensEnabled', 'InstanceNavigationAdditionsEnabled', 'MouseInputQueryMethodsEnabled',
+  'EnableContextActionPriority', 'Region3WhitelistEnabled', 'AnimationTrackHasLoopApi', 'TableLayoutEnabled',
+  'BuildRigFromAttachmentsApiEnabled', 'EnableCollisionGroups',
+];
+for (const name of FEATURE_FLAGS) {
+  CLIENT_APP_SETTINGS[`FFlag${name}`] = true;
+  CLIENT_APP_SETTINGS[`DFFlag${name}`] = true;
+}
+
 function clientAppSettings(ctx) {
   send(ctx, 200, jsonNoStore, JSON.stringify(CLIENT_APP_SETTINGS));
 }
@@ -862,6 +882,10 @@ function rccSettings(ctx) {
     FFlagRCCSupportCloudEdit: true,
     DFFlagRCCSupportCloudEdit: true,
   };
+  for (const name of FEATURE_FLAGS) {
+    settings[`FFlag${name}`] = true;
+    settings[`DFFlag${name}`] = true;
+  }
   // RCC reads each as FString (at startup) or DFString (live); send both.
   for (const [name, value] of Object.entries(RCC_STRINGS)) {
     settings[`FString${name}`] = value;
@@ -958,6 +982,7 @@ async function gamesApi(ctx, match) {
 //   POST   /api/places/<id>/file?fromPlace=   new file for a place (same ID)
 //   POST   /api/places/<id>                   JSON {name, description, enabled, universeId}
 //   POST   /api/places/<id>/restart           ask the always-on server to restart its servers
+//   POST   /api/places/<id>/reconvert         run the stored file through the converter again (a new version)
 //   POST   /api/places/<id>/servers/<job ID>/restart | stop    one server (players saved first)
 //   DELETE /api/private-servers/<id>          remove a private server (its server stops)
 //   DELETE /api/places/<id>                   remove (saves, thumbnail and ID stay reserved)
@@ -1052,6 +1077,19 @@ async function placesApi(ctx, match) {
   if (action === 'restart') {
     places.requestRestart(placeId);
     return sendJson(ctx, 200, { ok: true });
+  }
+  if (action === 'reconvert') {
+    // The stored file through the current converter again (it learns new
+    // fixes over time): a new version, the old one kept in places/old.
+    const current = places.get(placeId);
+    let result;
+    try {
+      result = placefile.convertPlace(fs.readFileSync(places.filePath(current)), { universeId: current.universeId || null });
+    } catch (error) {
+      return sendJson(ctx, 400, { error: `could not convert the place again: ${error.message}` });
+    }
+    const place = places.replaceFile(placeId, { bytes: result.output, notes: result.summary, universeId: current.universeId, from: 'converted again' });
+    return sendJson(ctx, 200, { place, notes: result.summary });
   }
   if (action === null) {
     const body = await jsonBody(ctx);

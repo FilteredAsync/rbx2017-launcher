@@ -23,6 +23,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const luacompat = require('./luacompat');
 
 const LOCAL = 'http://localhost./';
 const API_DUMP = path.join(__dirname, '..', '..', '..', 'Client', 'apidump.txt');
@@ -181,6 +182,14 @@ function convertScript(source, counts, scriptName) {
     }
   }
   if (changed) text = lines.join('\n');
+  // Functions and features newer than 2017 (lib/luacompat.js).
+  const compat = luacompat.convertSource(text);
+  if (compat.changes.length > 0) {
+    text = compat.text;
+    changed = true;
+    counts.compatScripts++;
+    for (const change of compat.changes) counts.compatChanges.set(change, (counts.compatChanges.get(change) || 0) + 1);
+  }
   const found = LUAU_CHECKS.filter(([, pattern]) => pattern.test(text)).map(([name]) => name);
   if (found.length > 0) counts.luauScripts.push(`${scriptName}: ${found.join(', ')}`);
   return changed ? text : null;
@@ -192,7 +201,50 @@ const DROPPED_TYPES = ['OptionalCoordinateFrame', 'UniqueId', 'SecurityCapabilit
 // Each removal takes the line break and indent before it, so the file keeps its layout.
 const LEAD = '(?:\\r?\\n[ \\t]*)?';
 const DROPPED_PROPERTY = new RegExp(`${LEAD}<(${DROPPED_TYPES.join('|')})\\s+name="[^"]*"\\s*(?:/>|>[\\s\\S]*?</\\1>)`, 'g');
-const CONTENT_RENAMES = [['MeshContent', 'MeshId'], ['TextureContent', 'TextureID'], ['ImageContent', 'Image']];
+// Content properties by the names the 2017 engine reads (tested in it: under
+// any other name the value is ignored, so decals, sounds, animations and
+// mesh textures were blank). Newer files use ...Content names; places
+// converted before this used TextureID for every class, fixed here too.
+const IMAGE_NAMES = { TextureContent: 'Texture', TextureID: 'Texture', TextureId: 'Texture' };
+const MESH_NAMES = { MeshContent: 'MeshId', MeshID: 'MeshId', TextureContent: 'TextureId', TextureID: 'TextureId' };
+const TOOL_NAMES = { TextureContent: 'TextureId', TextureID: 'TextureId' };
+const CONTENT_NAMES = {
+  Decal: IMAGE_NAMES, Texture: IMAGE_NAMES, ParticleEmitter: IMAGE_NAMES, Trail: IMAGE_NAMES, Beam: IMAGE_NAMES,
+  SpecialMesh: MESH_NAMES, FileMesh: MESH_NAMES,
+  MeshPart: { MeshContent: 'MeshId', TextureContent: 'TextureID' },
+  Tool: TOOL_NAMES, HopperBin: TOOL_NAMES,
+  Sound: { AudioContent: 'SoundId', SoundContent: 'SoundId' },
+  Animation: { AnimationContent: 'AnimationId' },
+  Shirt: { ShirtTemplateContent: 'ShirtTemplate' },
+  Pants: { PantsTemplateContent: 'PantsTemplate' },
+  ShirtGraphic: { GraphicContent: 'Graphic', TextureID: 'Graphic', TextureContent: 'Graphic' },
+  Sky: {
+    SkyboxBackContent: 'SkyboxBk', SkyboxDownContent: 'SkyboxDn', SkyboxFrontContent: 'SkyboxFt',
+    SkyboxLeftContent: 'SkyboxLf', SkyboxRightContent: 'SkyboxRt', SkyboxUpContent: 'SkyboxUp',
+  },
+  ScrollingFrame: { TopImageContent: 'TopImage', MidImageContent: 'MidImage', BottomImageContent: 'BottomImage', ImageContent: 'Image' },
+  ImageLabel: { ImageContent: 'Image' },
+  ImageButton: { ImageContent: 'Image', HoverImageContent: 'HoverImage', PressedImageContent: 'PressedImage' },
+  // Newer unions name their geometry asset "Content"; 2017 reads AssetId.
+  UnionOperation: { Content: 'AssetId' }, NegateOperation: { Content: 'AssetId' },
+};
+const OTHER_NAMES = { MeshContent: 'MeshId', TextureContent: 'TextureID', ImageContent: 'Image' };
+
+// CharacterMesh IDs are plain numbers in 2017 (<int>); newer files use int64
+// (dropped below) or Content for the textures.
+const CHARACTER_MESH_IDS = { MeshId: 'MeshId', BaseTextureId: 'BaseTextureId', OverlayTextureId: 'OverlayTextureId', BaseTextureContent: 'BaseTextureId', OverlayTextureContent: 'OverlayTextureId', MeshContent: 'MeshId' };
+
+// Part materials the 2017 engine lacks (newer, or terrain-only) -> nearest it has.
+const MATERIALS_2017 = new Set([256, 272, 288, 512, 528, 784, 800, 816, 832, 848, 864, 880, 1040, 1056, 1072, 1088, 1280, 1296, 1312, 1536]);
+const MATERIAL_MAP = {
+  788: 800, 804: 800, 820: 816, 836: 816, 896: 800, 912: 1296, 1284: 1280, 1328: 1296, 1344: 1296, 1360: 1296,
+  1376: 816, 1392: 1296, 1552: 1536, 1568: 272, 1584: 272,
+};
+function material2017(value) {
+  const n = Number(value);
+  if (MATERIALS_2017.has(n)) return n;
+  return MATERIAL_MAP[n] !== undefined ? MATERIAL_MAP[n] : 256;
+}
 const SCRIPT_CLASSES = new Set(['Script', 'LocalScript', 'ModuleScript']);
 
 function convertProperties(className, props, options, counts) {
@@ -203,7 +255,7 @@ function convertProperties(className, props, options, counts) {
   if ((className === 'UnionOperation' || className === 'NegateOperation')
     && /<SharedString\s+name="(?:ChildData2|MeshData2)">/.test(out)
     && !/<BinaryString\s+name="ChildData">\s*[^<\s]/.test(out)
-    && !/<Content\s+name="AssetId">\s*<url>[^<]*\d/.test(out)) {
+    && !/<Content\s+name="(?:AssetId|Content)">\s*<url>[^<]*\d/.test(out)) {
     counts.newCsg++;
   }
 
@@ -227,16 +279,40 @@ function convertProperties(className, props, options, counts) {
     }
     return `<url>${xmlEscape(converted)}</url>`;
   });
-  for (const [from, to] of CONTENT_RENAMES) {
-    if (!new RegExp(`<Content\\s+name="${to}">`).test(out)) {
-      out = out.replace(new RegExp(`<Content\\s+name="${from}">`), () => {
-        counts.contentIds++;
-        return `<Content name="${to}">`;
-      });
-    }
+  // Property names the 2017 engine reads. When both names are there, the
+  // one 2017 reads is kept and the other dropped.
+  const names = CONTENT_NAMES[className] || OTHER_NAMES;
+  for (const [from, to] of Object.entries(names)) {
+    const fromTag = new RegExp(`(?:\\r?\\n[ \\t]*)?<Content\\s+name="${from}">[\\s\\S]*?<\\/Content>`);
+    if (!fromTag.test(out)) continue;
+    counts.contentIds++;
+    if (new RegExp(`<Content\\s+name="${to}">`).test(out)) out = out.replace(fromTag, '');
+    else out = out.replace(new RegExp(`<Content\\s+name="${from}">`), `<Content name="${to}">`);
   }
+  if (className === 'CharacterMesh') {
+    out = out.replace(/<(int64|int|Content)\s+name="(\w+)">([\s\S]*?)<\/\1>/g, (match, type, name, body) => {
+      const to = CHARACTER_MESH_IDS[name];
+      if (!to) return match;
+      const id = type === 'Content' ? (/rbxassetid:\/\/(\d+)|[?&]id=(\d+)/i.exec(body) || []).slice(1).find(Boolean) : body.trim();
+      if (type === 'int' && to === name) return match;
+      counts.contentIds++;
+      return /^\d{1,10}$/.test(String(id || '')) && Number(id) <= 2147483647 ? `<int name="${to}">${id}</int>` : '';
+    });
+  }
+  out = out.replace(/<token\s+name="Material">(\d+)<\/token>/, (match, value) => {
+    const mapped = material2017(value);
+    if (mapped === Number(value)) return match;
+    counts.materials++;
+    return `<token name="Material">${mapped}</token>`;
+  });
 
-  // FontFace -> Font.
+  // FontFace -> Font; a Font past the 2017 list (0-15) takes the FontFace's.
+  const face = /<Font\s+name="FontFace">([\s\S]*?)<\/Font>/.exec(out);
+  out = out.replace(/<token\s+name="Font">(\d+)<\/token>/, (match, value) => {
+    if (Number(value) <= 15) return match;
+    counts.fonts++;
+    return `<token name="Font">${face ? fontEnum(face[1]) : 3}</token>`;
+  });
   out = out.replace(/(\r?\n[ \t]*)?<Font\s+name="FontFace">([\s\S]*?)<\/Font>/g, (match, lead, body) => {
     counts.fonts++;
     if (/<token\s+name="Font">/.test(out)) return '';
@@ -261,8 +337,8 @@ function convertProperties(className, props, options, counts) {
         return converted === null ? match : `${open}<![CDATA[${converted}]]>${close}`;
       }
       if (body.includes('<![CDATA[')) return match;
-      const converted = convertScript(body, counts, name);
-      return converted === null ? match : `${open}${converted}${close}`;
+      const converted = convertScript(xmlUnescape(body), counts, name);
+      return converted === null ? match : `${open}${xmlEscape(converted).replace(/\r/g, '&#13;')}${close}`;
     });
   }
   return out;
@@ -298,7 +374,8 @@ function convertPlace(input, options) {
   }
   const counts = {
     robloxLinks: 0, thumbnails: 0, gameAssets: 0, contentIds: 0, fonts: 0, droppedProperties: 0,
-    attributes: 0, sharedStrings: 0, newCsg: 0, taskCalls: 0, compoundAssignments: 0,
+    attributes: 0, sharedStrings: 0, newCsg: 0, taskCalls: 0, compoundAssignments: 0, materials: 0,
+    compatScripts: 0, compatChanges: new Map(),
     gameAssetNames: new Set(), unsupportedThumbnails: new Set(), luauScripts: [], unknownClasses: new Map(),
   };
   const known = classesOf2017();
@@ -397,6 +474,10 @@ function summarize(counts, options) {
   changed(counts.sharedStrings, 'shared strings removed');
   changed(counts.taskCalls, 'task.wait/spawn/delay/defer calls -> wait/spawn/delay');
   changed(counts.compoundAssignments, 'compound assignments (x += 1) written out');
+  changed(counts.materials, 'part materials the 2017 engine lacks (Glass, ForceField...) -> the nearest it has');
+  if (counts.compatScripts > 0) {
+    lines.push(`  ${counts.compatScripts} scripts made to run on 2017: ${[...counts.compatChanges].sort((a, b) => b[1] - a[1]).map(([name, n]) => `${name} x${n}`).join(', ')}`);
+  }
   if (lines.length === 1) lines.push('  nothing - the file already uses the 2017 format');
 
   const notes = [];

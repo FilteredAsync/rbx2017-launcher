@@ -237,7 +237,9 @@ button opens it). Changes need the host key (config\host-key.txt).
   - Turn games online or offline, restart them, rename them, change their
     description or thumbnail, upload a new version (same place ID; the
     running game saves its players and restarts), or delete them. Place
-    files can be up to 1 GB.
+    files can be up to 1 GB. "Convert again" runs a game's file through the
+    converter once more, so it picks up fixes made since it was uploaded
+    (a new version; the old one is kept in places\old).
   - Servers start on demand: a game that is online gets a server when the
     first player joins it (the launcher shows "Starting a server..."), and
     more servers when those are full ("Players per server" under Edit). A

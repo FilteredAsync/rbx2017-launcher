@@ -230,6 +230,27 @@ function startCall(placeId, port, domain, scriptTimeout, cloudEdit = false) {
 // friend requests to friends.
 const FRIEND_SERVICE = 'pcall(function() game:GetService("FriendService") end)\r\n';
 
+// Newer games (2018 on) put their menus in PlayerGui before the player has a
+// character; the 2017 engine makes PlayerGui only with the first character.
+// In games that spawn characters themselves (CharacterAutoLoads off, e.g.
+// after a Play button in a menu) the menu then never shows and nobody can
+// spawn. A character is loaded for a moment when such a player joins, which
+// gives them a PlayerGui with the game's GUIs, then taken away again.
+const PLAYERGUI_HOOK = [
+  'pcall(function()',
+  '  local players = game:GetService("Players")',
+  '  players.PlayerAdded:connect(function(p)',
+  '    if players.CharacterAutoLoads then return end',
+  '    wait(1)',
+  '    if p.Parent and not p.Character and not p:FindFirstChild("PlayerGui") then',
+  '      pcall(function() p:LoadCharacter() end)',
+  '      local c = p.Character',
+  '      if c then c:Destroy() end',
+  '    end',
+  '  end)',
+  'end)',
+].join('\r\n');
+
 // game.CreatorId and CreatorType for a library place (places.creatorOf): its
 // Studio owner, or the imported game's original Roblox creator, so scripts
 // that check the creator (admin commands, "is this the real game") see the
@@ -281,7 +302,7 @@ async function startGameJob(placeId, port, domain, scriptTimeout, log, soapPort 
   // before and after the place loads, in case the place file has its own) is not.
   const limit = !cloudEdit && Number(maxPlayers) >= 1
     ? `pcall(function() game:GetService("Players").MaxPlayersInternal = ${Math.round(Number(maxPlayers))} end)\r\n` : '';
-  const script = `${source}\r\n${creatorCall(placeId)}${cloudEdit ? '' : FRIEND_SERVICE}${limit}${startCall(placeId, port, domain, scriptTimeout, Boolean(cloudEdit))}\r\n${limit}${cloudEdit ? '' : appearanceHook()}\r\n`;
+  const script = `${source}\r\n${creatorCall(placeId)}${cloudEdit ? '' : FRIEND_SERVICE}${limit}${startCall(placeId, port, domain, scriptTimeout, Boolean(cloudEdit))}\r\n${limit}${cloudEdit ? '' : `${appearanceHook()}\r\n${PLAYERGUI_HOOK}`}\r\n`;
   soap('Execute', executeEnvelope('GameServer', script), 0, soapPort).then((result) => {
     if (result.status < 200 || result.status >= 300) log(`RCC answered the game job with HTTP ${result.status}`);
   }, (error) => log(`game job connection ended: ${error.code || error.message}`));
@@ -421,6 +442,18 @@ async function startHosting(rawConfig, { log = console.log, startRcc = true, ded
       const scriptTimeout = config.scriptTimeout === undefined ? 10 : Number(config.scriptTimeout) || 0;
       await startGameJob(placeId, gamePort, domain, scriptTimeout, log, soapPort, placeFile, config.cloudEdit || null, config.maxPlayers || null);
       log(`game job submitted on UDP port ${gamePort} (RCC web address ${domain === null ? 'not set' : `http://${domain}/`}, script timeout ${scriptTimeout ? `${scriptTimeout} s` : 'off'})`);
+      // gameserver.lua loads the place first (game:Load) and only then takes
+      // players (NetworkServer:Start on the game port): a big place takes a
+      // minute or more. Listed before that, the first players to join fail to
+      // connect, so the game is listed once RCC holds its game port.
+      const loadStarted = Date.now();
+      const loadLimit = (Number(config.loadTimeoutSeconds) || 600) * 1000;
+      while (await udpPortFree(gamePort)) {
+        if (rcc.exitCode !== null) throw new Error(`RCCService stopped while loading the place (exit code ${rcc.exitCode})`);
+        if (Date.now() - loadStarted > loadLimit) throw new Error(`RCC did not finish loading the place within ${Math.round(loadLimit / 1000)} seconds`);
+        await sleep(500);
+      }
+      log(`place loaded in ${Math.round((Date.now() - loadStarted) / 1000)} s; RCC takes players on UDP port ${gamePort}`);
     }
   } catch (error) {
     cleanup();
