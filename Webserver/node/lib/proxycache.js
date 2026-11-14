@@ -6,8 +6,9 @@
 // after the first visit instead of from the server PC over Tailscale.
 //
 // Only what the web server marks as cacheable is kept: a 200 answer with an
-// ETag and "Cache-Control: public, max-age=N" (its own cache of Roblox
-// assets; place files, replacement assets and body parts say no-store).
+// ETag and "Cache-Control: public, max-age=N": its own cache of Roblox
+// assets (a day) and replacement assets from /manage (5 minutes); place
+// files and body parts say no-store.
 // For N seconds a kept asset is used without asking the server; after that
 // the proxy asks with If-None-Match, and a 304 confirms it without sending it
 // again. When the server cannot be reached or fails, a kept copy is used.

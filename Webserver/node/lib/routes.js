@@ -153,6 +153,17 @@ function notModified(ctx, etag, headers) {
   return true;
 }
 
+// A replacement asset (assets-override/, uploaded on /manage). Launchers may
+// keep it too, but check every few minutes, so a new replacement reaches
+// players soon (a 304 costs next to nothing).
+const OVERRIDE_MAX_AGE = 300;
+function sendOverride(ctx, file) {
+  const etag = fileEtag(file);
+  const headers = Object.assign({ 'Content-Type': assets.contentTypeFor(file), 'Cache-Control': `public, max-age=${OVERRIDE_MAX_AGE}`, 'X-Legacy-Asset-Cache': 'OVERRIDE' }, etag ? { ETag: etag } : {});
+  if (notModified(ctx, etag, headers)) return;
+  sendFile(ctx, file, headers);
+}
+
 function readHead(file, size) {
   let handle;
   try {
@@ -194,7 +205,7 @@ async function assetEndpoint(ctx) {
   if (assetId === null && assetVersionId === null && assetName !== null && assetName !== '') {
     const override = assets.findOverride(`named/${assetName}`);
     if (override !== null) {
-      return sendFile(ctx, override, { 'Content-Type': assets.contentTypeFor(override), 'Cache-Control': 'no-store', 'X-Legacy-Asset-Cache': 'OVERRIDE' });
+      return sendOverride(ctx, override);
     }
     const config = core.assetConfig();
     const mapped = config.gameAssets && config.gameAssets[assetName] !== undefined ? core.decimal(config.gameAssets[assetName]) : null;
@@ -252,7 +263,7 @@ async function assetEndpoint(ctx) {
   if (kind === 'id') {
     const override = assets.findOverride(assetId);
     if (override !== null) {
-      return sendFile(ctx, override, { 'Content-Type': assets.contentTypeFor(override), 'Cache-Control': 'no-store', 'X-Legacy-Asset-Cache': 'OVERRIDE' });
+      return sendOverride(ctx, override);
     }
   }
 
