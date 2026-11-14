@@ -1,7 +1,7 @@
 {
   "name": "robloxclient-launcher",
   "productName": "RobloxClient Launcher",
-  "version": "1.7.1",
+  "version": "1.7.2",
   "description": "Play, host and run the web server for the RobloxClient 2017 bundle.",
   "author": "rbx2017-launcher",
   "main": "main.js",
@@ -35,6 +35,7 @@
       "tailscale.js",
       "account.js",
       "cleanup.js",
+      "embed.js",
       "package.json",
       "renderer/**/*",
       "!renderer/roblox-logo*.png"

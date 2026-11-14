@@ -610,6 +610,18 @@ function updateBackgroundButton() {
   $('toggle-background').textContent = `Background: ${entry[1]}`;
 }
 
+// The game window: a window of its own (default) or inside the launcher's
+// window (main.js embedClient; new in 1.7.2, so players try it first).
+const gameWindowInside = () => storage('gameWindow') === 'launcher';
+function updateGameWindowButton() {
+  $('toggle-gamewindow').textContent = `Game window: ${gameWindowInside() ? 'Inside the launcher' : 'Separate window'}`;
+}
+$('toggle-gamewindow').addEventListener('click', () => {
+  storage('gameWindow', gameWindowInside() ? 'separate' : 'launcher');
+  updateGameWindowButton();
+});
+updateGameWindowButton();
+
 $('toggle-music').addEventListener('click', toggleMusic);
 $('toggle-background').addEventListener('click', () => {
   const index = BACKGROUNDS.findIndex(([key]) => key === window.backgroundMode);
@@ -919,6 +931,26 @@ api.onPlayFailed((info) => {
 
 $('loading-log').addEventListener('click', () => api.openLauncherLog());
 
+// The game's window inside the launcher's: only the bar above it shows.
+api.onPlayEmbed(({ state: embed }) => {
+  const inside = embed === 'embedded';
+  document.body.classList.toggle('in-game', inside);
+  $('game-bar').classList.toggle('hidden', !inside);
+  if (!inside) {
+    $('game-bar-full').textContent = 'Full screen';
+    return;
+  }
+  $('game-bar-name').textContent = (lastPlayGame && lastPlayGame.name) || 'Roblox';
+  if (loading && !loading.failed) hideLoading();
+  music.pause();
+});
+$('game-bar-full').addEventListener('click', async () => {
+  const full = await api.toggleFullScreen();
+  $('game-bar-full').textContent = full ? 'Leave full screen' : 'Full screen';
+});
+$('game-bar-popout').addEventListener('click', () => api.popOutGame());
+$('game-bar-leave').addEventListener('click', () => api.stopClient());
+
 // The game window takes the focus once it is up.
 window.addEventListener('blur', () => {
   if (loading && loading.started && !loading.failed) setTimeout(() => { if (loading && loading.started && !loading.failed) hideLoading(); }, 400);
@@ -946,7 +978,7 @@ async function startPlay(game, request) {
   playStarting = true;
   try {
     setLoadingStatus(request.privateId ? 'Joining the private server…' : 'Finding a server…');
-    const joined = await api.join({ request, game: { name: game.name, placeId: game.placeId }, guest: !me });
+    const joined = await api.join({ request, game: { name: game.name, placeId: game.placeId }, guest: !me, embed: gameWindowInside() });
     playStarting = false;
     rememberPlayed(game);
     renderHome();
@@ -1139,7 +1171,8 @@ $('play-studio').addEventListener('click', async () => {
 });
 api.onStudioProgress((info) => {
   if (info.phase === 'checking') setStatus('play-status', 'Contacting the server…');
-  if (info.phase === 'download') setStatus('play-status', `Downloading Studio… ${Math.round(info.received / 1e6)} of ${Math.round(info.total / 1e6)} MB`);
+  if (info.phase === 'download') setStatus('play-status', `Downloading Studio… ${mbText(info.received)} of ${mbText(info.total)} MB`);
+  if (info.phase === 'retry') setStatus('play-status', `The connection dropped. Continuing Studio from ${mbText(info.received)} MB (try ${info.attempt})…`);
   if (info.phase === 'unpack') setStatus('play-status', 'Unpacking Studio…');
 });
 $('play-close').addEventListener('click', () => api.stopClient());
@@ -1781,14 +1814,20 @@ api.onJoinProgress((info) => {
   }
 });
 
+// "3.4" or "85" (MB): small updates still show progress.
+function mbText(bytes) {
+  return bytes < 1e7 ? (bytes / 1e6).toFixed(1) : String(Math.round(bytes / 1e6));
+}
+
 api.onFilesProgress((info) => {
   const bar = $('files-progress');
   if (info.phase === 'checking') setStatus('files-status', 'Contacting the server…');
   if (info.phase === 'download') {
     bar.max = info.total;
     bar.value = info.received;
-    setStatus('files-status', `Downloading… ${Math.round(info.received / 1e6)} of ${Math.round(info.total / 1e6)} MB`);
+    setStatus('files-status', `Downloading… ${mbText(info.received)} of ${mbText(info.total)} MB`);
   }
+  if (info.phase === 'retry') setStatus('files-status', `The connection dropped. Continuing from ${mbText(info.received)} MB (try ${info.attempt})…`);
   if (info.phase === 'unpack') {
     bar.removeAttribute('value');
     setStatus('files-status', 'Unpacking…');
@@ -1796,9 +1835,10 @@ api.onFilesProgress((info) => {
   if (playStarting && loading) {
     if (info.phase === 'checking') setLoadingStatus('The server has new game files. Updating…');
     if (info.phase === 'download') {
-      setLoadingStatus(`Updating the game files… ${Math.round(info.received / 1e6)} of ${Math.round(info.total / 1e6)} MB`);
+      setLoadingStatus(`Updating the game files… ${mbText(info.received)} of ${mbText(info.total)} MB`);
       setLoadingBar(info.total ? info.received / info.total : null);
     }
+    if (info.phase === 'retry') setLoadingStatus(`The connection dropped. Continuing the update from ${mbText(info.received)} MB…`);
     if (info.phase === 'unpack') {
       setLoadingStatus('Installing the game files update…');
       setLoadingBar(null);

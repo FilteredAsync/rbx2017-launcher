@@ -241,7 +241,7 @@
             </div>
             <div class="panel hidden" id="files-panel">
               <div class="label">Game files</div>
-              <p class="lead" id="files-lead">The game files come from your server (about 85 MB). Connect Tailscale, enter the server address your host gave you, and download them.</p>
+              <p class="lead" id="files-lead">The game files come from your server (about 75 MB). Connect Tailscale, enter the server address your host gave you, and download them.</p>
               <div class="grid two">
                 <label>Server address
                   <input id="files-server" placeholder="http://100.101.102.103" spellcheck="false">
@@ -312,6 +312,7 @@
               <div class="row tight">
                 <button class="ghost" id="toggle-music">Music: On</button>
                 <button class="ghost" id="toggle-background">Background: Classic</button>
+                <button class="ghost" id="toggle-gamewindow">Game window: Separate window</button>
               </div>
               <p class="hint" id="music-hint"></p>
             </div>
@@ -451,6 +452,16 @@
       <button class="ghost hidden" id="loading-log">Open launcher log</button>
       <button class="ghost" id="loading-cancel">Cancel</button>
     </div>
+  </div>
+
+  <!-- While the game runs inside the launcher's window (main.js embedClient):
+       the game fills the window under this bar. -->
+  <div class="game-bar hidden" id="game-bar">
+    <span class="game-bar-name" id="game-bar-name"></span>
+    <span class="game-bar-hint">Click the game to play. Pop out makes it a window of its own.</span>
+    <button class="ghost small" id="game-bar-full">Full screen</button>
+    <button class="ghost small" id="game-bar-popout">Pop out</button>
+    <button class="danger small" id="game-bar-leave">Leave game</button>
   </div>
 
   <!-- A player's profile -->

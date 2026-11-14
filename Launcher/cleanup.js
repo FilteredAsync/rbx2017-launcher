@@ -33,7 +33,9 @@ const WEEK_MS = 7 * 24 * 3600 * 1000;
 const LOG_TEXT = /^log_[0-9A-F]{4,8}_\d+\.txt$/i;
 const LOG_CRASH = /^log_[0-9A-F]{4,8} 0, (?:299|300), 0, \d+(?:\.[A-Za-z]+)+$/i;
 const LEFTOVER_DIR = /^(?:client|studio)-files-(?:new|old-\d+)$/;
-const LEFTOVER_FILE = /\.zip\.part$/;
+// Unfinished downloads (gamefiles.js): kept a day at start so they can continue.
+const LEFTOVER_FILE = /^(?:client|studio)-files.*\.part(?:\.json)?$/;
+const PART_KEEP_MS = 24 * 3600 * 1000;
 
 // "1.7.10" > "1.7.9"
 function compareVersions(a, b) {
@@ -106,11 +108,17 @@ module.exports = function cleanup({ root, localAppData, updaterDir = null, appVe
     return found;
   }
 
-  async function leftoverPaths() {
+  // keepRecentParts: leave unfinished downloads younger than a day (they
+  // continue on the next try).
+  async function leftoverPaths(keepRecentParts = false, now = Date.now()) {
     const found = [];
     for (const entry of await listDir(downloads)) {
-      if ((entry.isDirectory() && LEFTOVER_DIR.test(entry.name)) || (entry.isFile() && LEFTOVER_FILE.test(entry.name))) {
-        found.push(path.join(downloads, entry.name));
+      const full = path.join(downloads, entry.name);
+      if (entry.isDirectory() && LEFTOVER_DIR.test(entry.name)) {
+        found.push(full);
+      } else if (entry.isFile() && LEFTOVER_FILE.test(entry.name)) {
+        const stat = await statOrNull(full);
+        if (!(keepRecentParts && stat && now - stat.mtimeMs < PART_KEEP_MS)) found.push(full);
       }
     }
     if (await statOrNull(path.join(downloads, 'tailscale'))) found.push(path.join(downloads, 'tailscale'));
@@ -190,7 +198,7 @@ module.exports = function cleanup({ root, localAppData, updaterDir = null, appVe
     }
     const pending = pendingVersion();
     if (pending && compareVersions(pending, appVersion) <= 0) add(total, await remove(path.join(updaterDir, 'pending')));
-    if (!busy()) for (const target of await leftoverPaths()) add(total, await remove(target));
+    if (!busy()) for (const target of await leftoverPaths(true, now)) add(total, await remove(target));
     return total;
   }
 

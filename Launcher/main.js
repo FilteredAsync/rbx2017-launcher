@@ -6,7 +6,7 @@
 // and the launcher behave the same. Node scripts run on Electron's own Node,
 // so players do not need Node.js installed.
 
-const { app, BrowserWindow, ipcMain, shell, clipboard, dialog, protocol } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, clipboard, dialog, protocol, screen } = require('electron');
 const { spawn, spawnSync } = require('child_process');
 const dns = require('dns').promises;
 const fs = require('fs');
@@ -191,6 +191,7 @@ function gameFiles() {
       normalizeUrl: (url) => lib('proxy').normalizeCentralUrl(url),
       canPlay: () => capabilities().canPlay,
       onProgress: (info) => send('files-progress', info),
+      log: logger('play'),
     });
   }
   return gameFilesModule;
@@ -400,6 +401,7 @@ function studioFiles() {
       normalizeUrl: (url) => lib('proxy').normalizeCentralUrl(url),
       canPlay: () => fs.existsSync(STUDIO_EXE()),
       onProgress: (info) => send('studio-progress', info),
+      log: logger('play'),
     });
   }
   return studioFilesModule;
@@ -454,6 +456,91 @@ async function openStudio(centralUrl) {
   log(`Roblox Studio started (server ${url}). Log in on its start page.`);
   send('status-changed');
   return true;
+}
+
+// --- the game window inside the launcher (embed.js) -------------------------------------
+// With "Game window: inside the launcher" (Settings > Menu), the client's
+// window becomes part of the launcher's window, under a bar with the game's
+// name and Full screen, Pop out and Leave game (renderer #game-bar). If it
+// cannot be done, the game simply stays a window of its own.
+const GAME_BAR_DIP = 44;
+let embedModule = null;
+let embedState = 'off'; // off | waiting | embedded
+let fullScreenForGame = false;
+
+function embedder() {
+  if (!embedModule) embedModule = require('./embed')({ log: logger('play') });
+  return embedModule;
+}
+
+function setEmbedState(state) {
+  embedState = state;
+  send('play-embed', { state });
+}
+
+// Where the game goes in the launcher's window: under the bar (pixels).
+function gameRect() {
+  const [width, height] = win.getContentSize();
+  const scale = screen.getDisplayMatching(win.getBounds()).scaleFactor || 1;
+  return { x: 0, y: Math.round(GAME_BAR_DIP * scale), w: Math.round(width * scale), h: Math.round((height - GAME_BAR_DIP) * scale) };
+}
+
+async function embedClient(session) {
+  if (!win || win.isDestroyed() || !session.pid) return;
+  setEmbedState('waiting');
+  try {
+    const parent = win.getNativeWindowHandle().readBigUInt64LE(0).toString();
+    const child = await embedder().attach(session.pid, parent, gameRect());
+    if (!child || playSession !== session) {
+      setEmbedState('off');
+      return;
+    }
+    setEmbedState('embedded');
+    relayoutGame();
+  } catch (error) {
+    logger('play')(`Could not put the game window inside the launcher (${error.message}); it stays a window of its own.`);
+    setEmbedState('off');
+  }
+}
+
+// Follows the launcher's window size (one move at a time, the latest wins).
+let relayingOut = false;
+let relayoutAgain = false;
+async function relayoutGame() {
+  if (!embedModule || !embedModule.attached() || !win || win.isDestroyed()) return;
+  if (relayingOut) {
+    relayoutAgain = true;
+    return;
+  }
+  relayingOut = true;
+  try {
+    do {
+      relayoutAgain = false;
+      await embedModule.move(gameRect());
+    } while (relayoutAgain);
+  } catch (error) {
+    logger('play')(`Could not resize the game window: ${error.message}`);
+  } finally {
+    relayingOut = false;
+  }
+}
+
+// Back to a window of its own, where the launcher's content was.
+async function popOutGame() {
+  if (!embedModule || !embedModule.attached()) return false;
+  if (fullScreenForGame && win.isFullScreen()) win.setFullScreen(false);
+  fullScreenForGame = false;
+  const rect = screen.dipToScreenRect(win, win.getContentBounds());
+  await embedModule.release({ x: rect.x, y: rect.y, w: rect.width, h: rect.height });
+  setEmbedState('off');
+  return true;
+}
+
+function gameClosed() {
+  if (embedModule) embedModule.forget();
+  if (fullScreenForGame && win && !win.isDestroyed() && win.isFullScreen()) win.setFullScreen(false);
+  fullScreenForGame = false;
+  if (embedState !== 'off') setEmbedState('off');
 }
 
 // --- storage --------------------------------------------------------------------------
@@ -758,7 +845,7 @@ function registerIpc() {
   // a join ticket that decides who the player is.
   // request: { placeId } | { gameId } | { privateId } (lib/joining.js).
   let joinCancelled = false;
-  async function joinFromLauncher({ request, game, guest }, log) {
+  async function joinFromLauncher({ request, game, guest, embed }, log) {
     if (playSession) throw new Error('The client is already running. Close it first.');
     const joining = lib('joining');
     const url = account.serverUrl();
@@ -776,6 +863,7 @@ function registerIpc() {
     if (!target.address) throw new Error('The server did not say where the game runs. Update its server files.');
     playSession = await joining.joinGame({ centralUrl: url, ticket: ticket.ticket, name: ticket.name, game: target, log });
     send('status-changed');
+    if (embed) embedClient(playSession);
     // joinGame logs how the client closed; a client that closed soon after
     // starting (or could not start) is shown on the loading screen.
     playSession.exited.then(
@@ -783,6 +871,7 @@ function registerIpc() {
       (error) => send('play-failed', { text: error.message, game }),
     ).finally(() => {
       playSession = null;
+      gameClosed();
       send('status-changed');
     });
     return { name: ticket.name, guest: Boolean(ticket.guest) };
@@ -797,6 +886,14 @@ function registerIpc() {
     }
   });
 
+  ipcMain.handle('play:popout', () => popOutGame());
+  ipcMain.handle('play:fullscreen', () => {
+    if (!win || win.isDestroyed()) return false;
+    const next = !win.isFullScreen();
+    fullScreenForGame = next;
+    win.setFullScreen(next);
+    return next;
+  });
   ipcMain.handle('play:stop', async () => {
     joinCancelled = true; // still waiting for a server: give up
     if (playSession) playSession.stop();
@@ -978,7 +1075,34 @@ function createWindow() {
     },
   });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  for (const name of ['resize', 'maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen', 'restore']) {
+    win.on(name, () => relayoutGame());
+  }
+  let leaveGameConfirmed = false;
   win.on('close', async (event) => {
+    // The game reaches the server through the launcher (its local proxy and
+    // game relay), and Windows ends it with the launcher: ask, then leave the
+    // game properly (a game inside the window goes with it).
+    if (playSession && !leaveGameConfirmed) {
+      event.preventDefault();
+      const answer = await dialog.showMessageBox(win, {
+        type: 'question',
+        buttons: ['Leave the game and quit', 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+        message: 'Quitting the launcher ends your game.',
+        detail: 'The game reaches your server through the launcher.',
+      });
+      if (answer.response !== 0) return;
+      leaveGameConfirmed = true;
+      const session = playSession;
+      if (session) {
+        session.stop();
+        await Promise.race([session.exited.catch(() => {}), new Promise((resolve) => setTimeout(resolve, 5000))]);
+      }
+      if (!win.isDestroyed()) win.close();
+      return;
+    }
     if (!hostSession && !(webChild && webChild.exitCode === null)) return;
     event.preventDefault();
     const what = [hostSession ? 'the game you are hosting' : null, webChild && webChild.exitCode === null ? 'the web server' : null].filter(Boolean).join(' and ');

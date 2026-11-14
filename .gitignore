@@ -26,6 +26,7 @@
 !/Launcher/tailscale.js
 !/Launcher/account.js
 !/Launcher/cleanup.js
+!/Launcher/embed.js
 !/Launcher/package.json
 !/Launcher/package-lock.json
 !/Launcher/build/

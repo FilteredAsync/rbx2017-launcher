@@ -216,6 +216,7 @@ async function joinGame({ centralUrl, username, ticket = null, name = null, game
   });
   return {
     userId,
+    pid: child.pid,
     exited,
     stop() {
       stopped = true;

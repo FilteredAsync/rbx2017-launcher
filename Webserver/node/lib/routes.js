@@ -12,6 +12,7 @@ const core = require('./core');
 const assets = require('./assets');
 const avatar = require('./avatar');
 const avatarStore = require('./avatarstore');
+const compression = require('./compression');
 const creators = require('./creators');
 const accounts = require('./accounts');
 const admin = require('./admin');
@@ -33,9 +34,22 @@ const www = require('./www');
 
 // --- Response helpers --------------------------------------------------------
 
+// A launcher's proxy asked for compression on a route that allows it
+// (ctx.compress: assets and place files; see lib/compression.js).
+function compressionFor(ctx, status) {
+  return ctx.compress && status === 200 && ctx.method !== 'HEAD' ? compression.encodingFor(ctx.req) : null;
+}
+
 function send(ctx, status, headers, body) {
-  const buffer = Buffer.isBuffer(body) ? body : Buffer.from(body === undefined ? '' : String(body), 'latin1');
-  const out = Object.assign({}, headers, { 'Content-Length': buffer.length });
+  let buffer = Buffer.isBuffer(body) ? body : Buffer.from(body === undefined ? '' : String(body), 'latin1');
+  const out = Object.assign({}, headers);
+  const encoding = compressionFor(ctx, status);
+  if (encoding && buffer.length >= compression.MIN_BYTES && compression.worthCompressing(buffer)) {
+    buffer = compression.compressSync(encoding, buffer);
+    out['Content-Encoding'] = encoding;
+    out.Vary = 'Accept-Encoding';
+  }
+  out['Content-Length'] = buffer.length;
   ctx.bytes = buffer.length;
   ctx.res.writeHead(status, out);
   ctx.res.end(ctx.method === 'HEAD' ? undefined : buffer);
@@ -43,6 +57,28 @@ function send(ctx, status, headers, body) {
 
 function sendUtf8(ctx, status, headers, text) {
   send(ctx, status, headers, Buffer.from(text, 'utf8'));
+}
+
+// "Range: bytes=a-b" (one range) for a file of size bytes: { start, end },
+// 'invalid', or null for the whole file. If-Range must name the ETag sent.
+function rangeOf(ctx, size, etag) {
+  const header = ctx.req.headers.range;
+  if (!header || ctx.method !== 'GET') return null;
+  const ifRange = ctx.req.headers['if-range'];
+  if (ifRange !== undefined && (!etag || ifRange !== etag)) return null;
+  const match = /^bytes=(\d*)-(\d*)$/.exec(String(header).trim());
+  if (!match || (match[1] === '' && match[2] === '')) return null;
+  let start;
+  let end;
+  if (match[1] === '') {
+    start = Math.max(0, size - Number(match[2]));
+    end = size - 1;
+  } else {
+    start = Number(match[1]);
+    end = match[2] === '' ? size - 1 : Math.min(Number(match[2]), size - 1);
+  }
+  if (start >= size || start > end) return 'invalid';
+  return { start, end };
 }
 
 function sendFile(ctx, file, headers) {
@@ -53,13 +89,37 @@ function sendFile(ctx, file, headers) {
     send(ctx, 404, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }, 'Asset not found');
     return;
   }
-  ctx.bytes = stat.size;
-  ctx.res.writeHead(200, Object.assign({}, headers, { 'Content-Length': stat.size }));
-  if (ctx.method === 'HEAD') {
+  // Compressed while it is sent (big place files too); no Content-Length.
+  const encoding = compressionFor(ctx, 200);
+  if (encoding && stat.size >= compression.MIN_BYTES && compression.worthCompressing(readHead(file, 16))) {
+    ctx.bytes = 0;
+    ctx.res.writeHead(200, Object.assign({}, headers, { 'Content-Encoding': encoding, Vary: 'Accept-Encoding' }));
+    const packer = compression.encoder(encoding);
+    packer.on('data', (chunk) => { ctx.bytes += chunk.length; });
+    fs.createReadStream(file).on('error', () => ctx.res.destroy()).pipe(packer).pipe(ctx.res);
+    return;
+  }
+  // Downloads resume where they stopped (Range, with If-Range on the ETag),
+  // on routes that allow it (ctx.ranges: the game files and Studio).
+  const resumable = Boolean(ctx.ranges && headers.ETag);
+  const range = resumable ? rangeOf(ctx, stat.size, headers.ETag) : null;
+  if (range === 'invalid') {
+    send(ctx, 416, { 'Content-Range': `bytes */${stat.size}`, 'Content-Type': 'text/plain; charset=utf-8' }, 'Range not satisfiable');
+    return;
+  }
+  const start = range ? range.start : 0;
+  const end = range ? range.end : stat.size - 1;
+  const length = stat.size === 0 ? 0 : end - start + 1;
+  ctx.bytes = length;
+  const out = Object.assign({}, headers, { 'Content-Length': length });
+  if (resumable) out['Accept-Ranges'] = 'bytes';
+  if (range) out['Content-Range'] = `bytes ${start}-${end}/${stat.size}`;
+  ctx.res.writeHead(range ? 206 : 200, out);
+  if (ctx.method === 'HEAD' || length === 0) {
     ctx.res.end();
     return;
   }
-  fs.createReadStream(file).on('error', () => ctx.res.destroy()).pipe(ctx.res);
+  fs.createReadStream(file, { start, end }).on('error', () => ctx.res.destroy()).pipe(ctx.res);
 }
 
 // --- Shared game helpers (www/game/functions.php) -------------------------------
@@ -181,6 +241,8 @@ function readHead(file, size) {
 }
 
 async function assetEndpoint(ctx) {
+  // Launchers' proxies may ask for these answers compressed (lib/compression.js).
+  ctx.compress = true;
   // A library place opened in Studio (lib/studio.js).
   if (studio.placeAsset(ctx)) return;
   const query = ctx.queryLower;
@@ -1196,11 +1258,14 @@ async function assetsApi(ctx, match) {
 // Game files for the downloader installer: the launcher from the small
 // Setup.exe downloads the client from here on first run (and offers updates
 // when the version changes). Built by tools/build-client-files.py into
-// RobloxClient/downloads/.
-const DOWNLOADS = {
-  'client-files.json': 'application/json; charset=utf-8', 'client-files.zip': 'application/zip',
-  'studio-files.json': 'application/json; charset=utf-8', 'studio-files.zip': 'application/zip',
-};
+// RobloxClient/downloads/: <name>.json (the list), <name>.tar.zst (all
+// files), <name>-from-<version>.tar.zst (only what changed since an older
+// version) and <name>.zip (for launchers before 1.7.2). Packages resume
+// where a dropped download stopped (Range).
+function downloadType(name) {
+  if (name.endsWith('.json')) return 'application/json; charset=utf-8';
+  return name.endsWith('.zip') ? 'application/zip' : 'application/zstd';
+}
 function downloadsRoute(ctx, match) {
   const name = match[1].toLowerCase();
   const file = core.rootPath('downloads', name);
@@ -1209,7 +1274,14 @@ function downloadsRoute(ctx, match) {
       ? 'this server has no Studio to hand out (run tools/build-client-files.py studio on the PC that has it)'
       : 'this server has no game files to hand out (run tools/build-client-files.py on it)' });
   }
-  sendFile(ctx, file, { 'Content-Type': DOWNLOADS[name], 'Cache-Control': name.endsWith('.json') ? 'no-cache' : 'public, max-age=3600' });
+  if (name.endsWith('.json')) return sendFile(ctx, file, { 'Content-Type': downloadType(name), 'Cache-Control': 'no-cache' });
+  const stat = fs.statSync(file);
+  ctx.ranges = true;
+  sendFile(ctx, file, {
+    'Content-Type': downloadType(name),
+    'Cache-Control': 'public, max-age=3600',
+    ETag: `"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`,
+  });
 }
 
 // The ROBLOX logo for launchers (Launcher/renderer/roblox-logo*.png on this
@@ -1389,7 +1461,7 @@ const ROUTES = [
   [/^api\/places\/(\d{1,15})\/servers\/([0-9a-f]{16,32})\/(restart|stop)\/?$/i, placeServerApi],
   [/^api\/private-servers\/([0-9a-f]{12})\/?$/i, privateServerAdminApi],
   [/^manage(?:\/([a-z.]*))?\/?$/i, managePage],
-  [/^download\/((?:client|studio)-files\.(?:zip|json))$/i, downloadsRoute],
+  [/^download\/((?:client|studio)-files(?:\.(?:zip|json|tar\.zst)|-from-[0-9a-f]{12}\.tar\.zst))$/i, downloadsRoute],
   [/^download\/menu-music\.mp3$/i, menuMusicRoute],
   [/^download\/(roblox-logo(?:-tagline)?\.png)$/i, launcherLogoRoute],
   [/^api\/assets\/(?:missing|(\d{1,15})\/replacement)\/?$/i, assetsApi],

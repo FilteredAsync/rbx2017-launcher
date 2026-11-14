@@ -21,6 +21,16 @@
 const http = require('http');
 const https = require('https');
 const net = require('net');
+const zlib = require('zlib');
+
+// Compressed answers the proxy can unpack (zstd needs Node 22.15 or newer;
+// the launcher's Electron has it).
+const DECODERS = {
+  gzip: () => zlib.createGunzip(),
+  br: () => zlib.createBrotliDecompress(),
+  ...(typeof zlib.createZstdDecompress === 'function' ? { zstd: () => zlib.createZstdDecompress() } : {}),
+};
+const ACCEPT_ENCODING = Object.keys(DECODERS).reverse().join(', ');
 
 function normalizeCentralUrl(text) {
   let value = String(text || '').trim();
@@ -98,19 +108,33 @@ async function startProxy(centralUrl, log, listenPort, options = {}) {
     }
   }
 
-  // The whole answer, for the asset cache.
+  // The whole answer, for the asset cache. Asked for compressed (servers from
+  // 2026-11-14 on compress meshes, models and place files for launchers; see
+  // lib/compression.js) and unpacked here: the client and Studio get plain bytes.
   function fetchWhole(req, headers, extra) {
     return new Promise((resolve, reject) => {
-      const outgoing = Object.assign({}, headers, extra, { 'accept-encoding': 'identity' });
+      const outgoing = Object.assign({}, headers, extra, { 'accept-encoding': ACCEPT_ENCODING, 'x-launcher-proxy': '1' });
       if (!extra['if-none-match']) delete outgoing['if-none-match'];
       delete outgoing['if-modified-since'];
       const upstream = client.request({
         protocol: target.protocol, hostname: target.hostname, port: targetPort, method: 'GET', path: req.url, headers: outgoing, agent,
       }, (response) => {
+        const encoding = String(response.headers['content-encoding'] || 'identity').toLowerCase();
+        const unpacker = DECODERS[encoding] ? DECODERS[encoding]() : null;
+        if (encoding !== 'identity' && !unpacker) {
+          response.resume();
+          reject(new Error(`the server answered in an encoding this launcher cannot read (${encoding})`));
+          return;
+        }
+        const responseHeaders = Object.assign({}, response.headers);
+        delete responseHeaders['content-encoding'];
+        delete responseHeaders['content-length'];
+        const stream = unpacker ? response.pipe(unpacker) : response;
+        if (unpacker) response.on('error', (error) => unpacker.destroy(error));
         const chunks = [];
-        response.on('data', (chunk) => chunks.push(chunk));
-        response.on('end', () => resolve({ status: response.statusCode || 502, headers: response.headers, body: Buffer.concat(chunks) }));
-        response.on('error', reject);
+        stream.on('data', (chunk) => chunks.push(chunk));
+        stream.on('end', () => resolve({ status: response.statusCode || 502, headers: responseHeaders, body: Buffer.concat(chunks) }));
+        stream.on('error', reject);
       });
       upstream.setTimeout(120000, () => upstream.destroy(new Error('timed out')));
       upstream.on('error', reject);

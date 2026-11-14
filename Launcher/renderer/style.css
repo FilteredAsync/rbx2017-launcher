@@ -426,6 +426,17 @@ button.icon-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColo
 .loading-bar { width: 300px; height: 4px; background: rgba(255, 255, 255, .14); margin-top: 12px; }
 .loading-bar > div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
 .loading-actions { position: absolute; right: 34px; bottom: 30px; display: flex; gap: 12px; }
+
+/* The game inside the launcher's window: a bar on top, the game's window
+   (a child window placed by main.js) everywhere under it. */
+.game-bar { position: fixed; top: 0; left: 0; right: 0; height: 44px; z-index: 50; display: flex; align-items: center; gap: 10px;
+  padding: 0 12px; background: #0b1218; border-bottom: 1px solid var(--line); }
+.game-bar-name { font-size: 16px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.game-bar-hint { flex: 1; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.game-bar button { padding: 6px 12px; font-size: 13px; }
+body.in-game { background: #000; }
+body.in-game .backdrop, body.in-game .screen, body.in-game #shell, body.in-game .overlay, body.in-game .loading-screen,
+body.in-game .settings-hint { display: none !important; }
 /* Roblox closed right after starting: the reason instead of the spinner. */
 .loading-screen.failed .loading-spinner { display: none; }
 .loading-screen.failed .loading-status { max-width: 520px; line-height: 1.45; margin-top: 30px; }
