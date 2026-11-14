@@ -25,6 +25,7 @@
 !/Launcher/gamefiles.js
 !/Launcher/tailscale.js
 !/Launcher/account.js
+!/Launcher/cleanup.js
 !/Launcher/package.json
 !/Launcher/package-lock.json
 !/Launcher/build/

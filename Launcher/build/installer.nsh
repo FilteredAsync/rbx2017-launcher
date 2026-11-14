@@ -9,6 +9,21 @@
 ; removes everything. The install
 ; folder is always the launcher's own subfolder (the installer adds it to
 ; whatever folder is picked).
+;
+; A real uninstall also removes what the launcher kept outside its folder:
+; its app data (%APPDATA%\RobloxClient Launcher, with launcher.log; done by
+; "deleteAppDataOnUninstall" in package.json), its update downloads
+; (%LOCALAPPDATA%\robloxclient-launcher-updater), and the logs and crash
+; reports the 2017 game and Studio wrote to %LOCALAPPDATA%\Roblox\logs. That
+; folder is shared with the real Roblox, so only the 2017 names go
+; (log_<hex>_<n>.txt and "log_<hex> 0, 299, 0, <build>.*"; today's Roblox
+; names its logs <version>_<time>_..._last.log). Keep in step with cleanup.js.
+
+!macro removeOld2017Logs DIR
+  Delete "${DIR}\log_*_*.txt"
+  Delete "${DIR}\log_* 0, 299, 0, *"
+  Delete "${DIR}\log_* 0, 300, 0, *"
+!macroend
 
 !macro customRemoveFiles
   SetOutPath $TEMP
@@ -32,5 +47,9 @@
     FindClose $R0
   ${else}
     RMDir /r $INSTDIR
+    ; Per-user folders (the launcher installs per user).
+    RMDir /r "$LOCALAPPDATA\robloxclient-launcher-updater"
+    !insertmacro removeOld2017Logs "$LOCALAPPDATA\Roblox\logs"
+    !insertmacro removeOld2017Logs "$LOCALAPPDATA\Roblox\logs\archive"
   ${endif}
 !macroend

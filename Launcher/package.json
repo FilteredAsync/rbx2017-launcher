@@ -1,7 +1,7 @@
 {
   "name": "robloxclient-launcher",
   "productName": "RobloxClient Launcher",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "description": "Play, host and run the web server for the RobloxClient 2017 bundle.",
   "author": "rbx2017-launcher",
   "main": "main.js",
@@ -34,6 +34,7 @@
       "gamefiles.js",
       "tailscale.js",
       "account.js",
+      "cleanup.js",
       "package.json",
       "renderer/**/*",
       "!renderer/roblox-logo*.png"
@@ -69,6 +70,7 @@
       "createStartMenuShortcut": true,
       "shortcutName": "RobloxClient Launcher",
       "runAfterFinish": true,
+      "deleteAppDataOnUninstall": true,
       "include": "build/installer.nsh",
       "artifactName": "RobloxClient-Setup-${version}.${ext}"
     },

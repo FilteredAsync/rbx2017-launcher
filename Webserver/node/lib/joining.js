@@ -17,6 +17,67 @@ const relay = require('./relay');
 const CONFIG = core.rootPath('config', 'client.json');
 const CLIENT_EXE = core.rootPath('Client', 'RobloxPlayerBeta.exe');
 
+// A client that closes this soon after starting did not get into the game
+// (blocked, crashed while loading, or closed by another Roblox).
+const EARLY_EXIT_SECONDS = 20;
+
+// Windows exit codes worth a word for the player.
+const EXIT_HINTS = {
+  0xC0000005: 'It crashed (access violation).',
+  0xC0000135: 'Windows could not find a DLL it needs.',
+  0xC0000142: 'Windows could not start it (a DLL failed to load).',
+  0xC0000409: 'It stopped itself after an internal error.',
+};
+
+// 0, 1, ... as is; Windows status codes in hex (3221225477 -> 0xC0000005).
+function exitCodeText(code) {
+  if (code === null || code === undefined) return 'none';
+  const unsigned = code >>> 0;
+  return unsigned > 0xffff ? `0x${unsigned.toString(16).toUpperCase()}` : String(code);
+}
+
+// What to tell the player when the client closed soon after it started;
+// null when it ran normally or was closed from the launcher.
+// outcome: { code, seconds, stopped }
+function earlyExitProblem({ code, seconds, stopped }) {
+  if (stopped || !(seconds < EARLY_EXIT_SECONDS)) return null;
+  const hint = code === null || code === undefined ? '' : EXIT_HINTS[code >>> 0] || '';
+  const after = Math.round(seconds);
+  const when = after < 1 ? 'right after starting' : `${after} second${after === 1 ? '' : 's'} after starting`;
+  return `Roblox closed ${when} (exit code ${exitCodeText(code)}).${hint ? ` ${hint}` : ''}`
+    + ' If your antivirus put RobloxPlayerBeta.exe in quarantine, restore and allow it. If the real Roblox is open, close it and try again.';
+}
+
+// A spawn failure, for the player.
+function startProblem(error) {
+  const code = error && error.code;
+  if (code === 'ENOENT') return 'RobloxPlayerBeta.exe is missing from the game files. If your antivirus removed it, restore it, or download the game files again (Settings > Network).';
+  if (['EACCES', 'EPERM', 'UNKNOWN', 'EBUSY'].includes(code)) return `Windows or your antivirus did not let RobloxPlayerBeta.exe start (${code}). Check your antivirus's quarantine and allow it.`;
+  return `could not start the client: ${error && error.message ? error.message : error}`;
+}
+
+// The last lines of the 2017 client's own log written since startedAt
+// (%LOCALAPPDATA%\Roblox\logs\log_<hex>_<n>.txt), or [].
+function clientLogTail(startedAt, lines = 15) {
+  const dir = path.join(process.env.LOCALAPPDATA || '', 'Roblox', 'logs');
+  if (!process.env.LOCALAPPDATA) return [];
+  let newest = null;
+  try {
+    for (const name of fs.readdirSync(dir)) {
+      if (!/^log_[0-9A-F]{4,8}_\d+\.txt$/i.test(name)) continue;
+      const stat = fs.statSync(path.join(dir, name));
+      if (stat.mtimeMs >= startedAt - 2000 && (!newest || stat.mtimeMs > newest.mtimeMs)) newest = { name, mtimeMs: stat.mtimeMs };
+    }
+    if (!newest) return [];
+    const text = fs.readFileSync(path.join(dir, newest.name), 'utf8');
+    // Players share this log: leave out join tickets and signatures.
+    const redact = (line) => line.replace(/\b(ticket|sig|t)=[^&\s"\\]+/gi, '$1=…');
+    return [`(${newest.name})`, ...text.split(/\r?\n/).filter((line) => line.trim()).slice(-lines).map(redact)];
+  } catch (error) {
+    return [];
+  }
+}
+
 function validUsername(name) {
   return /^[A-Za-z0-9_]{3,20}$/.test(String(name || ''));
 }
@@ -82,7 +143,7 @@ async function joinTicket(centralUrl, request, token, { onWait = null, cancelled
 // player becomes a guest).
 async function joinGame({ centralUrl, username, ticket = null, name = null, game, log = console.log, dryRun = false }) {
   if (process.platform !== 'win32') throw new Error('the 2017 client runs on Windows only');
-  if (!core.isFile(CLIENT_EXE)) throw new Error(`client not found at ${CLIENT_EXE}`);
+  if (!core.isFile(CLIENT_EXE)) throw new Error(`The game client is missing (${CLIENT_EXE}). If your antivirus removed it, restore it, or download the game files again (Settings > Network).`);
   if (!ticket && !validUsername(username)) throw new Error('the username needs 3-20 letters, digits or _');
   const userId = ticket ? null : core.localUserId(username);
 
@@ -114,18 +175,50 @@ async function joinGame({ centralUrl, username, ticket = null, name = null, game
   }
 
   log(`Joining "${game.name}" as ${ticket ? name || 'your account' : `${username} (user ID ${userId})`}.`);
-  const child = spawn(CLIENT_EXE, ['--play', '-a', 'http://localhost./Login/Negotiate.ashx/', '-t', 'Test', '-j', joinUrl], {
-    cwd: path.dirname(CLIENT_EXE),
-    stdio: 'ignore',
-  });
+  const startedAt = Date.now();
+  let stopped = false;
+  let child;
+  try {
+    child = spawn(CLIENT_EXE, ['--play', '-a', 'http://localhost./Login/Negotiate.ashx/', '-t', 'Test', '-j', joinUrl], {
+      cwd: path.dirname(CLIENT_EXE),
+      stdio: 'ignore',
+    });
+  } catch (error) {
+    // Windows refuses some files at once (spawn UNKNOWN: blocked, damaged or
+    // not a program) instead of through the 'error' event.
+    closeAll();
+    const problem = startProblem(error);
+    log(`${problem} [${error.message}]`);
+    throw Object.assign(new Error(problem), { code: error.code });
+  }
+  if (child.pid) log(`The client started (process ${child.pid}).`);
+  // Resolves with { code, seconds, stopped, problem }: problem says what went
+  // wrong when the client closed soon after it started (else null).
   const exited = new Promise((resolve, reject) => {
-    child.on('exit', () => { closeAll(); resolve(); });
-    child.on('error', (error) => { closeAll(); reject(new Error(`could not start the client: ${error.message}`)); });
+    child.on('exit', (code, signal) => {
+      closeAll();
+      const seconds = (Date.now() - startedAt) / 1000;
+      const outcome = { code, signal, seconds, stopped, problem: null };
+      log(`The client closed after ${seconds < 120 ? `${Math.round(seconds)} s` : `${Math.round(seconds / 60)} min`} (exit code ${exitCodeText(code)}${stopped ? ', closed from the launcher' : ''}).`);
+      outcome.problem = earlyExitProblem(outcome);
+      if (outcome.problem) {
+        log(outcome.problem);
+        for (const line of clientLogTail(startedAt)) log(`  client log: ${line}`);
+      }
+      resolve(outcome);
+    });
+    child.on('error', (error) => {
+      closeAll();
+      const problem = startProblem(error);
+      log(`${problem} [${error.message}]`);
+      reject(Object.assign(new Error(problem), { code: error.code }));
+    });
   });
   return {
     userId,
     exited,
     stop() {
+      stopped = true;
       if (child.exitCode === null) {
         try { child.kill(); } catch (error) { /* already gone */ }
       }
@@ -133,4 +226,7 @@ async function joinGame({ centralUrl, username, ticket = null, name = null, game
   };
 }
 
-module.exports = { joinGame, joinTicket, fetchGames, validUsername, loadConfig, saveConfig, CONFIG, CLIENT_EXE };
+module.exports = {
+  joinGame, joinTicket, fetchGames, validUsername, loadConfig, saveConfig, CONFIG, CLIENT_EXE,
+  earlyExitProblem, startProblem, exitCodeText, clientLogTail, EARLY_EXIT_SECONDS,
+};

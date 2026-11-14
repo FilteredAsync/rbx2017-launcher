@@ -425,7 +425,16 @@ button.icon-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColo
 .loading-status.error { color: #ff8a80; }
 .loading-bar { width: 300px; height: 4px; background: rgba(255, 255, 255, .14); margin-top: 12px; }
 .loading-bar > div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
-.loading-cancel { position: absolute; right: 34px; bottom: 30px; }
+.loading-actions { position: absolute; right: 34px; bottom: 30px; display: flex; gap: 12px; }
+/* Roblox closed right after starting: the reason instead of the spinner. */
+.loading-screen.failed .loading-spinner { display: none; }
+.loading-screen.failed .loading-status { max-width: 520px; line-height: 1.45; margin-top: 30px; }
+
+/* Settings > Storage --------------------------------------------------------------- */
+.storage-list { display: flex; flex-direction: column; margin-top: 14px; border-top: 1px solid var(--line); }
+.storage-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.storage-name { font-size: 16px; margin-bottom: 3px; }
+.storage-size { white-space: nowrap; text-align: right; min-width: 90px; }
 
 /* People: search, profiles, Home's friends ------------------------------------- */
 .people-search input { width: 300px; }

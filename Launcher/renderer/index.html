@@ -190,6 +190,7 @@
         <div class="settings-nav" id="settings-nav">
           <button class="set-link active" data-panel="account">Account</button>
           <button class="set-link" data-panel="network">Network</button>
+          <button class="set-link" data-panel="storage">Storage</button>
           <button class="set-link" data-panel="menu">Menu</button>
           <button class="set-link" data-panel="host">Host a game</button>
           <button class="set-link" data-panel="server">Web server</button>
@@ -238,14 +239,6 @@
                 <span class="status" id="join-status"></span>
               </div>
             </div>
-            <div class="panel" id="asset-cache-panel">
-              <div class="label">Game assets on this PC</div>
-              <p class="lead">Meshes, textures and sounds from games you play are kept here, so games load faster the next time. The launcher still checks with your server once a day that they are current.</p>
-              <div class="row">
-                <span class="status" id="asset-cache-size">…</span>
-                <button class="ghost" id="asset-cache-clear">Clear</button>
-              </div>
-            </div>
             <div class="panel hidden" id="files-panel">
               <div class="label">Game files</div>
               <p class="lead" id="files-lead">The game files come from your server (about 85 MB). Connect Tailscale, enter the server address your host gave you, and download them.</p>
@@ -260,6 +253,56 @@
                 <span class="status" id="files-status"></span>
               </div>
               <progress class="files-progress hidden" id="files-progress" max="100" value="0"></progress>
+            </div>
+          </div>
+
+          <div class="set-panel hidden" id="set-storage">
+            <div class="panel" id="asset-cache-panel">
+              <div class="label">Game assets on this PC</div>
+              <p class="lead">Meshes, textures and sounds from games you play are kept here, so games load faster the next time. The launcher still checks with your server once a day that they are current.</p>
+              <div class="row">
+                <span class="status" id="asset-cache-size">…</span>
+                <button class="ghost" id="asset-cache-clear">Clear</button>
+              </div>
+            </div>
+            <div class="panel" id="storage-panel">
+              <div class="label">Free up space</div>
+              <p class="lead">Other files the launcher and the game leave on this PC. Game logs older than a week, launcher updates once installed, and unfinished downloads are removed by themselves when the launcher starts.</p>
+              <div class="storage-list">
+                <div class="storage-row" id="storage-logs">
+                  <div class="storage-text">
+                    <div class="storage-name">Game logs and crash reports</div>
+                    <div class="hint">From the 2017 game, Studio and game servers, in %LOCALAPPDATA%\Roblox\logs. The real Roblox's files there are not touched.</div>
+                  </div>
+                  <span class="status storage-size">…</span>
+                  <button class="ghost" data-clean="logs">Delete</button>
+                </div>
+                <div class="storage-row hidden" id="storage-updates">
+                  <div class="storage-text">
+                    <div class="storage-name">Launcher update files</div>
+                    <div class="hint">Installers kept after launcher updates. Without them, the next update downloads in full.</div>
+                  </div>
+                  <span class="status storage-size">…</span>
+                  <button class="ghost" data-clean="updates">Delete</button>
+                </div>
+                <div class="storage-row" id="storage-leftovers">
+                  <div class="storage-text">
+                    <div class="storage-name">Unfinished downloads</div>
+                    <div class="hint">Pieces of game file, Studio or Tailscale downloads that did not finish.</div>
+                  </div>
+                  <span class="status storage-size">…</span>
+                  <button class="ghost" data-clean="leftovers">Delete</button>
+                </div>
+                <div class="storage-row hidden" id="storage-studio">
+                  <div class="storage-text">
+                    <div class="storage-name">Roblox Studio</div>
+                    <div class="hint">Downloads again from your server the next time you open Studio.</div>
+                  </div>
+                  <span class="status storage-size">…</span>
+                  <button class="ghost" data-clean="studio">Remove</button>
+                </div>
+              </div>
+              <div class="row tight"><span class="status" id="storage-status"></span></div>
             </div>
           </div>
 
@@ -381,7 +424,9 @@
                 <button class="ghost" id="open-root">Open RobloxClient folder</button>
                 <button class="ghost" id="open-config">Open config</button>
                 <button class="ghost" id="open-logs">Open logs</button>
+                <button class="ghost" id="open-launcher-log">Open launcher log</button>
               </div>
+              <p class="hint">Game won't start? Send your host the launcher log (launcher.log): it says what happened.</p>
             </div>
             <details class="log-box"><summary>Game log (joining, game files, Studio)</summary><pre class="log" id="log-play"></pre></details>
           </div>
@@ -402,7 +447,10 @@
       <div class="loading-status" id="loading-status"></div>
       <div class="loading-bar hidden" id="loading-bar"><div id="loading-bar-fill"></div></div>
     </div>
-    <button class="ghost loading-cancel" id="loading-cancel">Cancel</button>
+    <div class="loading-actions">
+      <button class="ghost hidden" id="loading-log">Open launcher log</button>
+      <button class="ghost" id="loading-cancel">Cancel</button>
+    </div>
   </div>
 
   <!-- A player's profile -->

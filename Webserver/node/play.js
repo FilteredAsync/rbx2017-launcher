@@ -74,8 +74,7 @@ async function main() {
   const session = await joining.joinGame({ centralUrl, username, game, log: console.log, dryRun: process.argv.includes('--dry-run') });
   if (process.argv.includes('--dry-run')) return 0;
   console.log('Keep this window open while you play.');
-  await session.exited;
-  console.log('The client closed.');
+  await session.exited; // joinGame says how the client closed
   return 0;
 }
 

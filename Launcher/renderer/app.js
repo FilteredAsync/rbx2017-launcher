@@ -355,7 +355,7 @@ const editor = window.AvatarEditor.create({
 // --- views and navigation -----------------------------------------------------------
 
 let VIEWS = ['home', 'avatar', 'games', 'players', 'settings'];
-let SETTINGS = ['account', 'network', 'menu', 'host', 'server', 'setup', 'about'];
+let SETTINGS = ['account', 'network', 'storage', 'menu', 'host', 'server', 'setup', 'about'];
 
 // A player install (no server files) cannot host or run the web server.
 let capabilitiesApplied = false;
@@ -396,7 +396,10 @@ function showSettings(name) {
   document.querySelectorAll('.set-panel').forEach((panel) => panel.classList.toggle('hidden', panel.id !== `set-${name}`));
   if (name === 'setup') refreshChecks();
   if (name === 'host') loadHostThumbnail();
-  if (name === 'network') showAssetCache();
+  if (name === 'storage') {
+    showAssetCache();
+    showStorage();
+  }
   if (name === 'about') {
     renderAbout();
     // Opening About checks again (at most once a minute).
@@ -866,7 +869,9 @@ function setLoadingBar(fraction) {
 }
 
 function showLoading(game) {
-  loading = { game, cancelled: false, started: false };
+  loading = { game, cancelled: false, started: false, failed: false };
+  $('loading-screen').classList.remove('failed');
+  $('loading-log').classList.add('hidden');
   $('loading-backdrop').textContent = '';
   $('loading-backdrop').append(cover(game));
   $('loading-cover').textContent = '';
@@ -897,9 +902,26 @@ api.onPlayProgress((info) => {
   if (loading && !loading.started && info && info.text) setLoadingStatus(info.text);
 });
 
+// Roblox closed soon after starting, or could not start (main.js
+// 'play-failed'): the loading screen stays (or comes back) with the reason.
+let lastPlayGame = null;
+api.onPlayFailed((info) => {
+  if (!loading) showLoading(lastPlayGame || (info && info.game) || { name: 'Roblox' });
+  loading.started = true;
+  loading.failed = true;
+  $('loading-screen').classList.add('failed');
+  setLoadingBar(null);
+  setLoadingStatus((info && info.text) || 'Roblox closed right after starting.', 'error');
+  $('loading-log').classList.remove('hidden');
+  $('loading-cancel').textContent = 'Close';
+  focusEl($('loading-cancel'));
+});
+
+$('loading-log').addEventListener('click', () => api.openLauncherLog());
+
 // The game window takes the focus once it is up.
 window.addEventListener('blur', () => {
-  if (loading && loading.started) setTimeout(() => { if (loading && loading.started) hideLoading(); }, 400);
+  if (loading && loading.started && !loading.failed) setTimeout(() => { if (loading && loading.started && !loading.failed) hideLoading(); }, 400);
 });
 
 // Play: any server of the game with room (the server starts one if none
@@ -919,6 +941,7 @@ async function startPlay(game, request) {
   $('detail-note').textContent = '';
   closeDetail();
   showLoading(game);
+  lastPlayGame = game;
   const mine = loading;
   playStarting = true;
   try {
@@ -937,7 +960,7 @@ async function startPlay(game, request) {
     setLoadingStatus(joined.guest ? `Starting Roblox as ${joined.name}…` : 'Starting Roblox…');
     $('loading-cancel').textContent = 'Close the game';
     // If the window never takes the focus (another window in front), stop waiting.
-    setTimeout(() => { if (loading === mine) hideLoading(); }, 25000);
+    setTimeout(() => { if (loading === mine && !mine.failed) hideLoading(); }, 25000);
   } catch (error) {
     playStarting = false;
     if (/sign in/i.test(message(error)) && me) {
@@ -966,7 +989,7 @@ async function refreshState() {
 
   // Games / play
   // The client closed (or failed) before its window took over.
-  if (loading && loading.started && !state.play.active) hideLoading();
+  if (loading && loading.started && !loading.failed && !state.play.active) hideLoading();
   $('play-close').classList.toggle('hidden', !state.play.active);
   if (state.play.active) setStatus('play-status', 'The client is running.', 'good');
   else if ($('play-status').textContent === 'The client is running.') setStatus('play-status', 'The client closed.');
@@ -1631,6 +1654,47 @@ $('asset-cache-clear').addEventListener('click', async () => {
   }
 });
 
+// --- Settings > Storage: what can be freed (main.js storage:*, cleanup.js) ---
+
+let cleaningStorage = false;
+
+async function showStorage(note, kind) {
+  let info;
+  try {
+    info = await api.storage();
+  } catch (error) {
+    setStatus('storage-status', message(error), 'error');
+    return;
+  }
+  for (const name of ['logs', 'updates', 'leftovers', 'studio']) {
+    const row = $(`storage-${name}`);
+    const part = info[name];
+    row.classList.toggle('hidden', !part);
+    if (!part) continue;
+    row.querySelector('.storage-size').textContent = part.files === 0 ? 'None' : megabytes(part.bytes);
+    row.querySelector('button').disabled = cleaningStorage || part.files === 0;
+  }
+  setStatus('storage-status', note || '', kind);
+}
+
+document.querySelectorAll('#storage-panel button[data-clean]').forEach((button) => button.addEventListener('click', async () => {
+  if (cleaningStorage) return;
+  const kind = button.dataset.clean;
+  cleaningStorage = true;
+  document.querySelectorAll('#storage-panel button[data-clean]').forEach((other) => { other.disabled = true; });
+  setStatus('storage-status', kind === 'studio' ? 'Removing Studio…' : 'Deleting…');
+  try {
+    const result = await api.cleanStorage(kind);
+    cleaningStorage = false;
+    const kept = result.skipped ? ` ${result.skipped} file${result.skipped === 1 ? ' is' : 's are'} in use and stayed (close the game or Studio and try again).` : '';
+    await showStorage(`Freed ${megabytes(result.bytes)}.${kept}`, result.skipped ? null : 'good');
+  } catch (error) {
+    cleaningStorage = false;
+    await showStorage();
+    setStatus('storage-status', message(error), 'error');
+  }
+}));
+
 function showFilesPanel(focus) {
   const panel = $('files-panel');
   panel.classList.remove('hidden');
@@ -1815,6 +1879,7 @@ $('setup-refresh').addEventListener('click', refreshChecks);
 $('open-root').addEventListener('click', () => api.openFolder('root'));
 $('open-config').addEventListener('click', () => api.openFolder('config'));
 $('open-logs').addEventListener('click', () => api.openFolder('logs'));
+$('open-launcher-log').addEventListener('click', () => api.openLauncherLog());
 
 // --- about and updates ---------------------------------------------------------------------
 

@@ -11,6 +11,7 @@ const { spawn, spawnSync } = require('child_process');
 const dns = require('dns').promises;
 const fs = require('fs');
 const net = require('net');
+const os = require('os');
 const path = require('path');
 
 // Menu music is the player's own file (config/menu-music.mp3), served to the
@@ -58,8 +59,42 @@ function send(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
 
+// --- launcher log ---------------------------------------------------------------
+// What the window's game log shows (joining, game files, Studio) also goes to
+// launcher.log in the launcher's app data folder, which updates keep: a
+// player can send it when the game does not start (Settings > About > Open
+// launcher log). 1 MB, then it moves to launcher.old.log. The host and web
+// server logs have their own files in Webserver\node\logs.
+const LOG_FILE_AREAS = new Set(['play', 'launcher']);
+const LOG_MAX_BYTES = 1024 * 1024;
+let logFilePath = null;
+
+function launcherLogFile() {
+  if (!logFilePath) logFilePath = path.join(app.getPath('logs'), 'launcher.log');
+  return logFilePath;
+}
+
+function writeLogFile(area, line) {
+  try {
+    const file = launcherLogFile();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    try {
+      if (fs.statSync(file).size > LOG_MAX_BYTES) fs.renameSync(file, path.join(path.dirname(file), 'launcher.old.log'));
+    } catch (error) { /* no log yet */ }
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+    fs.appendFileSync(file, `${stamp}  ${area.padEnd(8)} ${line}\n`);
+  } catch (error) {
+    // Logging must never break anything.
+  }
+}
+
 function logger(area) {
-  return (line) => send('log', { area, line: String(line), time: new Date().toLocaleTimeString() });
+  return (line) => {
+    if (LOG_FILE_AREAS.has(area)) writeLogFile(area, String(line));
+    send('log', { area, line: String(line), time: new Date().toLocaleTimeString() });
+  };
 }
 
 function canConnect(port, host, timeoutMs = 800) {
@@ -421,6 +456,67 @@ async function openStudio(centralUrl) {
   return true;
 }
 
+// --- storage --------------------------------------------------------------------------
+// Settings > Storage, and a tidy-up at each start (cleanup.js): the 2017
+// programs' logs and crash reports older than a week, the installer of a
+// launcher update that is now installed, and unfinished downloads.
+let joiningNetwork = false; // a join code is setting up Tailscale (downloads\tailscale)
+
+// electron-updater's download folder (%LOCALAPPDATA%\<name>-updater, named
+// in app-update.yml); null for copies that do not update themselves.
+function updaterDir() {
+  if (!app.isPackaged || !process.env.LOCALAPPDATA) return null;
+  try {
+    const yml = fs.readFileSync(path.join(process.resourcesPath, 'app-update.yml'), 'utf8');
+    const match = /^updaterCacheDirName:\s*['"]?([A-Za-z0-9._-]+)['"]?\s*$/m.exec(yml);
+    return match ? path.join(process.env.LOCALAPPDATA, match[1]) : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+let cleanerModule = null;
+function cleaner() {
+  if (!cleanerModule) {
+    cleanerModule = require('./cleanup')({
+      root: ROOT,
+      localAppData: process.env.LOCALAPPDATA || null,
+      updaterDir: updaterDir(),
+      appVersion: app.getVersion(),
+      // Only Studio this launcher downloaded: on a host's PC, Studio\ is the
+      // copy its server hands out.
+      studioDownloaded: () => !capabilities().canHost && fs.existsSync(path.join(ROOT, 'Studio')) && fs.existsSync(path.join(ROOT, 'config', 'studio-files.json')),
+      busy: () => gameFiles().isBusy() || studioFiles().isBusy() || joiningNetwork,
+    });
+  }
+  return cleanerModule;
+}
+
+function megabytes(bytes) {
+  return `${Math.round(bytes / 1048576)} MB`;
+}
+
+async function tidyAtStart() {
+  const log = logger('launcher');
+  try {
+    const removed = await cleaner().atStart();
+    if (removed.files > 0) log(`Tidied up ${removed.files} old file${removed.files === 1 ? '' : 's'} (${megabytes(removed.bytes)}): game logs older than a week, installed launcher updates, unfinished downloads.`);
+  } catch (error) {
+    log(`Tidy-up failed: ${error.message}`);
+  }
+}
+
+async function cleanStorage(kind) {
+  if (kind === 'updates' && ['downloading', 'ready'].includes(updateStatus.state)) {
+    throw new Error('A launcher update is downloading or waiting to install. Restart to update first.');
+  }
+  if (kind === 'studio' && studioRunning()) throw new Error('Close Studio first.');
+  const result = await cleaner().clean(kind);
+  logger('launcher')(`Storage: removed ${result.files} file${result.files === 1 ? '' : 's'} (${megabytes(result.bytes)}) of ${kind}${result.skipped ? `; ${result.skipped} in use were kept` : ''}.`);
+  if (kind === 'studio') send('status-changed');
+  return result;
+}
+
 // --- setup checks -----------------------------------------------------------------
 
 async function checks() {
@@ -574,12 +670,19 @@ function registerIpc() {
   ipcMain.handle('studio:open', (event, centralUrl) => openStudio(centralUrl));
   // Join codes (tailscale.js): set up Tailscale with the host's key, remember the server.
   ipcMain.handle('join:code', async (event, options) => {
-    const result = await require('./tailscale').join({
-      code: options && options.code,
-      username: options && options.username,
-      workDir: path.join(ROOT, 'downloads'),
-      onProgress: (info) => send('join-progress', info),
-    });
+    if (joiningNetwork) throw new Error('Already joining. Wait for it to finish.');
+    joiningNetwork = true;
+    let result;
+    try {
+      result = await require('./tailscale').join({
+        code: options && options.code,
+        username: options && options.username,
+        workDir: path.join(ROOT, 'downloads'),
+        onProgress: (info) => send('join-progress', info),
+      });
+    } finally {
+      joiningNetwork = false;
+    }
     const joining = lib('joining');
     joining.saveConfig(Object.assign({}, joining.loadConfig() || {}, { centralUrl: result.server }));
     syncMenuMusic(result.server);
@@ -655,11 +758,10 @@ function registerIpc() {
   // a join ticket that decides who the player is.
   // request: { placeId } | { gameId } | { privateId } (lib/joining.js).
   let joinCancelled = false;
-  ipcMain.handle('play:join', async (event, { request, game, guest }) => {
+  async function joinFromLauncher({ request, game, guest }, log) {
     if (playSession) throw new Error('The client is already running. Close it first.');
     const joining = lib('joining');
     const url = account.serverUrl();
-    const log = logger('play');
     joinCancelled = false;
     await updateFilesBeforePlay(url, log);
     if (playSession) throw new Error('The client is already running. Close it first.');
@@ -674,11 +776,25 @@ function registerIpc() {
     if (!target.address) throw new Error('The server did not say where the game runs. Update its server files.');
     playSession = await joining.joinGame({ centralUrl: url, ticket: ticket.ticket, name: ticket.name, game: target, log });
     send('status-changed');
-    playSession.exited.then(() => log('The client closed.'), (error) => log(`Error: ${error.message}`)).finally(() => {
+    // joinGame logs how the client closed; a client that closed soon after
+    // starting (or could not start) is shown on the loading screen.
+    playSession.exited.then(
+      (outcome) => { if (outcome && outcome.problem) send('play-failed', { text: outcome.problem, game }); },
+      (error) => send('play-failed', { text: error.message, game }),
+    ).finally(() => {
       playSession = null;
       send('status-changed');
     });
     return { name: ticket.name, guest: Boolean(ticket.guest) };
+  }
+  ipcMain.handle('play:join', async (event, options) => {
+    const log = logger('play');
+    try {
+      return await joinFromLauncher(options || {}, log);
+    } catch (error) {
+      if (!/^Cancelled\.?$/.test(error.message)) log(`Could not join: ${error.message}`);
+      throw error;
+    }
   });
 
   ipcMain.handle('play:stop', async () => {
@@ -742,6 +858,15 @@ function registerIpc() {
     if (folders[which]) shell.openPath(folders[which]);
     return true;
   });
+  // Shows launcher.log selected in Explorer, so it can be sent as it is.
+  ipcMain.handle('open:launcher-log', () => {
+    const file = launcherLogFile();
+    if (!fs.existsSync(file)) writeLogFile('launcher', 'Log opened (nothing logged yet).');
+    shell.showItemInFolder(file);
+    return true;
+  });
+  ipcMain.handle('storage:scan', () => cleaner().scan());
+  ipcMain.handle('storage:clean', (event, kind) => cleanStorage(String(kind)));
   ipcMain.handle('clipboard:write', (event, text) => { clipboard.writeText(String(text)); return true; });
 
   // Accounts, avatars and the catalog (account.js; all on the server in the
@@ -900,6 +1025,12 @@ app.whenReady().then(() => {
   });
   registerIpc();
   createWindow();
+  const files = installedFiles();
+  logger('launcher')(`Launcher ${app.getVersion()} started (${app.isPackaged ? 'installed' : 'from source'}, Windows ${os.release()}, folder ${ROOT}, `
+    + `game files ${files ? files.version : capabilities().canPlay ? 'local' : 'none'}, server ${(lib('joining').loadConfig() || {}).centralUrl || 'not set'}).`);
+  // Before the first update check (8 s), which may download into the
+  // updater's folder.
+  tidyAtStart();
   setupUpdates();
   setTimeout(() => syncMenuMusic(), 3000);
   setTimeout(checkMovedServer, 4000);
