@@ -397,6 +397,41 @@ function classesOf2017() {
   return knownClasses;
 }
 
+// Part classes of the 2017 engine: BasePart and every class under it (API
+// dump), or the usual ones when the dump is missing.
+let partClasses = null;
+function partClassesOf2017() {
+  if (partClasses === null) {
+    const parents = new Map();
+    try {
+      for (const match of fs.readFileSync(API_DUMP, 'latin1').matchAll(/^Class (\w+)(?: : (\w+))?/gm)) parents.set(match[1], match[2] || null);
+    } catch (error) { /* the usual ones below */ }
+    partClasses = new Set();
+    for (const name of parents.keys()) {
+      for (let c = name; c; c = parents.get(c)) {
+        if (c === 'BasePart') { partClasses.add(name); break; }
+      }
+    }
+    if (partClasses.size === 0) {
+      for (const name of ['Part', 'WedgePart', 'CornerWedgePart', 'TrussPart', 'MeshPart', 'UnionOperation', 'NegateOperation',
+        'SpawnLocation', 'Seat', 'VehicleSeat', 'SkateboardPlatform', 'Terrain']) partClasses.add(name);
+    }
+  }
+  return partClasses;
+}
+
+// Objects the 2017 engine allows only under certain parents. It refuses the
+// whole place when one is elsewhere ("Attachments must be parented by a
+// PartInstance", "team must be a child of the Teams service"), and newer
+// Studio allows more (an attachment inside another, e.g. in R15 rigs). Such
+// an object becomes a Folder of the same name, so the place loads and
+// scripts still find it; its children stay in it.
+function misplaced(className, parentClass) {
+  if (className === 'Attachment') return !partClassesOf2017().has(parentClass);
+  if (className === 'Team') return parentClass !== 'Teams';
+  return false;
+}
+
 // input: Buffer of an .rbxlx/.rbxmx. options.universeId: the Roblox universe
 // the place came from, for rbxgameasset:// names.
 // -> { output: Buffer, counts, summary: [lines] }
@@ -412,14 +447,30 @@ function convertPlace(input, options) {
   const counts = {
     robloxLinks: 0, thumbnails: 0, gameAssets: 0, contentIds: 0, fonts: 0, droppedProperties: 0,
     attributes: 0, sharedStrings: 0, newCsg: 0, taskCalls: 0, compoundAssignments: 0, materials: 0, unionCollision: 0, unionShapes: 0, filteringEnabled: 0,
-    compatScripts: 0, compatChanges: new Map(),
+    compatScripts: 0, compatChanges: new Map(), madeFolders: new Map(),
     gameAssetNames: new Set(), unsupportedThumbnails: new Set(), luauScripts: [], unknownClasses: new Map(),
   };
   const known = classesOf2017();
   const output = [];
+  // Classes of the open <Item>s (as written out), across pieces; a model's
+  // top-level items have no parent and are left as they are.
+  const openItems = [];
   for (const piece of pieces(dropSharedStrings(input, counts))) {
     // Latin-1 keeps every byte as it was; only ASCII markup is touched.
     let text = piece.toString('latin1');
+    text = text.replace(/<!\[CDATA\[[\s\S]*?\]\]>|<Item\s+class="([^"]+)"([^>]*)>|<\/Item>/g, (match, className, rest) => {
+      if (className === undefined) {
+        if (match === '</Item>') openItems.pop();
+        return match;
+      }
+      if (openItems.length > 0 && misplaced(className, openItems[openItems.length - 1])) {
+        counts.madeFolders.set(className, (counts.madeFolders.get(className) || 0) + 1);
+        openItems.push('Folder');
+        return `<Item class="Folder"${rest}>`;
+      }
+      openItems.push(className);
+      return match;
+    });
     text = text.replace(/(<Item\s+class="([^"]+)"[^>]*>\s*<Properties>)([\s\S]*?)(<\/Properties>)/g, (match, open, className, props, close) => {
       if (known !== null && !known.has(className)) counts.unknownClasses.set(className, (counts.unknownClasses.get(className) || 0) + 1);
       const converted = convertProperties(className, props, options, counts);
@@ -530,6 +581,9 @@ function summarize(counts, options) {
   changed(counts.unionShapes, 'unions given collision shaped like them (made from their mesh; 2017 cannot read their newer collision data)');
   changed(counts.unionCollision, 'unions given box collision (2017 cannot read their newer collision data)');
   changed(counts.materials, 'part materials the 2017 engine lacks (Glass, ForceField...) -> the nearest it has');
+  if (counts.madeFolders.size > 0) {
+    lines.push(`  ${[...counts.madeFolders].map(([name, n]) => `${n} ${name}${n === 1 ? '' : 's'}`).join(', ')} where the 2017 engine does not allow them (it would refuse the whole place) -> folders of the same name`);
+  }
   if (counts.filteringEnabled > 0) lines.push('  FilteringEnabled turned on (the file leaves it out, and the 2017 engine would run the game with it off)');
   if (counts.compatScripts > 0) {
     lines.push(`  ${counts.compatScripts} scripts made to run on 2017: ${[...counts.compatChanges].sort((a, b) => b[1] - a[1]).map(([name, n]) => `${name} x${n}`).join(', ')}`);
