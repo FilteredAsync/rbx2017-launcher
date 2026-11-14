@@ -231,17 +231,18 @@ const show = (cmd, args) => `${cmd} ${args.map(quote).join(' ')}`;
 
 function usage(message) {
   if (message) console.error(message);
-  console.error('Usage: node tools/schedule-release.js --at "YYYY-MM-DD HH:MM" [--server share/RobloxServer-update-<build>.rbxupd] [--dry-run]\n       (--at is Eastern time, at least 30 minutes from now)');
+  console.error('Usage: node tools/schedule-release.js --at "YYYY-MM-DD HH:MM" [--server share/RobloxServer-update-<build>.rbxupd] [--dry-run] [--soon]\n       (--at is Eastern time, at least 30 minutes from now; with --soon, 10 minutes)');
   process.exit(2);
 }
 
 function parseArgs(argv) {
-  const options = { at: null, server: null, dryRun: false };
+  const options = { at: null, server: null, dryRun: false, soon: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--at') options.at = argv[++i];
     else if (arg === '--server') options.server = argv[++i];
     else if (arg === '--dry-run') options.dryRun = true;
+    else if (arg === '--soon') options.soon = true;
     else if (arg === '--help' || arg === '-h') usage();
     else usage(`Unknown argument: ${arg}`);
   }
@@ -268,8 +269,11 @@ function main() {
     }
   };
 
-  if (publishAt - now < MIN_LEAD_MS) {
-    problems.push(`${stampText(publishAt)} is ${publishAt <= now ? 'in the past' : 'less than 30 minutes from now'}: pick a time at least 30 minutes ahead.`);
+  // --soon (test drops): 10 minutes' notice is enough.
+  const minLead = options.soon ? 10 * 60 * 1000 : MIN_LEAD_MS;
+  if (publishAt - now < minLead) {
+    const minutes = Math.round(minLead / 60000);
+    problems.push(`${stampText(publishAt)} is ${publishAt <= now ? 'in the past' : `less than ${minutes} minutes from now`}: pick a time at least ${minutes} minutes ahead.`);
   }
   const version = release.launcherVersion();
   const tag = `v${version}`;
