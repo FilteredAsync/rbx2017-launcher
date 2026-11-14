@@ -22,6 +22,7 @@ const games = require('./games');
 const gamethumbs = require('./gamethumbs');
 const placefile = require('./placefile');
 const marketplace = require('./marketplace');
+const unionshapes = require('./unionshapes');
 const missingassets = require('./missingassets');
 const places = require('./places');
 const privateservers = require('./privateservers');
@@ -1046,10 +1047,21 @@ async function convertUpload(ctx, query) {
     if (universeId === null) return { error: `could not find the universe of Roblox place ${query.fromplace}` };
   }
   try {
-    const result = placefile.convertPlace(bytes, { universeId });
+    const result = placefile.convertPlace(bytes, { universeId, unionShapes: await unionShapes(bytes) });
     return { bytes: result.output, notes: result.summary, universeId };
   } catch (error) {
     return { error: error.message };
+  }
+}
+
+// Collision shapes for a place's unions, made from their meshes (lib/unionshapes.js),
+// which come like any asset (cache, then Roblox). Unions without one keep the
+// converter's old rule.
+async function unionShapes(bytes) {
+  try {
+    return await unionshapes.buildShapes(placefile.unionsNeedingShapes(bytes), assetBytes);
+  } catch (error) {
+    return new Map();
   }
 }
 
@@ -1103,7 +1115,8 @@ async function placesApi(ctx, match) {
     const current = places.get(placeId);
     let result;
     try {
-      result = placefile.convertPlace(fs.readFileSync(places.filePath(current)), { universeId: current.universeId || null });
+      const bytes = fs.readFileSync(places.filePath(current));
+      result = placefile.convertPlace(bytes, { universeId: current.universeId || null, unionShapes: await unionShapes(bytes) });
     } catch (error) {
       return sendJson(ctx, 400, { error: `could not convert the place again: ${error.message}` });
     }

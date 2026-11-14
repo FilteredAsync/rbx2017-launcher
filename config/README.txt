@@ -243,10 +243,10 @@ button opens it). Changes need the host key (config\host-key.txt).
   - Servers start on demand: a game that is online gets a server when the
     first player joins it (the launcher shows "Starting a server..."), and
     more servers when those are full ("Players per server" under Edit). A
-    server nobody has played on for idleStopMinutes stops again. Tick "Keep
-    one server running" under Edit to have one up all the time (games from
-    before servers started on demand have it on). Each server is listed under
-    its game with its own Restart and Stop.
+    server nobody has played on for idleStopMinutes (default 5) stops again,
+    so a game nobody plays has no server. Tick "Keep one server running"
+    under Edit to have one up all the time. Each server is listed under its
+    game with its own Restart and Stop.
   - Private servers: signed-in players make them in the launcher (a game's
     details). The owner, the owner's friends and anyone given its invite code
     can join; /manage lists them under their game and can delete them.

@@ -11,8 +11,9 @@
 //
 // "enabled": true means players can play the game: the always-on server
 // (dedicated.js) starts a server for it when someone joins and stops it once
-// it has been empty for a while; "keepRunning" keeps one server up all the
-// time (places from before servers started on demand have it on).
+// it has been empty for a while; "keepRunning": true keeps one server up all
+// the time (off unless ticked on /manage, also for places from before servers
+// started on demand, which have no setting).
 // "maxPlayers": players per server; more players get another server. The web server changes the library (lib/routes.js, /manage);
 // dedicated.js reads it, takes restart requests from data/control.json and
 // reports what runs in data/runner-status.json.
@@ -146,7 +147,7 @@ function describe(placeId, place) {
     name: place.name,
     description: place.description || '',
     enabled: Boolean(place.enabled),
-    keepRunning: place.keepRunning !== false,
+    keepRunning: place.keepRunning === true,
     maxPlayers: maxPlayersOf(place),
     file: place.file,
     fileSize: size,

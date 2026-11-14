@@ -693,7 +693,7 @@ async function main() {
     const idleMs = config.idleStopMinutes * 60 * 1000;
     for (const slot of live()) {
       const place = entries[slot.placeId];
-      const kept = place && place.enabled && place.keepRunning !== false && !slot.privateId
+      const kept = place && place.enabled && place.keepRunning === true && !slot.privateId
         && serversOf(slot.placeId).filter((other) => other !== slot).length === 0;
       if (kept) continue;
       if (idleMs > 0 && slot.idleFor() > idleMs) stopServer(slot, null, `nobody has played for ${config.idleStopMinutes} minutes`);
@@ -747,7 +747,7 @@ async function main() {
 
       // "Keep running": one public server at all times, while there is room.
       for (const id of wanted) {
-        if (entries[id].keepRunning === false || serversOf(id).length > 0) continue;
+        if (entries[id].keepRunning !== true || serversOf(id).length > 0) continue;
         const started = startServer(id, null, entries, 'it is kept running');
         if (started.error) {
           nextProblems.push(`"${entries[id].name}" (${id}) is kept running but waits: ${started.error.replace(/ Try again.*$/, '')} (maxGames, gamePortCount in config\\dedicated.json)`);

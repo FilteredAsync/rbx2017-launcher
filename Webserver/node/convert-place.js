@@ -16,6 +16,8 @@ const fs = require('fs');
 const path = require('path');
 const core = require('./lib/core');
 const placefile = require('./lib/placefile');
+const assets = require('./lib/assets');
+const unionshapes = require('./lib/unionshapes');
 
 function usage() {
   console.log('Usage: convert-place.js <place.rbxlx> [--from-place <id>] [--universe <id>] [--out <file>] [--install]');
@@ -63,7 +65,15 @@ async function convertFile(input, options) {
     universeId = await placefile.universeForPlace(options.fromPlace);
     if (universeId === null) throw new Error(`Could not find the universe of Roblox place ${options.fromPlace}.`);
   }
-  const result = placefile.convertPlace(fs.readFileSync(input), { universeId });
+  // Union collision shapes from the unions' meshes, downloaded from Roblox
+  // (lib/unionshapes.js); without them unions keep the old rule.
+  const bytes = fs.readFileSync(input);
+  const fetchAsset = async (id) => {
+    const download = await assets.downloadAsset('id', id);
+    return download.ok ? assets.normalizeAsset(download.body).bytes : null;
+  };
+  const unionShapes = await unionshapes.buildShapes(placefile.unionsNeedingShapes(bytes), fetchAsset).catch(() => new Map());
+  const result = placefile.convertPlace(bytes, { universeId, unionShapes });
   const out = options.out || outputPath(input);
   fs.writeFileSync(out, result.output);
   let installed = null;
