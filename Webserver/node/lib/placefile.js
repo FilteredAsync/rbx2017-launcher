@@ -456,12 +456,16 @@ function hasNewerChat(input) {
     const text = piece.toString('latin1');
     for (const match of text.matchAll(/<!\[CDATA\[[\s\S]*?\]\]>|<Item\s+class="([^"]+)"[^>]*>|<\/Item>|<string\s+name="Name">([^<]*)<\/string>/g)) {
       if (match[0].startsWith('<![')) continue;
-      if (match[1] !== undefined) { open.push({ className: match[1], named: false }); continue; }
+      if (match[1] !== undefined) { open.push({ className: match[1], named: false, name: '' }); continue; }
       if (match[0] === '</Item>') { open.pop(); continue; }
       const top = open[open.length - 1];
       if (!top || top.named) continue;
       top.named = true;
-      if (match[2] === 'ChatLocalization' && open.some((item) => item.className === 'Chat')) return true;
+      top.name = match[2];
+      // Inside a copy set aside before (a ChatLocalization can sit deeper
+      // than the Chat service's own children): nothing more to do.
+      if (match[2] === 'ChatLocalization' && open.some((item) => item.className === 'Chat')
+        && !open.some((item) => item.name.endsWith(SET_ASIDE))) return true;
     }
   }
   return false;
@@ -628,10 +632,19 @@ function playerModuleItems() {
   return module('PlayerModule', PLAYER_MODULE, module('ControlModule', CONTROL_MODULE) + module('CameraModule', 'return {}\n'));
 }
 
+const SET_ASIDE = ' (newer, unused)';
 function setAside(props) {
-  let out = props.replace(/(<string\s+name="Name">)([^<]*)(<\/string>)/, (match, open, name, close) => `${open}${name} (newer, unused)${close}`);
+  let out = props.replace(/(<string\s+name="Name">)([^<]*)(<\/string>)/, (match, open, name, close) => `${open}${unsetAside(name)}${SET_ASIDE}${close}`);
   out = out.replace(/<bool\s+name="Disabled">false<\/bool>/, '<bool name="Disabled">true</bool>');
   return out;
+}
+
+// A name without the set-aside mark (converters before this one added it
+// again on each "Convert again").
+function unsetAside(name) {
+  let base = name;
+  while (base.endsWith(SET_ASIDE)) base = base.slice(0, -SET_ASIDE.length);
+  return base;
 }
 
 // input: Buffer of an .rbxlx/.rbxmx. options.universeId: the Roblox universe
@@ -697,6 +710,10 @@ function convertPlace(input, options) {
       if (referent && setAsideRefs.has(referent[1])) {
         converted = setAside(converted);
         counts.chatSetAside++;
+      }
+      // A set-aside mark added more than once (earlier converters) -> once.
+      if (converted.includes(`${SET_ASIDE}${SET_ASIDE}`)) {
+        converted = converted.replace(/(<string\s+name="Name">)([^<]*)(<\/string>)/, (m, a, name, b) => (name.endsWith(SET_ASIDE) ? `${a}${unsetAside(name)}${SET_ASIDE}${b}` : m));
       }
       if (referent && coreGuiRefs.has(referent[1])) {
         if (className === 'Folder') converted = setAside(converted);
