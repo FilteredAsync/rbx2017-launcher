@@ -8,10 +8,14 @@
 // - Product info is the real Roblox info (games show names, prices and icons
 //   in their shops, and some use more: Lumber Tycoon 2 grants a money pack's
 //   Description), looked up once and kept in data/product-info.json, marked
-//   free and for sale, so the purchase prompt offers it "for FREE".
-// - Assets and game passes count as owned, like UserOwnsGamePassAsync
-//   (lib/luacompat.js): PlayerOwnsAsset and GamePassService:PlayerHasPass
-//   answer yes.
+//   free and for sale, so the purchase prompt offers it "for FREE". Newer
+//   game passes have IDs of their own, which are also other assets' IDs: an
+//   ID that is one of the asking game's passes (its universe's, when the
+//   place has a universe ID) is answered as that pass.
+// - Assets and game passes are owned once bought (lib/ownership.js): the
+//   client's prompt posts marketplace/purchase with the item's ProductId,
+//   and PlayerOwnsAsset, GamePassService:PlayerHasPass and
+//   UserOwnsGamePassAsync (lib/luacompat.js) answer from what was bought.
 // - Developer products (bought again and again) go through the 2017 receipt
 //   flow: the client's purchase gets a receipt here (submitpurchase), the game
 //   server checks it (validatepurchase) and calls the game's ProcessReceipt,
@@ -25,6 +29,7 @@ const fs = require('fs');
 const path = require('path');
 const core = require('./core');
 const assets = require('./assets');
+const ownership = require('./ownership');
 
 const FILE = core.rootPath('Webserver', 'node', 'data', 'product-info.json');
 const FRESH_MS = 7 * 24 * 60 * 60 * 1000;
@@ -37,7 +42,10 @@ const RECEIPT_MS = 60 * 60 * 1000;
 const LOOKUP_URLS = {
   asset: (id) => `https://economy.roblox.com/v2/assets/${id}/details`,
   product: (id) => `https://apis.roblox.com/developer-products/v1/developer-products/${id}/details`,
+  // A universe's game passes (the first 100).
+  passes: (id) => `https://apis.roblox.com/game-passes/v1/universes/${id}/game-passes?passView=Full&pageSize=100`,
 };
+const GAME_PASS_TYPE = 34; // the prompt says "Game Pass"
 
 // Lumber Tycoon 2 (place 1818, which comes with this server) grants a money
 // pack's Description, and Roblox's text filter has since hidden two of them
@@ -57,7 +65,7 @@ const KEPT_FIELDS = ['TargetId', 'ProductType', 'AssetId', 'ProductId', 'Name', 
 
 // --- Product info --------------------------------------------------------------
 
-let cache = null; // "asset:<id>" | "product:<id>" -> { at, info }
+let cache = null; // "asset:<id>" | "product:<id>" | "passes:<universeId>" -> { at, info }
 const failedAt = new Map();
 const inFlight = new Map();
 const queue = [];
@@ -91,6 +99,18 @@ function trimInfo(data) {
   return info;
 }
 
+function trimPasses(data) {
+  return data.gamePasses.filter((pass) => pass && Number(pass.id) > 0).map((pass) => {
+    const creator = pass.creator && typeof pass.creator === 'object' ? pass.creator : {};
+    return {
+      id: Number(pass.id), productId: Number(pass.productId) || 0, name: String(pass.displayName || pass.name || ''),
+      description: String(pass.displayDescription || ''), price: Number(pass.price) || 0, icon: Number(pass.displayIconImageAssetId) || 0,
+      creator: { Id: Number(creator.creatorId) || 0, Name: String(creator.name || ''), CreatorType: creator.creatorType === 'Group' ? 'Group' : 'User', CreatorTargetId: Number(creator.creatorId) || 0 },
+      created: pass.created || null, updated: pass.updated || null,
+    };
+  });
+}
+
 // A few lookups at a time, so a game asking about hundreds of items at once
 // does not run into Roblox's rate limits.
 function queuedLookup(kind, id) {
@@ -112,9 +132,9 @@ function pump() {
   }
 }
 
-// The Roblox info of an asset or developer product, or null when it is not
-// known (yet). A game waits at most WAIT_MS; a slower lookup is kept for the
-// next time.
+// The Roblox info of an asset or developer product (or a universe's game
+// passes), or null when it is not known (yet). A game waits at most
+// WAIT_MS; a slower lookup is kept for the next time.
 function lookUp(kind, id) {
   const key = `${kind}:${id}`;
   const cached = loadCache()[key] || null;
@@ -125,11 +145,11 @@ function lookUp(kind, id) {
   if (!pending) {
     pending = queuedLookup(kind, id).then((data) => {
       inFlight.delete(key);
-      if (!data || typeof data.Name !== 'string') {
+      if (!data || (kind === 'passes' ? !Array.isArray(data.gamePasses) : typeof data.Name !== 'string')) {
         failedAt.set(key, Date.now());
         return fallback;
       }
-      const info = trimInfo(data);
+      const info = kind === 'passes' ? trimPasses(data) : trimInfo(data);
       loadCache()[key] = { at: Date.now(), info };
       failedAt.delete(key);
       saveSoon();
@@ -149,17 +169,51 @@ function free(info) {
   });
 }
 
+// The ProductId each answer below gave -> the asset or pass ID it was for
+// (the prompt buys by ProductId), and pass ID -> icon.
+const productTargets = new Map();
+const passIcons = new Map();
+
+// One of these universes' game passes with that ID, as product info, or null.
+async function gamePassInfo(id, universeIds) {
+  for (const universeId of new Set(universeIds.map(Number).filter((n) => n > 0))) {
+    const list = await lookUp('passes', universeId);
+    const pass = Array.isArray(list) ? list.find((entry) => entry.id === id) : null;
+    if (!pass) continue;
+    if (pass.icon > 0) passIcons.set(id, String(pass.icon));
+    return {
+      TargetId: id, ProductType: 'Game Pass', AssetId: id, ProductId: pass.productId, Name: pass.name, Description: pass.description,
+      AssetTypeId: GAME_PASS_TYPE, Creator: pass.creator, IconImageAssetId: pass.icon,
+      Created: pass.created, Updated: pass.updated, PriceInRobux: pass.price,
+    };
+  }
+  return null;
+}
+
 // MarketplaceService:GetProductInfo(assetId): www/marketplace/productinfo.
-async function assetInfo(assetId) {
+// universeIds: of the game(s) asking. One of their passes answers as that
+// pass: a newer pass ID is also some other asset's ID (Clone Tycoon 2's
+// 646230062 and 646477071 are places), and a game means its own pass.
+async function assetInfo(assetId, universeIds = []) {
   const id = Number(assetId);
-  const found = id > 0 ? await lookUp('asset', id) : null;
+  const found = id > 0 ? (await gamePassInfo(id, universeIds)) || (await lookUp('asset', id)) : null;
   const info = found ? Object.assign({}, found) : {
     TargetId: id, ProductType: 'User Product', AssetId: id, ProductId: 0,
     Name: id === 1818 ? 'Lumber Tycoon 2' : `Local Asset ${id}`, Description: 'Served by the local game server.',
     AssetTypeId: 0, Creator: ROBLOX_CREATOR, IconImageAssetId: 0,
     Created: '2015-01-01T00:00:00Z', Updated: '2017-01-01T00:00:00Z', PriceInRobux: 0,
   };
+  // Roblox now gives passes (old ones too) type 0; 2017 called them type 34.
+  if (info.ProductType === 'Game Pass') info.AssetTypeId = GAME_PASS_TYPE;
+  if (!(Number(info.ProductId) > 0)) info.ProductId = id;
+  if (id > 0) productTargets.set(Number(info.ProductId), id);
   return free(info);
+}
+
+// The icon of an ID answered as a game pass (the prompt shows the asset
+// thumbnail of the ID it was given), or null.
+function passIcon(assetId) {
+  return passIcons.get(Number(assetId)) || null;
 }
 
 // MarketplaceService:GetProductInfo(productId, Enum.InfoType.Product):
@@ -214,6 +268,39 @@ function submitPurchase(buyer, body) {
   return { success: true, status: 'Bought', receipt };
 }
 
+// The asset or game pass a purchase's ProductId is for: the one whose info
+// gave it (asked for just before the purchase, or kept in the cache), else
+// the ID itself (info made here, or with no ProductId, uses the asset ID).
+function purchasedItem(productId) {
+  if (productTargets.has(productId)) return productTargets.get(productId);
+  for (const [key, entry] of Object.entries(loadCache())) {
+    const info = entry && entry.info;
+    if (key.startsWith('asset:') && info && Number(info.ProductId) === productId) return Number(key.slice(6));
+    const pass = key.startsWith('passes:') && Array.isArray(info) ? info.find((p) => p.productId === productId) : null;
+    if (pass) return pass.id;
+  }
+  return productId;
+}
+
+// POST marketplace/purchase (an asset or game pass, from the client's
+// purchase prompt: productId=<its ProductId>&currencyTypeId=&purchasePrice=
+// &locationType=Game&locationId=<place>): the buyer owns it from now on.
+// The prompt then fires PromptPurchaseFinished in the game.
+function purchaseAsset(buyer, body) {
+  const productId = Number(formFields(body).productid);
+  if (!buyer || !(buyer.userId > 0)) return { success: false, status: 'NotAuthorized' };
+  if (!(productId > 0)) return { success: false, status: 'InvalidArguments' };
+  const assetId = purchasedItem(productId);
+  let isNew;
+  try {
+    isNew = ownership.grant(buyer.userId, assetId);
+  } catch (error) {
+    return { success: false, status: 'InternalError' };
+  }
+  // The prompt counts AlreadyOwned as bought.
+  return { success: true, status: isNew ? 'Bought' : 'AlreadyOwned', productId, assetId };
+}
+
 // GET marketplace/validatepurchase?receipt= (the game server, before it calls
 // ProcessReceipt).
 function validatePurchase(receipt) {
@@ -253,4 +340,4 @@ function completePurchase(body) {
   return { success: Boolean(entry) };
 }
 
-module.exports = { assetInfo, productInfo, submitPurchase, validatePurchase, pendingPurchases, completePurchase };
+module.exports = { assetInfo, passIcon, productInfo, submitPurchase, purchaseAsset, validatePurchase, pendingPurchases, completePurchase };

@@ -7,9 +7,13 @@
 // script that needs them gets:
 //   - its calls rewritten: obj:GetDescendants() -> __rbx2017.GetDescendants(obj),
 //     and likewise obj:HasTag/AddTag/RemoveTag/GetTags (CollectionService),
-//     MarketplaceService:UserOwnsGamePassAsync (always owned: there is no
-//     store) and :PromptGamePassPurchase (nothing happens), s:split(sep), and
+//     MarketplaceService:UserOwnsGamePassAsync (-> PlayerOwnsAsset: passes
+//     are owned once bought, lib/ownership.js) and :PromptGamePassPurchase
+//     (-> the 2017 PromptPurchase; PromptGamePassPurchaseFinished is then
+//     PromptPurchaseFinished), s:split(sep), and
 //     button.Activated (newer than 2017 on buttons: MouseButton1Click then);
+//   - Enum.InfoType.GamePass -> Enum.InfoType.Asset (the site answers with
+//     the game's pass when the place has its universe ID, lib/marketplace.js);
 //   - local stand-ins for library members the 2017 engine lacks
 //     (math.clamp/sign/round, table.find/clear/unpack/pack/create/move,
 //     string.split, os.clock, Vector3.zero/one, Vector2.zero/one,
@@ -316,15 +320,20 @@ const HELPERS = {
   RemoveTag: `function(o, t) ${own('RemoveTag', 't')} local cs = game:GetService("CollectionService") ${TAG_BODIES.RemoveTag} end`,
   GetTags: `function(o) ${own('GetTags', '')} local cs = game:GetService("CollectionService") ${TAG_BODIES.GetTags} end`,
   ...Object.fromEntries(Object.keys(CS_METHODS).map((name) => [`CS${name}`, `function(${CS_PARAMS[name]}) ${TAG_BODIES[name]} end`])),
-  UserOwnsGamePassAsync: `function(o, u, p) ${own('UserOwnsGamePassAsync', 'u, p')} return true end`,
-  PromptGamePassPurchase: `function(o, u, p) ${own('PromptGamePassPurchase', 'u, p')} end`,
+  // Game passes are assets to the 2017 engine (the site keeps what each player bought).
+  UserOwnsGamePassAsync: `function(o, u, p) ${own('UserOwnsGamePassAsync', 'u, p')} local ok, r = pcall(function() `
+    + 'local pl = game:GetService("Players"):GetPlayerByUserId(u) return pl ~= nil and o:PlayerOwnsAsset(pl, p) end) return ok and r == true end',
+  PromptGamePassPurchase: `function(o, u, p) ${own('PromptGamePassPurchase', 'u, p')} pcall(function() o:PromptPurchase(u, p) end) end`,
   Activated: 'function(o) local ok, e = pcall(function() return o.Activated end) if ok and e then return e end return o.MouseButton1Click end',
   RegisterCollisionGroup: `function(o, n) ${own('RegisterCollisionGroup', 'n')} pcall(function() o:CreateCollisionGroup(n) end) end`,
   IsCollisionGroupRegistered: `function(o, n) ${own('IsCollisionGroupRegistered', 'n')} return (pcall(function() return o:GetCollisionGroupId(n) end)) end`,
   UnregisterCollisionGroup: `function(o, n) ${own('UnregisterCollisionGroup', 'n')} pcall(function() o:RemoveCollisionGroup(n) end) end`,
   GetRegisteredCollisionGroups: `function(o) ${own('GetRegisteredCollisionGroups', '')} return o:GetCollisionGroups() end`,
   SetCollisionGroup: 'function(p, n) pcall(function() game:GetService("PhysicsService"):SetPartCollisionGroup(p, n) end) end',
-  Event: 'function(o, n) local ok, e = pcall(function() return o[n] end) if ok and e ~= nil then return e end local s = {} local c = {connected = false, Connected = false} function c:disconnect() end c.Disconnect = c.disconnect function s:connect() return c end s.Connect = s.connect s.Once = s.connect s.ConnectParallel = s.connect function s:wait() while true do wait(3600) end end s.Wait = s.wait return s end',
+  // A newer event: the real one, else the 2017 one it became, else a stand-in that never fires.
+  Event: 'function(o, n) local ok, e = pcall(function() return o[n] end) if ok and e ~= nil then return e end '
+    + 'local a = ({PromptGamePassPurchaseFinished = "PromptPurchaseFinished"})[n] if a then ok, e = pcall(function() return o[a] end) if ok and e ~= nil then return e end end '
+    + 'local s = {} local c = {connected = false, Connected = false} function c:disconnect() end c.Disconnect = c.disconnect function s:connect() return c end s.Connect = s.connect s.Once = s.connect s.ConnectParallel = s.connect function s:wait() while true do wait(3600) end end s.Wait = s.wait return s end',
   Service: 'function(o, n) local ok, s = pcall(function() return o:GetService(n) end) if ok and s then return s end local x x = setmetatable({}, {__index = function() return x end, __call = function() return nil end}) return x end',
   Prop: 'function(o, n, d) local ok, v = pcall(function() return o[n] end) if ok and v ~= nil then return v end return d end',
   Set: 'function(o, n, v) if pcall(function() o[n] = v end) then return end '
@@ -421,6 +430,17 @@ const HELPERS = {
     + 'if type(args) == "table" then s = s:gsub("{([%w_]+)}", function(k) local v = args[k] if v == nil then v = args[tonumber(k)] end if v ~= nil then return tostring(v) end end) end return s end '
     + 'function tr:Translate(context, text) return text end tr.formatByKey = tr.FormatByKey return tr end',
   split: 'function(s, sep) if type(s) ~= "string" then return s:split(sep) end sep = sep or "," local r = {} if sep == "" then for i = 1, #s do r[i] = s:sub(i, i) end return r end local i = 1 while true do local a, b = s:find(sep, i, true) if not a then r[#r + 1] = s:sub(i) return r end r[#r + 1] = s:sub(i, a - 1) i = b + 1 end end',
+};
+
+// Helpers a script converted before may have in an older form that is now
+// wrong (game passes were always owned, their prompt did nothing and
+// PromptGamePassPurchaseFinished never fired): name -> [change, text the
+// script must also have]. Where the script has the helper but not its
+// current text, the current one is added again (a later field wins).
+const REFRESHED = {
+  UserOwnsGamePassAsync: [':UserOwnsGamePassAsync', ''],
+  PromptGamePassPurchase: [':PromptGamePassPurchase', ''],
+  Event: ['.PromptGamePassPurchaseFinished', '"PromptGamePassPurchaseFinished"'],
 };
 
 // Library members the 2017 engine lacks: library -> member -> Lua value.
@@ -859,6 +879,14 @@ function convertSource(source) {
         done = false;
         break;
       }
+      // Enum.InfoType.GamePass (2017 has Asset and Product) -> Enum.InfoType.Asset.
+      if (tokens[i].type === 'name' && tokens[i].value === 'Enum' && !isSymbol(tokens[i - 1], '.') && isSymbol(tokens[i + 1], '.') && tokens[i + 2].value === 'InfoType'
+        && isSymbol(tokens[i + 3], '.') && tokens[i + 4] && tokens[i + 4].value === 'GamePass') {
+        text = `${text.slice(0, tokens[i + 4].start)}Asset${text.slice(tokens[i + 4].end)}`;
+        changes.add('Enum.InfoType.GamePass');
+        done = false;
+        break;
+      }
       // cf.LookVector / someCFrame.Position (read) -> __rbx2017.CFMember(cf, "LookVector").
       if (isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && !isSymbol(tokens[i + 2], '=') && !isSymbol(tokens[i + 2], '(')
         && (CFRAME_MEMBERS.has(tokens[i + 1].value) || (CFRAME_NAMED_MEMBERS.has(tokens[i + 1].value) && tokens[i - 1] && tokens[i - 1].type === 'name' && CFRAME_NAME.test(tokens[i - 1].value)))) {
@@ -1051,6 +1079,12 @@ function convertSource(source) {
     changes.add('Random');
   }
   if (marked) {
+    for (const [name, [change, uses]] of Object.entries(REFRESHED)) {
+      if (new RegExp(`[{,] ?${name} = function`).test(existing) && !existing.includes(`${name} = ${HELPERS[name]}`) && text.includes(uses)) {
+        helpers.add(name);
+        changes.add(change);
+      }
+    }
     if (changes.size === 0) return { text: source, changes: [] };
     // New helpers go at the end of the script's helper table (a later field
     // of the same name wins), or into a new table after the mark; new

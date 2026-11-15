@@ -279,7 +279,7 @@ function avatarTypeCall(placeId) {
 }
 
 // GamePassService:PlayerHasPass asks this address (answered by
-// lib/marketplace.js: game passes count as owned). gameserver.lua never sets
+// lib/ownership.js: passes the player bought). gameserver.lua never sets
 // it, so RCC had none and every PlayerHasPass failed ("LuaWebService error").
 function gamePassCall(domain) {
   if (domain === null) return '';

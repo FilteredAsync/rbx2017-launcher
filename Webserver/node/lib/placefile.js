@@ -13,7 +13,8 @@
 //     FontFace becomes the old Font list, MeshContent/TextureContent/
 //     ImageContent fill MeshId/TextureID/Image when those are missing, and
 //     SharedString, UniqueId, SecurityCapabilities, OptionalCoordinateFrame,
-//     int64, NetAssetRef and attributes are removed
+//     int64, NetAssetRef and attributes are removed (IntValue values,
+//     int64 in newer files, become the 2017 int instead)
 //   - scripts: task.wait/spawn/delay/defer become wait/spawn/delay, and
 //     simple compound assignments (x += 1) are written out; Lua 5.1 has
 //     neither
@@ -234,6 +235,13 @@ const CONTENT_NAMES = {
 };
 const OTHER_NAMES = { MeshContent: 'MeshId', TextureContent: 'TextureID', ImageContent: 'Image' };
 
+// IntValue values are int64 in newer files and <int> in 2017. Dropped with
+// the other int64 values, every IntValue started at 0: Clone Tycoon 2's walk
+// speed (16) and health (100) became 0, so a player who closed the Build menu
+// (WalkSpeed = CloneStats.Speed.Value) could not move again. Out-of-range
+// numbers become the nearest the 2017 int can hold.
+const INT_VALUE_CLASSES = new Set(['IntValue', 'IntConstrainedValue']);
+
 // CharacterMesh IDs are plain numbers in 2017 (<int>); newer files use int64
 // (dropped below) or Content for the textures.
 const CHARACTER_MESH_IDS = { MeshId: 'MeshId', BaseTextureId: 'BaseTextureId', OverlayTextureId: 'OverlayTextureId', BaseTextureContent: 'BaseTextureId', OverlayTextureContent: 'OverlayTextureId', MeshContent: 'MeshId' };
@@ -354,6 +362,13 @@ function convertProperties(className, props, options, counts) {
       if (type === 'int' && to === name) return match;
       counts.contentIds++;
       return /^\d{1,10}$/.test(String(id || '')) && Number(id) <= 2147483647 ? `<int name="${to}">${id}</int>` : '';
+    });
+  }
+  if (INT_VALUE_CLASSES.has(className)) {
+    out = out.replace(/<int64\s+name="(\w+)">\s*(-?\d+)\s*<\/int64>/g, (match, name, value) => {
+      if (name === 'SourceAssetId') return match;
+      counts.intValues++;
+      return `<int name="${name}">${Math.max(-2147483648, Math.min(2147483647, Number(value)))}</int>`;
     });
   }
   out = out.replace(/<token\s+name="Material">(\d+)<\/token>/, (match, value) => {
@@ -669,7 +684,7 @@ function convertPlace(input, options) {
     throw new Error('This is not a Roblox XML place or model file (.rbxlx / .rbxmx).');
   }
   const counts = {
-    robloxLinks: 0, thumbnails: 0, gameAssets: 0, contentIds: 0, fonts: 0, droppedProperties: 0,
+    robloxLinks: 0, thumbnails: 0, gameAssets: 0, contentIds: 0, fonts: 0, droppedProperties: 0, intValues: 0,
     attributes: 0, sharedStrings: 0, newCsg: 0, taskCalls: 0, compoundAssignments: 0, materials: 0, unionCollision: 0, unionShapes: 0, filteringEnabled: 0, pgsSolver: 0, streaming: 0, gamePatches: new Set(),
     compatScripts: 0, compatChanges: new Map(), madeFolders: new Map(), chatSetAside: 0, coreGuiSetAside: 0, localizationTables: 0, playerModule: false,
     gameAssetNames: new Set(), unsupportedThumbnails: new Set(), luauScripts: [], unknownClasses: new Map(),
@@ -837,6 +852,7 @@ function summarize(counts, options) {
   changed(counts.gameAssets, `rbxgameasset:// names -> universe ${options.universeId} lookups`);
   changed(counts.contentIds, 'newer Content values (ContentId, <uri>, MeshContent...) rewritten');
   changed(counts.fonts, 'FontFace values -> the old Font list');
+  changed(counts.intValues, 'IntValue values int64 -> int (2017 would read them as 0)');
   changed(counts.droppedProperties, 'values of types the 2017 engine cannot read removed');
   changed(counts.attributes, 'attribute sets removed (attributes came after 2017)');
   changed(counts.sharedStrings, 'shared strings removed');

@@ -26,6 +26,7 @@ const gamethumbs = require('./gamethumbs');
 const placefile = require('./placefile');
 const rbxbinary = require('./rbxbinary');
 const marketplace = require('./marketplace');
+const ownership = require('./ownership');
 const unionshapes = require('./unionshapes');
 const missingassets = require('./missingassets');
 const places = require('./places');
@@ -850,10 +851,13 @@ async function productInfo(ctx) {
   const assetId = core.phpInt(ctx.queryLower.assetid);
   // A library place: its own name and creator (the game's loading screen
   // shows "By ..."; Studio shows both, and Team Create checks the owner).
-  // Anything else: its Roblox info (lib/marketplace.js).
+  // Anything else: its Roblox info (lib/marketplace.js), or one of the
+  // asking game's passes (by the universe IDs of its places).
   const place = places.exists() ? places.get(assetId) : null;
   if (!place && assetId !== 1818) {
-    return send(ctx, 200, { 'Content-Type': 'application/json; charset=utf-8' }, core.phpJson(await marketplace.assetInfo(assetId)));
+    const library = places.exists() ? places.load().places : {};
+    const universeIds = placeOf(ctx).map((id) => library[id] && library[id].universeId).filter(Boolean);
+    return send(ctx, 200, { 'Content-Type': 'application/json; charset=utf-8' }, core.phpJson(await marketplace.assetInfo(assetId, universeIds)));
   }
   if (place) creators.fillMissing();
   send(ctx, 200, { 'Content-Type': 'application/json; charset=utf-8' }, core.phpJson({
@@ -872,6 +876,26 @@ async function productInfo(ctx) {
 async function submitPurchase(ctx) {
   if (ctx.method !== 'POST') return sendJson(ctx, 405, { error: 'use POST' });
   sendJson(ctx, 200, marketplace.submitPurchase(launcher.playerAt(ctx.remote), await ctx.body()));
+}
+
+// Asset and game pass purchases (lib/marketplace.js): the buyer owns the
+// item from then on (lib/ownership.js), which is what these answer:
+// MarketplaceService:PlayerOwnsAsset (and UserOwnsGamePassAsync, through
+// lib/luacompat.js) asks ownership/hasasset?userId=&assetId=, and
+// GamePassService:PlayerHasPass asks GamePassHandler.ashx?Action=HasPass&UserID=&PassID=.
+async function purchaseAsset(ctx) {
+  if (ctx.method !== 'POST') return sendJson(ctx, 405, { error: 'use POST' });
+  sendJson(ctx, 200, marketplace.purchaseAsset(launcher.playerAt(ctx.remote), await ctx.body()));
+}
+
+function hasAsset(ctx) {
+  const owned = ownership.owns(ctx.queryLower.userid, ctx.queryLower.assetid);
+  send(ctx, 200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }, owned ? 'true' : 'false');
+}
+
+function hasPass(ctx) {
+  const owned = ownership.owns(ctx.queryLower.userid, ctx.queryLower.passid);
+  send(ctx, 200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }, `<Value Type="boolean">${owned}</Value>`);
 }
 
 function validatePurchase(ctx) {
@@ -909,8 +933,10 @@ function thumbnailRoute(kind) {
       // An account here has no Roblox picture under its user ID.
       if (avatarStore.isGuestId(raw) || accounts.byUserId(raw)) return fail(ctx, 404, 'No picture saved for this player yet');
     }
-    const id = core.decimal(raw);
+    let id = core.decimal(raw);
     if (id === null || id === '0' || id.length > 15) return fail(ctx, 400, 'Invalid id');
+    // A game pass ID (the purchase prompt shows the ID's asset thumbnail): its icon.
+    if (kind === 'asset') id = marketplace.passIcon(id) || id;
     const width = parseInt(pick('wd', 'width', 'x', 'w') || '', 10) || 0;
     const height = parseInt(pick('ht', 'height', 'y', 'h') || '', 10) || width;
     const result = await thumbs.thumbnail(kind, id, width, height);
@@ -1684,15 +1710,16 @@ const ROUTES = [
   [/^marketplace\/productdetails(?:\.php)?$/i, productDetails],
   [/^marketplace\/productinfo(?:\.php)?$/i, productInfo],
   // MarketplaceService (lib/marketplace.js): everything is free, assets and
-  // game passes count as owned, developer products are bought with receipts.
+  // game passes are owned once bought (lib/ownership.js), developer products
+  // are bought with receipts.
   [new RegExp(`^marketplace/submitpurchase${opt}$`, 'i'), submitPurchase],
   [new RegExp(`^marketplace/validatepurchase${opt}$`, 'i'), validatePurchase],
-  [new RegExp(`^marketplace/purchase${opt}$`, 'i'), fixed('application/json; charset=utf-8', '{"success":true,"status":"Bought"}', { 'Cache-Control': 'no-store' })],
+  [new RegExp(`^marketplace/purchase${opt}$`, 'i'), purchaseAsset],
   [new RegExp(`^gametransactions/settransactionstatuscomplete${opt}$`, 'i'), completePurchase],
   [new RegExp(`^gametransactions/getpendingtransactions${opt}$`, 'i'), pendingPurchases],
   [new RegExp(`^my/economy-status${opt}$`, 'i'), fixed('application/json; charset=utf-8', '{"isMarketplaceEnabled":true,"isMarketplaceEnabledForAuthenticatedUser":true,"isMarketplaceEnabledForUser":true,"isMarketplaceEnabledForGroup":true}', { 'Cache-Control': 'no-store' })],
-  [new RegExp(`^ownership/hasasset${opt}$`, 'i'), fixed('application/json; charset=utf-8', 'true', { 'Cache-Control': 'no-store' })],
-  [/^game\/gamepass\/gamepasshandler\.ashx$/i, fixed('text/plain; charset=utf-8', '<Value Type="boolean">true</Value>', { 'Cache-Control': 'no-store' })],
+  [new RegExp(`^ownership/hasasset${opt}$`, 'i'), hasAsset],
+  [/^game\/gamepass\/gamepasshandler\.ashx$/i, hasPass],
   [/^game\/badge\/(hasbadge|awardbadge|isbadgedisabled|isbadgelegal)\.ashx$/i, badgeRoute],
   [/^game\/luawebservice\/handlesocialrequest\.(?:ashx|php)$/i, socialRequest],
   [/^game\/tools\/thumbnailasset\.ashx$/i, thumbnailRoute('asset')],
