@@ -339,6 +339,53 @@ const PATCHES = [
   edits('Phantom Forces credit packs', [
     ['return lastdiff, credits[lastdiff]', 'local pick = credits[tonumber(amount)] and tonumber(amount) or lastdiff; return pick, credits[pick]'],
   ]),
+  // Buying a gun early saves the slot as {Attachments, Camo} after a stats
+  // IncrementAsync that yields; the client's changewep (which names the slot)
+  // runs during that wait and is overwritten, so the slot has no Name.
+  edits('Phantom Forces gun purchases', [
+    ['pdata.settings.classdata[class][slottype] = data', 'data.Name = weapon pdata.settings.classdata[class][slottype] = data'],
+  ]),
+  // A save with such a slot stops the menu at string.upper(curwep) (no
+  // Deploy button, shop or stats). The menu now names any unnamed slot: the
+  // one paid gun of that slot's kinds the save has there, else the starter
+  // gun, and sends the fixed loadout to the server.
+  edits('Phantom Forces unnamed loadout slots', [
+    ['\t\tcurclass = classdata.curclass\n\t\tcurwep = classdata[curclass].Primary.Name\n', lines(
+      '\t\tpcall(function()',
+      '\t\t\tlocal changed = false',
+      '\t\t\tif not gunloadoutdata then gunloadoutdata = {} pdata.settings.gunloadoutdata = gunloadoutdata end',
+      '\t\t\tfor _, class in next, classtypes do',
+      '\t\t\t\tif type(classdata[class]) ~= "table" then classdata[class] = {} end',
+      '\t\t\t\tfor _, slot in next, slottypes do',
+      '\t\t\t\t\tlocal have, start = classdata[class][slot], beginnerloadout[class] and beginnerloadout[class][slot]',
+      '\t\t\t\t\tif start and (type(have) ~= "table" or type(have.Name) ~= "string") then',
+      '\t\t\t\t\t\tlocal found',
+      '\t\t\t\t\t\tfor _, kind in next, gunclasses[slot] and gunclasses[slot][class] or {} do',
+      '\t\t\t\t\t\t\tfor _, wep in next, weplist[kind] or {} do',
+      '\t\t\t\t\t\t\t\tif classdata[class][wep] and pdata.unlocks[wep] and pdata.unlocks[wep].paid then',
+      '\t\t\t\t\t\t\t\t\tif found == nil then found = wep elseif found ~= wep then found = false end',
+      '\t\t\t\t\t\t\t\tend',
+      '\t\t\t\t\t\t\tend',
+      '\t\t\t\t\t\tend',
+      '\t\t\t\t\t\tlocal name = found or start.Name',
+      '\t\t\t\t\t\tlocal kept = gunloadoutdata[class] and gunloadoutdata[class][name] or {}',
+      '\t\t\t\t\t\tclasstemplate(classdata, class, slot, name, kept.Attachments or start.Attachments, kept.Camo or start.Camo)',
+      '\t\t\t\t\t\tchanged = true',
+      '\t\t\t\t\tend',
+      '\t\t\t\tend',
+      '\t\t\tend',
+      '\t\t\tif type(classdata.curclass) ~= "string" or not classdata[classdata.curclass] then classdata.curclass = "Assault" changed = true end',
+      '\t\t\tif changed then',
+      '\t\t\t\tplayerdata.updateplayerdata(classdata, "settings", "classdata")',
+      '\t\t\t\tplayerdata.updateplayerdata(gunloadoutdata, "settings", "gunloadoutdata")',
+      '\t\t\t\tprint("Repaired the saved loadout")',
+      '\t\t\tend',
+      '\t\tend)',
+      '\t\tcurclass = classdata.curclass',
+      '\t\tcurwep = classdata[curclass].Primary.Name',
+      '',
+    )],
+  ]),
 ];
 
 // source -> source with the patches that fit applied; their names are added
