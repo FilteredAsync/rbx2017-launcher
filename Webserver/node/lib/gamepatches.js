@@ -11,10 +11,10 @@
 const count = (text, part) => text.split(part).length - 1;
 const lines = (...parts) => parts.join('\n');
 
-function edits(name, pairs) {
+function edits(name, pairs, { unless } = {}) {
   return {
     name,
-    applies: (source) => pairs.every(([find, replace]) => count(source, find) === 1 && !source.includes(replace)),
+    applies: (source) => !(unless && source.includes(unless)) && pairs.every(([find, replace]) => count(source, find) === 1 && !source.includes(replace)),
     fix: (source) => pairs.reduce((text, [find, replace]) => text.replace(find, () => replace), source),
   };
 }
@@ -127,6 +127,142 @@ const PATCHES = [
       '\tfor _, n in ipairs({"Lever1", "Lever2"}) do local m = Museum:FindFirstChild(n) if m and m:FindFirstChild("Handle") and m.Handle.PrimaryPart then m.Handle.PrimaryPart.BrickColor = BrickColor.new("Terra Cotta") end end',
       '',
     )],
+  ]),
+  // The helicopter rope (G) had no server side: "y9fbwtow" (driver: lower or
+  // raise the rope), "zjm0fdae" (anyone: hold the Rope prompt on its end to
+  // hang from it) and "a06tbs6g" (Space: let go) all errored. The model has
+  // the Winch and its RopeConstraint; the end is a "RopePull" part in Preset
+  // (tagged, so clients show the prompt), which the driver's client keeps
+  // below the winch.
+  edits('Jailbreak helicopter rope', [
+    ['function em.VehicleEnter(player, vehicle, seat)\n', lines(
+      'local __ropeRiders = {}',
+      'local function __dropRider(rider)',
+      '\tlocal info = __ropeRiders[rider]',
+      '\t__ropeRiders[rider] = nil',
+      '\tif info then',
+      '\t\tif info.joint then info.joint:Destroy() end',
+      '\t\tif info.attachment then info.attachment:Destroy() end',
+      '\t\tlocal c = rider.Character local h = c and c:FindFirstChild("Humanoid") local r = c and c:FindFirstChild("HumanoidRootPart")',
+      '\t\tif h then h.PlatformStand = false end',
+      '\t\tif r then pcall(function() r:SetNetworkOwner(rider) end) end',
+      '\tend',
+      '\tif rider.Parent then Event:FireClient(rider, "xss4pqlz", false) end',
+      'end',
+      'local function __dropRidersOf(pull) for rider, info in pairs(__ropeRiders) do if info.pull == pull then __dropRider(rider) end end end',
+      'function em.y9fbwtow(player)',
+      '\tlocal state = playerState[player.UserId]',
+      '\tlocal packet = state and state.vehiclePacket',
+      '\tif not packet or packet.Passenger or not packet.Model then return end',
+      '\tlocal model = packet.Model',
+      '\tlocal winch, preset = model:FindFirstChild("Winch"), model:FindFirstChild("Preset")',
+      '\tlocal rope = winch and winch:FindFirstChild("RopeConstraint")',
+      '\tlocal top = winch and winch:FindFirstChild("Attachment")',
+      '\tif not preset or not rope or not top then return end',
+      '\tlocal pull = preset:FindFirstChild("RopePull")',
+      '\tif pull then',
+      '\t\t__dropRidersOf(pull)',
+      '\t\trope.Attachment1 = nil',
+      '\t\tpull:Destroy()',
+      '\t\treturn',
+      '\tend',
+      '\tpull = Instance.new("Part")',
+      '\tpull.Name = "RopePull"',
+      '\tpull.Size = Vector3.new(1, 1, 1)',
+      '\tpull.CanCollide = false',
+      '\tpull.BrickColor = BrickColor.new("Black")',
+      '\tpull.CFrame = CFrame.new(top.WorldPosition - Vector3.new(0, rope.Length, 0))',
+      '\tlocal hook = Instance.new("Attachment")',
+      '\thook.Parent = pull',
+      '\tlocal force = Instance.new("VectorForce")',
+      '\tforce.Attachment0 = hook',
+      '\tforce.RelativeTo = Enum.ActuatorRelativeTo.World',
+      '\tforce.Force = Vector3.new(0, 0, 0)',
+      '\tforce.Parent = pull',
+      '\trope.Attachment0 = top',
+      '\trope.Attachment1 = hook',
+      '\tpull.Parent = preset',
+      '\tpcall(function() pull:SetNetworkOwner(player) end)',
+      '\tpull.AncestryChanged:connect(function() if not pull:IsDescendantOf(game) then __dropRidersOf(pull) end end)',
+      '\tCollectionService:AddTag(pull, "RopePull")',
+      'end',
+      'function em.zjm0fdae(player, pull)',
+      '\tif not pull or pull.Name ~= "RopePull" or not pull:IsDescendantOf(workspace) or not pull:FindFirstChild("Attachment") then return end',
+      '\tlocal char = player.Character',
+      '\tlocal hrp = char and char:FindFirstChild("HumanoidRootPart")',
+      '\tlocal hum = char and char:FindFirstChild("Humanoid")',
+      '\tif not hrp or not hum or hum.Health <= 0 or hum.Sit then return end',
+      '\tlocal old = __ropeRiders[player]',
+      '\tif old then if old.attachment and old.attachment:IsDescendantOf(char) then return end __ropeRiders[player] = nil end',
+      '\tif (hrp.Position - pull.Position).magnitude > 20 then return end',
+      '\tlocal grip = Instance.new("Attachment")',
+      '\tgrip.Name = "RopeGrip"',
+      '\tgrip.Position = Vector3.new(0, 2.5, 0)',
+      '\tgrip.Parent = hrp',
+      '\tlocal joint = Instance.new("BallSocketConstraint")',
+      '\tjoint.Name = "RopeGrip"',
+      '\tjoint.Attachment0 = pull.Attachment',
+      '\tjoint.Attachment1 = grip',
+      '\tjoint.Parent = pull',
+      '\thum.PlatformStand = true',
+      '\t__ropeRiders[player] = {pull = pull, joint = joint, attachment = grip}',
+      '\tlocal seat = pull.Parent and pull.Parent.Parent and pull.Parent.Parent:FindFirstChild("Seat")',
+      '\tlocal name = seat and seat:FindFirstChild("PlayerName") and seat.PlayerName.Value',
+      '\tlocal driver = name and name ~= "" and game:GetService("Players"):FindFirstChild(name)',
+      '\tif driver then pcall(function() hrp:SetNetworkOwner(driver) end) end',
+      '\tEvent:FireClient(player, "xss4pqlz", true)',
+      'end',
+      'function em.a06tbs6g(player) if __ropeRiders[player] then __dropRider(player) end end',
+      'function em.VehicleEnter(player, vehicle, seat)',
+      '',
+    )],
+  ], { unless: 'function em.y9fbwtow(' }),
+  // Police sirens: the vehicle builder made the Sirens sound with a broken
+  // URL ("rbxaseetid") and never parented it, and the client's siren and
+  // headlight buttons send "ve1zya58", which the server named ChassisAction.
+  edits('Jailbreak sirens (vehicles)', [
+    ['\t\tsiren.SoundId = "rbxaseetid://690529934"\n\t\tradio.Volume = 1', lines(
+      '\t\tsiren.SoundId = "rbxassetid://690529934"',
+      '\t\tsiren.Volume = 1',
+      '\t\tif model:FindFirstChild("Engine") then siren.Parent = model.Engine end',
+      '\t\tradio.Volume = 1',
+    )],
+  ]),
+  edits('Jailbreak sirens (button)', [
+    ['function em.ActiveNitro(player)\n', 'em.ve1zya58 = function(...) return em.ChassisAction(...) end\nfunction em.ActiveNitro(player)\n'],
+  ]),
+  // Airdrops never went away: an unclaimed briefcase stayed (and beeped,
+  // like the bank TNT) on every client for the rest of the server's life,
+  // and a claimed one stayed in the server's list. Unclaimed ones now go
+  // 5 minutes after landing.
+  edits('Jailbreak airdrops', [
+    ['\t\t\tEvent:FireAllClients("f1chs3x4", id)\n\t\t\tEvent:FireClient(player, "upmupe9n", toAdd)', lines(
+      '\t\t\tEvent:FireAllClients("f1chs3x4", id)',
+      '\t\t\tEvent:FireClient(player, "upmupe9n", toAdd)',
+      '\t\t\ttable.remove(AirdropHandler.Cache, a)',
+      '\t\t\tbreak',
+    )],
+    ['ThreadLoopAdd(1, function()\n\tif (tick() - AirdropHandler.lastDrop)', lines(
+      'ThreadLoopAdd(1, function()',
+      '\tfor i = #AirdropHandler.Cache, 1, -1 do local d = AirdropHandler.Cache[i] if tick() - d.BornAt > d.Duration * 0.5 + d.PayloadDuration + 300 then table.remove(AirdropHandler.Cache, i) Event:FireAllClients("f1chs3x4", d.Id) end end',
+      '\tif (tick() - AirdropHandler.lastDrop)',
+    )],
+  ]),
+  // Garage: player data starts with only Engine, Brakes, SuspensionHeight,
+  // Spoiler and Texture owned, so colors, rims and glow had no table: the
+  // client's DoesPlayerOwn errored (GarageShared:742) and buying one errored
+  // on the server.
+  edits('Jailbreak garage (client)', [
+    ['\t\treturn Ef15df51d9[j4750a8][X25c759f]', '\t\treturn Ef15df51d9[j4750a8] ~= nil and Ef15df51d9[j4750a8][X25c759f] or false'],
+  ]),
+  edits('Jailbreak garage (server)', [
+    ['function em.LoadGarageSettings(player)\n\tlocal playerData = ServerConfig:GetPlayerData(player)\n', lines(
+      'function em.LoadGarageSettings(player)',
+      '\tlocal playerData = ServerConfig:GetPlayerData(player)',
+      '\tfor _, c in ipairs({"Texture", "Rim", "Glow", "BodyColor", "Engine", "SuspensionHeight", "Brakes", "Spoiler"}) do playerData.items.Owned[c] = playerData.items.Owned[c] or {} end',
+      '',
+    )],
+    ['\t\t\tplayerData.items.Owned[category][item] = true', '\t\t\tplayerData.items.Owned[category] = playerData.items.Owned[category] or {}\n\t\t\tplayerData.items.Owned[category][item] = true'],
   ]),
   // Shot tires: the client listens for "carfyb0m" (tires flat, they mend
   // over ~10 s and it reports "eso5r6az"), but no script sent it and the
