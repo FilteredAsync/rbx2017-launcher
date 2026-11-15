@@ -783,8 +783,14 @@ function firstMultipartFile(body, boundary) {
 const jsonNoStore = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
 
 // persistence/*: RCC's DataStoreService, stored per place (lib/datastore.js).
+// Game servers only (fromGameServer): players' saves are read and written
+// here. A launcher proxy's own requests (X-Launcher-Proxy) are never RCC's.
 // Writes are logged to local-api-requests.log (values cut to 200 characters).
 async function persistence(ctx, match) {
+  if (ctx.req.headers['x-launcher-proxy'] || !fromGameServer(ctx.remote)) {
+    send(ctx, 403, jsonNoStore, '{"errors":[{"code":0,"message":"Only game servers can use DataStores."}]}');
+    return;
+  }
   const action = match[1];
   const raw = (await ctx.body()).toString('utf8');
   const form = core.parseQuery(raw.replace(/^&+/, ''));
@@ -1513,17 +1519,14 @@ function parseAbuseReport(xml) {
 const sameAddress = (a, b) => String(a || '').replace(/^::ffff:/i, '').toLowerCase() === String(b || '').replace(/^::ffff:/i, '').toLowerCase();
 
 // RCC on this PC (loopback, or one of this PC's own addresses), or on a PC a
-// listed game was registered from: that PC's RCC reaches this server through
-// its launcher proxy, so the request comes from the same address.
+// game was registered from (listed, or in the last few minutes; see
+// games.hostedFrom): that PC's RCC reaches this server through its launcher
+// proxy, so the request comes from the same address.
 function fromGameServer(remote) {
   const address = String(remote || '').replace(/^::ffff:/i, '');
   if (address === '::1' || /^127\./.test(address)) return true;
   const own = Object.values(os.networkInterfaces()).some((list) => (list || []).some((item) => sameAddress(item.address, address)));
-  if (own) return true;
-  return games.listAll().some((listed) => {
-    const game = games.get(listed.id);
-    return Boolean(game && sameAddress(game.registeredFrom, address));
-  });
+  return own || games.hostedFrom(address);
 }
 
 async function abuseReport(ctx) {

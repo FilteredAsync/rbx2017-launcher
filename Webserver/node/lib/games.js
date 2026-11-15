@@ -17,6 +17,13 @@ const core = require('./core');
 const HEARTBEAT_SECONDS = 15;
 const EXPIRE_MS = HEARTBEAT_SECONDS * 3 * 1000;
 const games = new Map();
+// The addresses games were registered from, with when each last checked in.
+// A host's RCC still saves its players after its game leaves the list
+// (hosting.js stop() unregisters first), so a host counts for a while after.
+const HOST_GRACE_MS = 10 * 60 * 1000;
+const hosts = new Map();
+const bareAddress = (remote) => String(remote || '').replace(/^::ffff:/i, '').toLowerCase();
+const seenHost = (remote) => { if (remote) hosts.set(bareAddress(remote), Date.now()); };
 
 function hostKeyPath() {
   return core.rootPath('config', 'host-key.txt');
@@ -96,6 +103,7 @@ function register(fields, remote) {
     lastSeen: now,
   };
   games.set(id, game);
+  seenHost(remote);
   return { game };
 }
 
@@ -104,11 +112,30 @@ function heartbeat(id) {
   const game = games.get(id);
   if (!game) return false;
   game.lastSeen = Date.now();
+  seenHost(game.registeredFrom);
   return true;
 }
 
 function close(id) {
+  const game = games.get(id);
+  if (game) seenHost(game.registeredFrom);
   return games.delete(id);
+}
+
+// True when a listed game was registered from this address, or one was in
+// the last HOST_GRACE_MS: that PC runs RCC game servers.
+function hostedFrom(remote) {
+  const address = bareAddress(remote);
+  if (address === '') return false;
+  prune();
+  for (const game of games.values()) {
+    if (bareAddress(game.registeredFrom) === address) return true;
+  }
+  const now = Date.now();
+  for (const [host, seen] of hosts) {
+    if (now - seen > HOST_GRACE_MS) hosts.delete(host);
+  }
+  return hosts.has(address);
 }
 
 function get(id) {
@@ -158,5 +185,5 @@ async function resolve(game) {
 
 module.exports = {
   HEARTBEAT_SECONDS, ensureHostKey, checkHostKey, parseAddress,
-  register, heartbeat, close, get, list, listAll, resolve, addressText,
+  register, heartbeat, close, get, list, listAll, resolve, addressText, hostedFrom,
 };
