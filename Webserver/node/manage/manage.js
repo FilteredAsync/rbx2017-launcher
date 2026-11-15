@@ -483,7 +483,8 @@ function filePane(place) {
       const done = await act(() => change('DELETE', `/api/places/${place.placeId}`), `Deleting ${place.name}`, `${place.name} deleted`);
       if (done) closeDrawer();
     })));
-  return parts;
+  // versionsList is null when there are no earlier versions (replaceChildren would print it).
+  return parts.filter(Boolean);
 }
 
 function pick(inputId, place) {
