@@ -17,6 +17,7 @@ let view = 'games';
 let openId = null;           // the game in the drawer
 let drawerTab = 'servers';
 let pendingPlace = null;     // which game the hidden file inputs are for
+let restoreResult = null;    // the last "Fix zeroed numbers" answer, shown on that game's File tab
 let pendingAsset = null;
 let assetFilter = 'Audio';
 let logName = 'server';
@@ -464,8 +465,10 @@ function filePane(place) {
         if (!await ask(`Convert ${place.name} again?`, 'It picks up converter fixes made since the upload. Running servers restart on the new version, and the old file is kept.', 'Convert')) return;
         act(() => change('POST', `/api/places/${place.placeId}/reconvert`, '{}'), `Converting ${place.name}`, 'Converted');
       }),
+      btn('Fix zeroed numbers', '', () => pick('restore-file', place), { title: 'Fill IntValues that are 0 from the original place file' }),
       btn('Change icon', '', () => pick('thumb-file', place))),
   ];
+  if (restoreResult && restoreResult.placeId === place.placeId) parts.push(restoreCard(restoreResult));
   if (place.notes && place.notes.length) {
     parts.push(h('details', { class: 'notes' }, h('summary', { text: `Conversion notes (${place.notes.length})` }), h('pre', { text: place.notes.join('\n') })));
   }
@@ -495,6 +498,30 @@ $('replace-file').addEventListener('change', async () => {
     return uploadFile(`/api/places/${place.placeId}/file${query}`, file, (percent) => note.say(percent < 100 ? `Uploading ${percent}%` : 'Converting'));
   }, `Uploading ${file.name}`, `${place.name} updated`);
 });
+
+$('restore-file').addEventListener('change', async () => {
+  const file = $('restore-file').files[0];
+  const place = pendingPlace;
+  if (!file || !place) return;
+  if (!await ask(`Fix zeroed numbers in ${place.name}?`, `IntValues that are 0 get their numbers from ${file.name}. Nothing else changes. Running servers restart, and the old version is kept.`, 'Fix')) return;
+  act(async (note) => {
+    const result = await uploadFile(`/api/places/${place.placeId}/restore-values?name=${encodeURIComponent(file.name)}`, file,
+      (percent) => note.say(percent < 100 ? `Uploading ${percent}%` : 'Comparing'));
+    // Objects with no counterpart first: those are worth a look.
+    const missingFirst = (entry) => (entry.reason === 'no counterpart' ? 0 : 1);
+    restoreResult = { placeId: place.placeId, file: file.name, restored: result.restored, stillZero: result.stillZero.sort((a, b) => missingFirst(a) - missingFirst(b)) };
+  }, `Uploading ${file.name}`, 'Done');
+});
+
+// What "Fix zeroed numbers" did; the objects still at 0 fold out.
+function restoreCard(result) {
+  const shown = result.stillZero.slice(0, 1000).map((entry) => `${entry.path}  (${entry.reason})`);
+  if (result.stillZero.length > shown.length) shown.push(`... and ${result.stillZero.length - shown.length} more`);
+  return h('div', { class: 'card restore-result' },
+    h('b', { text: result.restored.length ? `Restored ${plural(result.restored.length, 'value')} from ${result.file}` : `Nothing to fix from ${result.file}` }),
+    result.stillZero.length ? h('details', { class: 'notes', open: result.open, ontoggle: (event) => { result.open = event.target.open; } },
+      h('summary', { text: `Still 0 (${result.stillZero.length})` }), h('pre', { text: shown.join('\n') })) : null);
+}
 
 $('thumb-file').addEventListener('change', () => {
   const file = $('thumb-file').files[0];

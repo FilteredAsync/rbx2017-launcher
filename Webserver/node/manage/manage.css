@@ -303,6 +303,8 @@ main { padding: 30px 36px 80px; max-width: 1180px; width: 100%; }
 .facts dt { color: var(--muted); }
 .facts dd { margin: 0; color: var(--strong); overflow-wrap: anywhere; }
 .btn-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.restore-result { display: grid; gap: 8px; padding: 14px; }
+.restore-result b { color: var(--strong); }
 .notes summary { cursor: pointer; font-weight: 600; color: var(--strong); padding: 2px 0; }
 .notes pre, pre.log {
   margin: 8px 0 0; padding: 12px 14px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 4px;

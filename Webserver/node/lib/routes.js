@@ -33,6 +33,7 @@ const places = require('./places');
 const privateservers = require('./privateservers');
 const rbxm = require('./rbxm');
 const reports = require('./reports');
+const restorevalues = require('./restorevalues');
 const social = require('./social');
 const thumbs = require('./thumbs');
 const www = require('./www');
@@ -1141,6 +1142,8 @@ async function gamesApi(ctx, match) {
 //   POST   /api/places/<id>                   JSON {name, description, enabled, universeId}
 //   POST   /api/places/<id>/restart           ask the always-on server to restart its servers
 //   POST   /api/places/<id>/reconvert         run the stored file through the converter again (a new version)
+//   POST   /api/places/<id>/restore-values?name=   body: the original file; IntValues left at 0 by
+//                                            older converters filled from it (a new version)
 //   POST   /api/places/<id>/servers/<job ID>/restart | stop    one server (players saved first)
 //   DELETE /api/private-servers/<id>          remove a private server (its server stops)
 //   DELETE /api/places/<id>                   remove (saves, thumbnail and ID stay reserved)
@@ -1183,12 +1186,20 @@ function placesWithStatus(isAdmin) {
   };
 }
 
-// The uploaded place, converted for the 2017 engine -> { bytes, notes, universeId } or { error }.
-async function convertUpload(ctx, query) {
+// An uploaded place file -> { bytes } or { error }.
+async function placeUpload(ctx) {
   const declared = Number(ctx.req.headers['content-length']);
   const bytes = await ctx.body();
   if (bytes.length === 0) return { error: 'no place file was sent' };
   if (Number.isFinite(declared) && declared !== bytes.length) return { error: 'the upload was cut short (too large? the limit is 1 GB)' };
+  return { bytes };
+}
+
+// The uploaded place, converted for the 2017 engine -> { bytes, notes, universeId } or { error }.
+async function convertUpload(ctx, query) {
+  const upload = await placeUpload(ctx);
+  if (upload.error) return upload;
+  const { bytes } = upload;
   let universeId = places.placeKey(query.universeid);
   if (universeId === null && places.placeKey(query.fromplace)) {
     universeId = await placefile.universeForPlace(places.placeKey(query.fromplace));
@@ -1283,6 +1294,32 @@ async function placesApi(ctx, match) {
       throw error;
     }
     return sendJson(ctx, 200, { place, notes: result.notes });
+  }
+  if (action === 'restore-values') {
+    // IntValues older converters left at 0 (they dropped int64 values),
+    // filled from the original file; nothing else changes. A new version
+    // when any is filled, the old one kept in places/old.
+    const upload = await placeUpload(ctx);
+    if (upload.error) return sendJson(ctx, 400, { error: upload.error });
+    const current = places.get(placeId);
+    let result;
+    try {
+      result = restorevalues.restoreValues(fs.readFileSync(places.filePath(current)), upload.bytes);
+    } catch (error) {
+      return sendJson(ctx, 400, { error: `could not read the place files: ${error.message}` });
+    }
+    const lists = { restored: result.restored, stillZero: result.stillZero, otherInt64: result.otherInt64 };
+    if (result.restored.length === 0) return sendJson(ctx, 200, Object.assign({ place: current, notes: [] }, lists));
+    const fileName = String(query.name || 'the original file').replace(/[\x00-\x1f]/g, '').slice(0, 100);
+    const notes = [...restorevalues.summary(result, fileName), ...result.notes, ...current.notes];
+    let place;
+    try {
+      place = await places.replaceFile(placeId, { bytes: result.bytes, notes, universeId: current.universeId, from: 'numbers fixed' });
+    } catch (error) {
+      if (error.busy) return sendJson(ctx, 409, { error: PLACE_FILE_BUSY });
+      throw error;
+    }
+    return sendJson(ctx, 200, Object.assign({ place, notes }, lists));
   }
   if (action === null) {
     const body = await jsonBody(ctx);
@@ -1681,7 +1718,7 @@ const ROUTES = [
   ...launcher.routes,
   [/^api\/games(?:\/([a-z0-9]+)(?:\/([a-z]+))?)?\/?$/i, gamesApi],
   [/^api\/thumbnails\/(\d{1,15})\/?$/i, thumbnailsApi],
-  [/^api\/places(?:\/(\d{1,15})(?:\/([a-z]+))?)?\/?$/i, placesApi],
+  [/^api\/places(?:\/(\d{1,15})(?:\/([a-z-]+))?)?\/?$/i, placesApi],
   [/^api\/places\/(\d{1,15})\/servers\/([0-9a-f]{16,32})\/(restart|stop)\/?$/i, placeServerApi],
   [/^api\/private-servers\/([0-9a-f]{12})\/?$/i, privateServerAdminApi],
   [/^manage(?:\/([a-z.]*))?\/?$/i, managePage],

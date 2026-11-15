@@ -1583,4 +1583,4 @@ function placeToStore(xml) {
   return { bytes: result.bytes, notes: [] };
 }
 
-module.exports = { isBinary, read, toXml, fromXml, parseXml, placeXml, placeToStore, lz4Compress, lz4Decompress, ROTATIONS, T, typeName };
+module.exports = { isBinary, read, toXml, fromXml, parseXml, placeXml, placeToStore, lz4Compress, lz4Decompress, decodeText, apiType, ROTATIONS, T, typeName };
