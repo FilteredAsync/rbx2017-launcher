@@ -395,10 +395,14 @@ const HELPERS = {
   RootPart: 'function(h) local ok, v = pcall(function() return h.RootPart end) if ok then return v end '
     + 'local c = h.Parent return c and (c:FindFirstChild("HumanoidRootPart") or c:FindFirstChild("Torso")) end',
   DisplayName: 'function(p) local ok, v = pcall(function() return p.DisplayName end) if ok then return v end return p.Name end',
-  // workspace:Raycast and RaycastParams (2020) on FindPartOnRay.
+  // workspace:Raycast and RaycastParams (2020) on FindPartOnRay. The filter
+  // list is flattened and keeps only instances: 2017's ignore lists refuse a
+  // table inside the table (Jailbreak's punch passes {blacklist}).
   RaycastParams: 'function() return {FilterDescendantsInstances = {}, FilterType = "Exclude", IgnoreWater = false, CollisionGroup = "Default", RespectCanCollide = false} end',
   Raycast: 'function(w, origin, dir, params) if type(w) == "table" then return w.Raycast(w, origin, dir, params) end local list, include, water = {}, false, false '
-    + 'if params then list = params.FilterDescendantsInstances or {} include = params.FilterType == "Include" or params.FilterType == "Whitelist" water = params.IgnoreWater and true or false end '
+    + 'if params then local function add(x) if type(x) == "table" then for _, v in pairs(x) do add(v) end '
+    + 'elseif type(x) == "userdata" and pcall(function() return x:IsA("Instance") end) then list[#list + 1] = x end end '
+    + 'add(params.FilterDescendantsInstances) include = params.FilterType == "Include" or params.FilterType == "Whitelist" water = params.IgnoreWater and true or false end '
     + 'local ray, part, pos, normal, material = Ray.new(origin, dir) '
     + 'if include then part, pos, normal, material = w:FindPartOnRayWithWhitelist(ray, list, water) else part, pos, normal, material = w:FindPartOnRayWithIgnoreList(ray, list, false, water) end '
     + 'if part then return {Instance = part, Position = pos, Normal = normal, Material = material, Distance = (pos - origin).magnitude} end return nil end',
@@ -434,10 +438,12 @@ const HELPERS = {
 
 // Helpers a script converted before may have in an older form that is now
 // wrong (game passes were always owned, their prompt did nothing and
-// PromptGamePassPurchaseFinished never fired): name -> [change, text the
-// script must also have]. Where the script has the helper but not its
-// current text, the current one is added again (a later field wins).
+// PromptGamePassPurchaseFinished never fired; Raycast failed on nested
+// filter lists): name -> [change, text the script must also have]. Where the
+// script has the helper but not its current text, the current one is added
+// again (a later field wins).
 const REFRESHED = {
+  Raycast: [':Raycast', ''],
   UserOwnsGamePassAsync: [':UserOwnsGamePassAsync', ''],
   PromptGamePassPurchase: [':PromptGamePassPurchase', ''],
   Event: ['.PromptGamePassPurchaseFinished', '"PromptGamePassPurchaseFinished"'],
