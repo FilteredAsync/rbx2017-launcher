@@ -1,6 +1,14 @@
 {
   "announcements": [
     {
+      "id": "released-1.9.0",
+      "title": "Launcher 1.9.0 is out",
+      "text": "It installs by itself the next time you open the launcher.",
+      "level": "info",
+      "postedAt": "2026-11-15T00:46:06.896Z",
+      "expiresAt": "2026-11-17T00:46:06.896Z"
+    },
+    {
       "id": "released-1.8.0",
       "title": "Launcher 1.8.0 is out",
       "text": "It installs by itself the next time you open the launcher.",
