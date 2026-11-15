@@ -580,8 +580,10 @@ function embedder() {
 
 // F11 while a game is inside the launcher. The game window has the keyboard,
 // so the launcher only hears it as a global shortcut, held just while playing.
-function toggleGameFullScreen() {
-  if (!win || win.isDestroyed() || !win.isFocused()) return;
+// The game's window is then the active one, which Electron does not count.
+async function toggleGameFullScreen() {
+  if (!win || win.isDestroyed()) return;
+  if (!win.isFocused() && !(embedModule && await embedModule.inFront().catch(() => false))) return;
   fullScreenForGame = !win.isFullScreen();
   win.setFullScreen(fullScreenForGame);
 }
@@ -1206,10 +1208,11 @@ function createWindow() {
   for (const name of ['resize', 'maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen', 'restore']) {
     win.on(name, () => relayoutGame());
   }
-  // Back from another window (Alt+Tab, the taskbar, a click): Windows gives the
-  // keyboard and mouse to the launcher's own page, which the game covers, so
-  // the game stopped getting input. Hand them to the game instead.
-  for (const name of ['focus', 'restore', 'show']) {
+  // Back from another window (Alt+Tab, the taskbar, a click): Windows makes the
+  // launcher's window the active one and gives it the keyboard and mouse, so
+  // the game (which reads them as raw input) got none. Make it active again
+  // (also after the window is dragged or resized by its frame).
+  for (const name of ['focus', 'restore', 'show', 'moved', 'resized']) {
     win.on(name, () => {
       if (embedState !== 'embedded' || !embedModule) return;
       setTimeout(() => { if (embedState === 'embedded' && embedModule.attached()) embedModule.focus().catch(() => {}); }, 30);

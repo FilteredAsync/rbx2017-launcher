@@ -12,6 +12,8 @@
 //   const handle = await embedder.attach(pid, parentHwnd, rect, timeoutMs)  -> child HWND or null
 //   await embedder.move(rect)       rect: { x, y, w, h } in the parent's client area (pixels)
 //   await embedder.release(rect)    a window of its own again, at rect (screen pixels)
+//   await embedder.focus()          the game becomes the active window (after the launcher's is activated)
+//   await embedder.inFront()        the launcher's window or the game is the foreground window
 //   embedder.attached()             the child HWND while embedded, else null
 //   embedder.stop()
 
@@ -38,13 +40,18 @@ public static class GameWindow {
   [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr v);
   [DllImport("user32.dll")] static extern bool AttachThreadInput(uint a, uint b, bool attach);
   [DllImport("user32.dll")] static extern IntPtr SetFocus(IntPtr h);
+  [DllImport("user32.dll")] static extern IntPtr SetActiveWindow(IntPtr h);
+  [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr h, uint f);
+  [DllImport("user32.dll")] static extern bool GetGUIThreadInfo(uint t, ref GUITHREADINFO g);
   [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+  [StructLayout(LayoutKind.Sequential)] public struct GUITHREADINFO { public int cbSize, flags; public IntPtr active, focus, capture, menuOwner, moveSize, caret; public RECT caretRect; }
   const int GWL_STYLE = -16, GWL_EXSTYLE = -20;
   const long WS_CHILD = 0x40000000L, WS_POPUP = 0x80000000L, WS_CAPTION = 0xC00000L, WS_THICKFRAME = 0x40000L,
     WS_SYSMENU = 0x80000L, WS_MINIMIZEBOX = 0x20000L, WS_MAXIMIZEBOX = 0x10000L, WS_CLIPSIBLINGS = 0x4000000L;
   const long WS_EX_APPWINDOW = 0x40000L, WS_EX_WINDOWEDGE = 0x100L, WS_EX_CLIENTEDGE = 0x200L, WS_EX_DLGMODALFRAME = 0x1L;
-  const uint SWP_NOACTIVATE = 0x10, SWP_FRAMECHANGED = 0x20, SWP_SHOWWINDOW = 0x40;
+  const uint SWP_NOSIZE = 0x1, SWP_NOMOVE = 0x2, SWP_NOACTIVATE = 0x10, SWP_FRAMECHANGED = 0x20, SWP_SHOWWINDOW = 0x40;
   static long savedStyle, savedEx;
 
   public static void PerMonitorDpi() { try { SetProcessDpiAwarenessContext(new IntPtr(-4)); } catch { } }
@@ -79,13 +86,60 @@ public static class GameWindow {
     return null;
   }
 
-  // Keyboard focus to the game (it then takes the keys without a click first).
-  public static void Focus(IntPtr child) {
+  // The game reads the keyboard and mouse as raw input, which Windows sends
+  // only to the program that owns the active (foreground) window. A child
+  // window cannot normally be the active one, so when the launcher's window
+  // is activated (Alt+Tab, the taskbar, a click) the launcher gets the input
+  // and the game none. This makes the game's window the active one again:
+  // for a moment it is not marked as a child, which SetActiveWindow needs.
+  // Only while the launcher's window is the foreground (never takes it from
+  // another program or a launcher dialog), and not during a move, resize,
+  // menu or button press on the frame (activating then would cancel it).
+  // "active" | "background" | "busy" | "failed"
+  public static string Activate(IntPtr child) {
+    IntPtr parent = GetAncestor(child, 1);
+    Raise(child);
+    IntPtr fg = GetForegroundWindow();
+    if (fg != parent && fg != child) return "background";
     uint pid; uint thread = GetWindowThreadProcessId(child, out pid);
+    GUITHREADINFO g = new GUITHREADINFO(); g.cbSize = Marshal.SizeOf(typeof(GUITHREADINFO));
+    if (fg == parent && GetGUIThreadInfo(GetWindowThreadProcessId(parent, out pid), ref g) && ((g.flags & 0x16) != 0 || g.capture != IntPtr.Zero)) return "busy";
     uint mine = GetCurrentThreadId();
     AttachThreadInput(mine, thread, true);
-    SetFocus(child);
-    AttachThreadInput(mine, thread, false);
+    try {
+      if (fg != child) {
+        long style = GetLong(child, GWL_STYLE).ToInt64();
+        SetLong(child, GWL_STYLE, new IntPtr(style & ~WS_CHILD));
+        SetActiveWindow(child);
+        SetLong(child, GWL_STYLE, new IntPtr(style));
+      }
+      SetFocus(child);
+    } finally {
+      AttachThreadInput(mine, thread, false);
+    }
+    return GetForegroundWindow() == child ? "active" : "failed";
+  }
+
+  // Above the launcher's own child windows: Chromium makes a new one, on top,
+  // each time its window shows again (restored, no longer covered), and the
+  // mouse would then go to the launcher's page.
+  static void Raise(IntPtr child) {
+    IntPtr parent = GetAncestor(child, 1);
+    if ((GetLong(child, GWL_STYLE).ToInt64() & WS_CHILD) != 0 && GetWindow(parent, 5) != child) SetWindowPos(child, IntPtr.Zero, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+  }
+
+  // Keeps the game on top of those (every 250 ms) while it is inside.
+  static IntPtr watched = IntPtr.Zero;
+  static System.Threading.Timer watcher;
+  public static void Watch(IntPtr child) {
+    watched = child;
+    if (watcher == null) watcher = new System.Threading.Timer(_ => { IntPtr c = watched; if (c != IntPtr.Zero && IsWindow(c)) Raise(c); }, null, 250, 250);
+  }
+  public static void Unwatch() { watched = IntPtr.Zero; }
+
+  public static bool Front(IntPtr child) {
+    IntPtr fg = GetForegroundWindow();
+    return fg != IntPtr.Zero && (fg == child || fg == GetAncestor(child, 1));
   }
 
   public static bool Alive(uint pid) {
@@ -99,6 +153,7 @@ public static class GameWindow {
   // A normal window again: title bar, frame and taskbar button, whatever style
   // the client started with (it is sometimes a frameless popup at first).
   public static void Release(IntPtr child, int x, int y, int w, int h) {
+    Unwatch();
     const long WS_OVERLAPPEDWINDOW = 0xCF0000L, WS_VISIBLE = 0x10000000L, WS_CLIPCHILDREN = 0x2000000L;
     SetParent(child, IntPtr.Zero);
     long style = (GetLong(child, GWL_STYLE).ToInt64() & ~(WS_CHILD | WS_POPUP)) | WS_OVERLAPPEDWINDOW | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN;
@@ -127,10 +182,12 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
       }
       'embed' {
         $err = [GameWindow]::Embed([IntPtr][long]$c.child, [IntPtr][long]$c.parent, [int]$c.x, [int]$c.y, [int]$c.w, [int]$c.h)
-        if ($err) { $reply.ok = $false; $reply.error = $err }
+        if ($err) { $reply.ok = $false; $reply.error = $err } else { [GameWindow]::Watch([IntPtr][long]$c.child) }
       }
       'move' { [GameWindow]::Move([IntPtr][long]$c.child, [int]$c.x, [int]$c.y, [int]$c.w, [int]$c.h) }
-      'focus' { [GameWindow]::Focus([IntPtr][long]$c.child) }
+      'focus' { $reply.state = [GameWindow]::Activate([IntPtr][long]$c.child) }
+      'unwatch' { [GameWindow]::Unwatch() }
+      'front' { $reply.front = [GameWindow]::Front([IntPtr][long]$c.child) }
       'release' { [GameWindow]::Release([IntPtr][long]$c.child, [int]$c.x, [int]$c.y, [int]$c.w, [int]$c.h) }
       'exists' { $reply.exists = [GameWindow]::IsWindow([IntPtr][long]$c.child) }
       default { $reply.ok = $false; $reply.error = "unknown op $($c.op)" }
@@ -224,9 +281,30 @@ module.exports = function embedder({ log = () => {} } = {}) {
     await call(Object.assign({ op: 'move', child }, box(rect)));
   }
 
-  async function focus() {
-    if (!child) return;
-    await call({ op: 'focus', child });
+  // The game becomes the active window (see Activate above); while a move,
+  // resize, menu or frame button press is under way, once it is over.
+  let focusing = null;
+  function focus() {
+    if (!child) return Promise.resolve();
+    if (!focusing) {
+      focusing = (async () => {
+        const until = Date.now() + 20000;
+        while (child && Date.now() < until) {
+          const done = await call({ op: 'focus', child });
+          if (done.state !== 'busy') return done.state;
+          await new Promise((resolve) => setTimeout(resolve, 150));
+        }
+        return 'busy';
+      })().finally(() => { focusing = null; });
+    }
+    return focusing;
+  }
+
+  // The launcher's window or the game is the foreground window.
+  async function inFront() {
+    if (!child) return false;
+    const done = await call({ op: 'front', child });
+    return Boolean(done.front);
   }
 
   async function release(rect) {
@@ -243,6 +321,7 @@ module.exports = function embedder({ log = () => {} } = {}) {
   // The game closed: its window is gone with it.
   function forget() {
     child = null;
+    if (helper && helper.process.exitCode === null) call({ op: 'unwatch' }).catch(() => {});
   }
 
   function stop() {
@@ -253,5 +332,5 @@ module.exports = function embedder({ log = () => {} } = {}) {
     }
   }
 
-  return { attach, move, focus, release, forget, stop, attached: () => child, warmUp: () => start().ready.catch(() => {}) };
+  return { attach, move, focus, inFront, release, forget, stop, attached: () => child, warmUp: () => start().ready.catch(() => {}) };
 };

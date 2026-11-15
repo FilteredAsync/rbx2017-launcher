@@ -1,5 +1,14 @@
 [
   {
+    "version": "1.10.1",
+    "date": "2026-11-15",
+    "title": "The game keeps its input",
+    "items": [
+      "Coming back to a game from another window (Alt+Tab, the taskbar or a click) makes the game the active window again, so it takes your mouse and keyboard instead of the launcher.",
+      "F11 toggles full screen while you play."
+    ]
+  },
+  {
     "version": "1.10.0",
     "date": "2026-11-15",
     "title": "Menu sounds and volume",
