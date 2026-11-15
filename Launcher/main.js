@@ -17,10 +17,11 @@ const path = require('path');
 // Menu music is the player's own file (config/menu-music.mp3), served to the
 // window as launcher-media://menu-music; it is not part of the app.
 // launcher-net:// brings the window pictures, meshes and item data from the
-// web server and the client's own content files (account.js).
+// web server and the client's own content files (account.js), the menu's
+// sound effects too (stream: audio loads fail at random without it).
 protocol.registerSchemesAsPrivileged([
   { scheme: 'launcher-media', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true } },
-  { scheme: 'launcher-net', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
+  { scheme: 'launcher-net', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true, corsEnabled: true } },
 ]);
 
 // The RobloxClient folder: the first folder above this app that has the client.
@@ -1204,6 +1205,15 @@ function createWindow() {
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   for (const name of ['resize', 'maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen', 'restore']) {
     win.on(name, () => relayoutGame());
+  }
+  // Back from another window (Alt+Tab, the taskbar, a click): Windows gives the
+  // keyboard and mouse to the launcher's own page, which the game covers, so
+  // the game stopped getting input. Hand them to the game instead.
+  for (const name of ['focus', 'restore', 'show']) {
+    win.on(name, () => {
+      if (embedState !== 'embedded' || !embedModule) return;
+      setTimeout(() => { if (embedState === 'embedded' && embedModule.attached()) embedModule.focus().catch(() => {}); }, 30);
+    });
   }
   let leaveGameConfirmed = false;
   win.on('close', async (event) => {

@@ -30,6 +30,8 @@ function message(error) {
 function setStatus(id, text, kind) {
   const node = $(id);
   if (!node) return;
+  // A new error, not the same one again from a refresh.
+  if (kind === 'error' && text && (node.textContent !== text || !node.classList.contains('error'))) sfx.play('error');
   node.textContent = text || '';
   node.className = `${node.classList.contains('account-note') ? 'account-note' : 'status'}${kind ? ` ${kind}` : ''}`;
 }
@@ -167,6 +169,7 @@ function placeholder(text, big, onClick) {
 // --- screens ---------------------------------------------------------------------------
 
 function showScreen(name) {
+  if (screen && screen !== name) sfx.play('screen');
   screen = name;
   $('screen-start').classList.toggle('hidden', name !== 'start');
   $('screen-account').classList.toggle('hidden', name !== 'account');
@@ -379,6 +382,7 @@ function applyCapabilities() {
 }
 
 function showView(name, focusContent) {
+  if (screen === 'shell' && view !== name) sfx.play(name === 'settings' ? 'menu' : 'screen');
   view = name;
   document.querySelectorAll('.tab-link').forEach((link) => link.classList.toggle('active', link.dataset.view === name));
   document.querySelectorAll('.view').forEach((section) => section.classList.toggle('active', section.id === `view-${name}`));
@@ -472,8 +476,16 @@ function move(dx, dy) {
     const score = Math.max(0, along) + across * 1.6;
     if (score < bestScore) { bestScore = score; best = node; }
   }
-  if (best) focusEl(best);
+  if (best) {
+    focusEl(best);
+    sfx.play('move');
+  }
 }
+
+// Every button press clicks (unless something more specific plays for it).
+document.addEventListener('click', (event) => {
+  if (event.target.closest('button, summary, .nav-target')) sfx.press();
+}, true);
 
 function goBack() {
   if (loading) return;
@@ -571,7 +583,9 @@ function pollGamepad(time) {
     const x = (button(15) ? 1 : 0) - (button(14) ? 1 : 0) || (Math.abs(gamepad.axes[0]) > 0.6 ? Math.sign(gamepad.axes[0]) : 0);
     const y = (button(13) ? 1 : 0) - (button(12) ? 1 : 0) || (Math.abs(gamepad.axes[1]) > 0.6 ? Math.sign(gamepad.axes[1]) : 0);
     if ((x || y) && time >= pad.nextRepeat) {
-      move(y ? 0 : x, y);
+      const active = document.activeElement;
+      if (x && !y && active && active.type === 'range') nudgeSlider(active, x);
+      else move(y ? 0 : x, y);
       pad.nextRepeat = time + (pad.held ? 150 : 380);
       pad.held = true;
     } else if (!x && !y) {
@@ -586,15 +600,29 @@ requestAnimationFrame(pollGamepad);
 // --- music and background ------------------------------------------------------------
 
 const music = $('music');
-music.volume = 0.45;
-const musicWanted = () => storage('music') !== 'off';
+
+// Music volume 0-100 (0 is off). Launchers before 1.10 stored only on/off.
+function musicVolume() {
+  const stored = Number(storage('musicVolume'));
+  if (storage('musicVolume') !== null && Number.isFinite(stored)) return Math.max(0, Math.min(100, stored));
+  return storage('music') === 'off' ? 0 : 45;
+}
+function setMusicVolume(value) {
+  const volume = Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
+  storage('musicVolume', String(volume));
+  if (volume > 0) storage('musicVolumeLast', String(volume));
+  updateMusic();
+}
+const musicWanted = () => musicVolume() > 0;
 
 function updateMusic() {
   const available = Boolean(state && state.hasMusic);
   const clientRunning = Boolean(state && state.play.active);
   window.backgroundPaused = clientRunning; // no animation while the game runs
-  $('toggle-music').textContent = `Music: ${musicWanted() ? 'On' : 'Off'}`;
-  $('music-hint').textContent = available ? 'M or Y turns the music on and off.' : 'No menu music yet: it comes from your server (config\\menu-music.mp3 on the host\'s PC).';
+  const volume = musicVolume();
+  music.volume = volume / 100;
+  showVolume('music', volume);
+  $('music-hint').textContent = available ? 'M or Y mutes the music.' : 'No menu music yet: it comes from your server.';
   if (!available) return;
   // A new stamp means the file changed (downloaded again from the server).
   const stamp = String(state.musicStamp || 0);
@@ -606,9 +634,34 @@ function updateMusic() {
   else music.pause();
 }
 
+// M / Y: mute, or back to the last volume.
 function toggleMusic() {
-  storage('music', musicWanted() ? 'off' : 'on');
-  updateMusic();
+  setMusicVolume(musicWanted() ? 0 : Number(storage('musicVolume') === '0' && storage('musicVolumeLast')) || 45);
+}
+
+function showVolume(which, value) {
+  const slider = $(`volume-${which}`);
+  if (document.activeElement !== slider || Number(slider.value) !== value) slider.value = String(value);
+  slider.style.setProperty('--fill', `${value}%`);
+  $(`volume-${which}-value`).textContent = value ? `${value}%` : 'Off';
+}
+
+$('volume-music').addEventListener('input', (event) => setMusicVolume(event.target.value));
+let soundPreview = null;
+$('volume-sounds').addEventListener('input', (event) => {
+  sfx.volume = Number(event.target.value);
+  showVolume('sounds', sfx.volume);
+  // Hear the new level (once the slider settles).
+  clearTimeout(soundPreview);
+  soundPreview = setTimeout(() => sfx.play('move'), 120);
+});
+showVolume('sounds', sfx.volume);
+
+// Left/right on a focused slider (keys, d-pad or stick) changes it.
+function nudgeSlider(slider, direction) {
+  const step = Number(slider.step) || 1;
+  slider.value = String(Math.max(Number(slider.min), Math.min(Number(slider.max), Number(slider.value) + step * direction)));
+  slider.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 const BACKGROUNDS = [['classic', 'Classic'], ['neon', 'Neon grid'], ['sunset', 'Sunset']];
@@ -617,7 +670,6 @@ function updateBackgroundButton() {
   $('toggle-background').textContent = `Background: ${entry[1]}`;
 }
 
-$('toggle-music').addEventListener('click', toggleMusic);
 $('toggle-background').addEventListener('click', () => {
   const index = BACKGROUNDS.findIndex(([key]) => key === window.backgroundMode);
   window.backgroundMode = BACKGROUNDS[(index + 1) % BACKGROUNDS.length][0];
@@ -708,6 +760,7 @@ function renderHome() {
 // --- game details ----------------------------------------------------------------------
 
 function openDetail(game) {
+  if ($('overlay').classList.contains('hidden')) sfx.play('overlay');
   detailGame = onlineMatch(game) || game;
   const listed = lastGames.includes(detailGame);
   const servers = listed && Array.isArray(detailGame.servers) ? detailGame.servers : [];
@@ -838,6 +891,7 @@ $('private-create').addEventListener('submit', async (event) => {
   try {
     const result = await api.createPrivateServer({ placeId: game.placeId, name: $('private-name').value.trim() || `${me.account.name}'s server` });
     closePrivateForms();
+    sfx.play('success');
     setStatus('private-status', `Made ${result.server.name}. Friends can join; anyone else needs code ${result.server.code}.`, 'good');
   } catch (error) {
     setStatus('private-status', message(error), 'error');
@@ -898,6 +952,7 @@ let loading = null; // { game, cancelled, started }
 
 function setLoadingStatus(text, kind) {
   const status = $('loading-status');
+  if (kind === 'error' && !status.classList.contains('error')) sfx.play('error');
   status.textContent = text;
   status.className = `loading-status${kind ? ` ${kind}` : ''}`;
 }
@@ -1308,6 +1363,7 @@ async function friendAction(verb, person, statusId = 'friends-status') {
   try {
     const result = await api.friendAction(verb, { name: person.name });
     friendData = result;
+    if (verb === 'accept' || result.became === 'friends') sfx.play('success');
     setStatus(statusId, FRIEND_TEXTS[verb](result), 'good');
     ok = true;
   } catch (error) {
@@ -1627,6 +1683,7 @@ async function openProfile(person, keepStatus) {
   profilePerson = person;
   if (!keepStatus) setStatus('profile-status', 'Loading…');
   if ($('profile-overlay').classList.contains('hidden')) {
+    sfx.play('overlay');
     personPicture($('profile-pic'), person.userId, 420);
     renderProfile(Object.assign({ bio: '', friendStatus: null }, person, { self: Boolean(me && me.account.userId === person.userId) }));
     $('profile-overlay').classList.remove('hidden');
@@ -2120,6 +2177,7 @@ async function showWhatsNew(version) {
   $('whats-new-title').textContent = version ? `What's new in ${version}` : 'Update log';
   $('whats-new-list').replaceChildren(...entries.map(changelogEntry));
   $('whats-new-list').scrollTop = 0;
+  sfx.play('overlay');
   $('news-overlay').classList.remove('hidden');
   focusEl($('whats-new-close'));
   return true;
@@ -2206,6 +2264,7 @@ $('update-pill').addEventListener('click', async () => {
 
 let toastTimer = null;
 function showToast(text, ms = 9000) {
+  sfx.play('popup');
   const node = $('toast');
   node.textContent = text;
   node.classList.remove('hidden');

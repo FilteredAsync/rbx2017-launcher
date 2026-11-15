@@ -19,7 +19,7 @@ const SERVER_PATHS = /^(?:asset\/?|asset-thumbnail\/image|bundle-thumbnail\/imag
 // The ROBLOX logo comes from the server (the public download has none) and
 // is kept in config/ so it shows offline too.
 const LOGO_PATH = /^download\/(roblox-logo(?:-tagline)?\.png)$/i;
-const CLIENT_TYPES = { '.mesh': 'application/octet-stream', '.png': 'image/png', '.jpg': 'image/jpeg', '.ttf': 'font/ttf', '.otf': 'font/otf' };
+const CLIENT_TYPES = { '.mesh': 'application/octet-stream', '.png': 'image/png', '.jpg': 'image/jpeg', '.ttf': 'font/ttf', '.otf': 'font/otf', '.mp3': 'audio/mpeg' };
 const CACHE_LIMIT = 160 * 1024 * 1024;
 // Pictures of avatars change when players save; everything else is fixed by ID.
 const UNCACHED = /^(?:avatar-thumbnail|headshot-thumbnail|api\/thumbnails)/i;

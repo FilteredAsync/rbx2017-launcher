@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.10.0",
+    "date": "2026-11-15",
+    "title": "Menu sounds and volume",
+    "items": [
+      "The menu has its sounds again: moving around, pressing, switching tabs, opening Settings and pop-ups.",
+      "Settings › Menu has volume sliders for the music and the sounds.",
+      "Coming back to a game from another window (Alt+Tab) keeps the keyboard and mouse in the game."
+    ]
+  },
+  {
     "version": "1.9.0",
     "date": "2026-11-15",
     "title": "Faster joins, blocking that works, fixed games",

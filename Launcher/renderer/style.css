@@ -561,3 +561,14 @@ body.in-game .settings-hint { display: none !important; }
 .changelog-title { font-size: 17px; margin-top: 4px; color: #dbe6ee; }
 .changelog ul { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 5px; color: #cfdbe4; font-size: 15px; line-height: 1.45; }
 #people-following.active { background: rgba(0, 162, 255, .25); }
+
+/* Settings > Menu: volume sliders (0 is off) */
+.volume-row { display: grid; grid-template-columns: 110px minmax(160px, 420px) 56px; align-items: center; gap: 18px; padding: 12px 0; text-transform: none; letter-spacing: 0; flex-direction: row; color: var(--text); font-size: 17px; }
+.volume-row + .volume-row { border-top: 1px solid var(--line); }
+.volume-value { color: var(--muted); font-size: 15px; text-align: right; font-variant-numeric: tabular-nums; }
+input.volume { -webkit-appearance: none; appearance: none; height: 28px; padding: 0; margin: 0; background: transparent; border: 2px solid transparent; cursor: pointer; --fill: 50%; }
+input.volume::-webkit-slider-runnable-track { height: 6px; background: linear-gradient(to right, var(--accent) var(--fill), rgba(255, 255, 255, .16) var(--fill)); }
+input.volume::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; margin-top: -6px; background: #fff; border-radius: 50%; box-shadow: 0 1px 4px rgba(0, 0, 0, .5); }
+input.volume:focus { outline: none; }
+input.volume:focus-visible { border-color: #fff; }
+input.volume:hover::-webkit-slider-thumb { transform: scale(1.1); }

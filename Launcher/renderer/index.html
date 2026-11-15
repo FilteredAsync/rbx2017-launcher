@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: launcher-net:; font-src 'self' launcher-net:; media-src 'self' launcher-media:; connect-src launcher-net:">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: launcher-net:; font-src 'self' launcher-net:; media-src 'self' launcher-media: launcher-net:; connect-src launcher-net:">
   <title>RobloxClient Launcher</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -309,11 +309,24 @@
 
           <div class="set-panel hidden" id="set-menu">
             <div class="panel">
-              <div class="label">Menu</div>
-              <div class="row tight">
-                <button class="ghost" id="toggle-music">Music: On</button>
-                <button class="ghost" id="toggle-background">Background: Classic</button>              </div>
+              <div class="label">Sound</div>
+              <label class="volume-row">
+                <span class="volume-name">Music</span>
+                <input type="range" class="volume" id="volume-music" min="0" max="100" step="5">
+                <span class="volume-value" id="volume-music-value"></span>
+              </label>
+              <label class="volume-row">
+                <span class="volume-name">Sounds</span>
+                <input type="range" class="volume" id="volume-sounds" min="0" max="100" step="5">
+                <span class="volume-value" id="volume-sounds-value"></span>
+              </label>
               <p class="hint" id="music-hint"></p>
+            </div>
+            <div class="panel">
+              <div class="label">Look</div>
+              <div class="row tight">
+                <button class="ghost" id="toggle-background">Background: Classic</button>
+              </div>
             </div>
           </div>
 
@@ -567,6 +580,7 @@
   <script src="avatar3d.js"></script>
   <script src="background.js"></script>
   <script src="avatareditor.js"></script>
+  <script src="sfx.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
