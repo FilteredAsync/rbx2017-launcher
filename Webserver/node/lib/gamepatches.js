@@ -386,6 +386,56 @@ const PATCHES = [
       '',
     )],
   ]),
+  // The server's changewep copies a gun entry it made with Camo = {} into the
+  // slot, so saves get slots without Camo.Slot1/Slot2; deploying with such a
+  // gun stopped in texturemodel (Framework) and the camo menus index them too.
+  // The menu now fills missing camo slots and attachment slots on join. (Added
+  // after the anchor, so the unnamed-slots block above stays as it is.)
+  edits('Phantom Forces loadout camo', [
+    ['\t\tcurclass = classdata.curclass\n\t\tcurwep = classdata[curclass].Primary.Name\n', lines(
+      '\t\tcurclass = classdata.curclass',
+      '\t\tcurwep = classdata[curclass].Primary.Name',
+      '\t\tpcall(function()',
+      '\t\t\tlocal changed = false',
+      '\t\t\tfor _, class in next, classtypes do',
+      '\t\t\t\tfor _, slot in next, slottypes do',
+      '\t\t\t\t\tlocal s = type(classdata[class]) == "table" and classdata[class][slot]',
+      '\t\t\t\t\tif type(s) == "table" then',
+      '\t\t\t\t\t\tif type(s.Camo) ~= "table" then s.Camo = {} end',
+      '\t\t\t\t\t\tfor _, k in next, {"Slot1", "Slot2"} do',
+      '\t\t\t\t\t\t\tif type(s.Camo[k]) ~= "table" then camotemplate(s.Camo, k) changed = true end',
+      '\t\t\t\t\t\tend',
+      '\t\t\t\t\t\tif type(s.Attachments) ~= "table" then s.Attachments = {} changed = true end',
+      '\t\t\t\t\t\tfor _, k in next, attachmentslots[slot] or {} do',
+      '\t\t\t\t\t\t\tif s.Attachments[k] == nil then s.Attachments[k] = "" changed = true end',
+      '\t\t\t\t\t\tend',
+      '\t\t\t\t\tend',
+      '\t\t\t\tend',
+      '\t\t\tend',
+      '\t\t\tif changed then',
+      '\t\t\t\tplayerdata.updateplayerdata(classdata, "settings", "classdata")',
+      '\t\t\t\tprint("Repaired the saved camos")',
+      '\t\t\tend',
+      '\t\tend)',
+      '',
+    )],
+  ]),
+  // Backstop for the same: a gun part tagged Slot1/Slot2 with no camo entry
+  // keeps its look instead of erroring (deploy loads the guns through this).
+  edits('Phantom Forces gun camo', [
+    ['\t\t\t\tlocal slottag = ffc(part, "Slot1") or ffc(part, "Slot2")\n\t\t\t\tif slottag then\n',
+      '\t\t\t\tlocal slottag = ffc(part, "Slot1") or ffc(part, "Slot2")\n\t\t\t\tif slottag and root and root[slottag.Name] then\n'],
+    ['if slottag and root[slottag.Name].BrickProperties.EnableMaterial and',
+      'if slottag and root and root[slottag.Name] and root[slottag.Name].BrickProperties.EnableMaterial and'],
+  ]),
+  // The shop sends every previewed attachment slot, "" for one toggled off;
+  // the server looked each up as attachments[Type][Name] and errored, so no
+  // attachment purchase went through. Blank or unknown ones are skipped.
+  edits('Phantom Forces attachment purchases', [
+    ['if gundata.attachments[Type][Name].unlockkills then',
+      'local own = gundata.attachments[Type] and gundata.attachments[Type][Name] if Name == "" or not (own or infodata[Name]) then elseif own and own.unlockkills then'],
+    ['unlockkills = unlockkills + infodata[Name].unlockkills', 'unlockkills = unlockkills + (infodata[Name] and infodata[Name].unlockkills or 0)'],
+  ]),
 ];
 
 // source -> source with the patches that fit applied; their names are added
