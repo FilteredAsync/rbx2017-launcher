@@ -68,5 +68,22 @@ var Studio = (function () {
     return 'Online · starting';
   }
 
-  return { $: $, api: api, inStudio: inStudio, text: text, show: show, status: status, make: make, loginForm: loginForm, logout: logout, statusLine: statusLine };
+  // "just now", "5 min ago", "3 h ago", "yesterday", "4 days ago", "Mar 2".
+  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function timeAgo(iso) {
+    var time = Date.parse(iso || '');
+    if (isNaN(time)) return '';
+    var minutes = Math.round((new Date().getTime() - time) / 60000);
+    if (minutes < 1) return 'just now';
+    if (minutes < 60) return minutes + ' min ago';
+    var hours = Math.round(minutes / 60);
+    if (hours < 24) return hours + ' h ago';
+    var days = Math.round(hours / 24);
+    if (days < 2) return 'yesterday';
+    if (days < 7) return days + ' days ago';
+    var date = new Date(time);
+    return MONTHS[date.getMonth()] + ' ' + date.getDate();
+  }
+
+  return { $: $, api: api, inStudio: inStudio, text: text, show: show, status: status, make: make, loginForm: loginForm, logout: logout, statusLine: statusLine, timeAgo: timeAgo };
 }());

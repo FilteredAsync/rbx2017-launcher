@@ -110,6 +110,8 @@ function uploadFile(url, file, progress) {
     request.open('POST', url);
     for (const [name, value] of Object.entries(authHeaders({ 'Content-Type': 'application/octet-stream' }))) request.setRequestHeader(name, value);
     request.upload.onprogress = (event) => { if (progress && event.lengthComputable) progress(Math.round((event.loaded / event.total) * 100)); };
+    // Sent: the server works on it now (progress may never have said 100).
+    request.upload.onload = () => { if (progress) progress(100); };
     request.onload = () => {
       let result = {};
       try { result = JSON.parse(request.responseText || '{}'); } catch (error) { result = {}; }
@@ -329,6 +331,7 @@ function renderDrawer(full) {
   for (const pane of document.querySelectorAll('.drawer .pane')) pane.hidden = pane.dataset.pane !== drawerTab;
   $('pane-servers').replaceChildren(...serversPane(place));
   $('pane-files').replaceChildren(...filePane(place));
+  if (drawerTab === 'files' && versionsKey !== `${place.placeId}:${place.version}`) loadVersions(place);
   if (full || !$('pane-settings').firstChild || $('pane-settings').dataset.id !== place.placeId) {
     $('pane-settings').replaceChildren(settingsForm(place));
     $('pane-settings').dataset.id = place.placeId;
@@ -452,6 +455,7 @@ function settingsForm(place) {
 function filePane(place) {
   const fact = (label, value) => [h('dt', { text: label }), h('dd', {}, value)];
   const parts = [
+    replaceCard(place),
     h('dl', { class: 'card facts' },
       fact('File', h('code', { text: `Server\\content\\${String(place.file || '?').replace(/\//g, '\\')}` })),
       fact('Size', size(place.fileSize)),
@@ -459,8 +463,8 @@ function filePane(place) {
       place.uploadedFrom ? fact('Uploaded from', place.uploadedFrom) : [],
       fact('Added', when(place.createdAt)),
       fact('Changed', when(place.updatedAt))),
+    versionsList(place),
     h('div', { class: 'btn-row' },
-      btn('Replace file', '', () => pick('replace-file', place)),
       btn('Convert again', '', async () => {
         if (!await ask(`Convert ${place.name} again?`, 'It picks up converter fixes made since the upload. Running servers restart on the new version, and the old file is kept.', 'Convert')) return;
         act(() => change('POST', `/api/places/${place.placeId}/reconvert`, '{}'), `Converting ${place.name}`, 'Converted');
@@ -488,16 +492,191 @@ function pick(inputId, place) {
   $(inputId).click();
 }
 
-$('replace-file').addEventListener('change', async () => {
-  const file = $('replace-file').files[0];
-  const place = pendingPlace;
-  if (!file || !place) return;
-  if (!await ask(`Replace the file of ${place.name}?`, `New file: ${file.name} (${size(file.size)}). The old version is kept, and running servers restart after saving players.`, 'Replace')) return;
-  act((note) => {
+// --- replacing a game's file (Files tab) ----------------------------------------------------
+// Picked or dropped file -> "ready" (asks in place) -> "upload" -> "convert" ->
+// "done" or "error". Kept here, not in the page, so polling can redraw the pane.
+let replacing = null;        // { placeId, phase, file, percent, convertStarted, result, error }
+let versions = { placeId: null, version: null, list: null }; // the open game's earlier files, as of its version
+let versionsKey = '';        // "<placeId>:<version>" last asked for
+const PLACE_FILE = /\.rbxlx?$/i;
+const uploading = () => Boolean(replacing && (replacing.phase === 'upload' || replacing.phase === 'convert'));
+
+function chooseReplacement(place, file) {
+  if (!file) return;
+  if (uploading()) { toast('Wait for the current upload to finish.', 'error'); return; }
+  replacing = PLACE_FILE.test(file.name)
+    ? { placeId: place.placeId, phase: 'ready', file }
+    : { placeId: place.placeId, phase: 'error', file: null, error: `${file.name} isn't a place file. Use a .rbxl or .rbxlx.` };
+  paintReplace();
+}
+
+function clearReplace() {
+  if (uploading()) return;
+  replacing = null;
+  paintReplace();
+}
+
+function paintReplace() {
+  const place = places.find((item) => item.placeId === openId);
+  const card = $('replace-card');
+  if (place && card) card.replaceWith(replaceCard(place));
+}
+
+async function startReplace() {
+  const job = replacing;
+  if (!job || !job.file || busy) return;
+  const place = places.find((item) => item.placeId === job.placeId);
+  if (!place) return;
+  busy = true;
+  Object.assign(job, { phase: 'upload', percent: 0, error: null });
+  paintReplace();
+  try {
     const query = place.universeId ? `?universeId=${encodeURIComponent(place.universeId)}` : '';
-    return uploadFile(`/api/places/${place.placeId}/file${query}`, file, (percent) => note.say(percent < 100 ? `Uploading ${percent}%` : 'Converting'));
-  }, `Uploading ${file.name}`, `${place.name} updated`);
+    const result = await uploadFile(`/api/places/${place.placeId}/file${query}`, job.file, (percent) => {
+      if (percent < 100) job.percent = percent;
+      else if (job.phase === 'upload') Object.assign(job, { phase: 'convert', convertStarted: Date.now() });
+      paintReplace();
+    });
+    Object.assign(job, { phase: 'done', result: { version: result.place.version, size: result.place.fileSize, notes: result.notes || [] } });
+    if (openId !== job.placeId || drawerTab !== 'files') toast(`${place.name} updated`, 'good');
+  } catch (error) {
+    Object.assign(job, { phase: 'error', error: error.message });
+    if (openId !== job.placeId || drawerTab !== 'files') toast(`${place.name}: ${error.message}`, 'error');
+  } finally {
+    busy = false;
+    await refresh();
+  }
+}
+
+// The replace card at the top of the Files tab.
+function replaceCard(place) {
+  const job = replacing && replacing.placeId === place.placeId ? replacing : null;
+  const card = h('div', { class: 'card replace', id: 'replace-card' });
+  if (!job) {
+    card.append(h('label', { class: 'drop' },
+      h('input', { type: 'file', accept: '.rbxl,.rbxlx', onchange: (event) => chooseReplacement(place, event.target.files[0]) }),
+      h('span', { class: 'drop-main', text: 'Replace the place file' }),
+      h('span', { class: 'drop-sub', text: 'Drop a .rbxl or .rbxlx here, or click to choose' })));
+    return card;
+  }
+  const head = (mark, title, sub) => h('div', { class: 'replace-head' }, h('span', { class: 'file-icon', text: mark }),
+    h('div', { class: 'text' }, h('b', { text: title }), sub && h('small', { text: sub })));
+  const file = job.file;
+  const ext = file ? (file.name.split('.').pop() || '').toUpperCase().slice(0, 5) : '';
+
+  if (job.phase === 'ready') {
+    const players = playersIn(place);
+    const servers = (place.servers || []).length;
+    const restart = players ? `${plural(players, 'player')} online: they're saved, then the servers restart.`
+      : servers ? 'Its servers restart on the new file.' : '';
+    card.append(
+      head(ext, file.name, `${size(file.size)} · now ${size(place.fileSize)}, version ${place.version}`),
+      h('p', { class: 'replace-note', text: `${restart} The current file goes to Previous versions.`.trim() }),
+      h('div', { class: 'btn-row' }, btn('Replace', 'primary', startReplace), btn('Cancel', '', clearReplace)));
+  } else if (job.phase === 'upload' || job.phase === 'convert') {
+    const converting = job.phase === 'convert';
+    card.append(
+      head(ext, file.name, size(file.size)),
+      h('div', { class: `bar${converting ? ' working' : ''}` }, h('span', { style: converting ? '' : `width: ${job.percent}%` })),
+      h('div', { class: 'replace-step', id: 'replace-step', text: replaceStep(job) }));
+  } else if (job.phase === 'done') {
+    card.classList.add('good');
+    const notes = job.result.notes;
+    // Undo puts back the newest earlier file: only once that list is the one after this upload.
+    const fresh = versions.placeId === place.placeId && versions.version === place.version && versions.list && versions.list.length;
+    const undo = btn('Undo', '', () => restoreVersion(place, versions.list[0], true));
+    undo.disabled = !fresh;
+    card.append(
+      head('✓', `Version ${job.result.version} is live`, file.name),
+      notes.length ? h('details', { class: 'notes' }, h('summary', { text: `Conversion notes (${notes.length})` }), h('pre', { text: notes.join('\n') })) : null,
+      h('div', { class: 'btn-row' }, btn('Done', 'primary', clearReplace), undo));
+  } else {
+    card.classList.add('bad');
+    card.append(
+      head('!', file ? "Couldn't replace the file" : 'Not a place file', job.error),
+      h('div', { class: 'btn-row' },
+        file && btn('Try again', 'primary', startReplace),
+        btn(file ? 'Choose another' : 'Choose a file', '', () => pick('replace-file', place)),
+        btn('Cancel', '', clearReplace)));
+  }
+  return card;
+}
+
+function replaceStep(job) {
+  if (job.phase === 'upload') return `Uploading ${job.percent}%`;
+  const seconds = Math.round((Date.now() - job.convertStarted) / 1000);
+  return `Converting${seconds >= 2 ? ` · ${seconds < 60 ? `${seconds} s` : `${Math.floor(seconds / 60)} min ${seconds % 60} s`}` : ''}`;
+}
+setInterval(() => {
+  if (replacing && replacing.phase === 'convert' && $('replace-step')) $('replace-step').textContent = replaceStep(replacing);
+}, 1000);
+
+// The Choose buttons (error card) use the hidden input.
+$('replace-file').addEventListener('change', () => {
+  if (pendingPlace) chooseReplacement(pendingPlace, $('replace-file').files[0]);
 });
+
+// Drop a file anywhere on the Files tab.
+const filesPane = $('pane-files');
+const hasFiles = (event) => Array.from(event.dataTransfer ? event.dataTransfer.types : []).includes('Files');
+filesPane.addEventListener('dragover', (event) => {
+  if (!hasFiles(event)) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = uploading() ? 'none' : 'copy';
+  filesPane.classList.add('dragging');
+});
+filesPane.addEventListener('dragleave', (event) => {
+  if (!filesPane.contains(event.relatedTarget)) filesPane.classList.remove('dragging');
+});
+filesPane.addEventListener('drop', (event) => {
+  if (!hasFiles(event)) return;
+  event.preventDefault();
+  filesPane.classList.remove('dragging');
+  const place = places.find((item) => item.placeId === openId);
+  if (place) chooseReplacement(place, event.dataTransfer.files[0]);
+});
+
+// --- earlier versions of a game's file ----------------------------------------------------------
+
+// Fetched when the Files tab shows a game, and again whenever its version changes.
+async function loadVersions(place) {
+  const key = `${place.placeId}:${place.version}`;
+  if (versionsKey === key) return;
+  versionsKey = key;
+  let list = [];
+  try {
+    const response = await fetch(`/api/places/${place.placeId}/versions`, { headers: authHeaders(), cache: 'no-store' });
+    const result = await response.json();
+    if (response.ok) list = result.versions || [];
+  } catch (error) { /* shown as no earlier versions */ }
+  if (versionsKey !== key) return; // another game or version since
+  versions = { placeId: place.placeId, version: place.version, list };
+  if (openId === place.placeId && drawerTab === 'files') renderDrawer(false);
+}
+
+function versionsList(place) {
+  if (versions.placeId !== place.placeId || !versions.list || !versions.list.length) return null;
+  return h('div', { class: 'versions' },
+    h('h3', { text: 'Previous versions' }),
+    h('div', { class: 'card list' }, versions.list.map((version) => h('div', { class: 'list-row' },
+      h('div', { class: 'text' }, h('b', { text: when(version.savedAt) }), h('small', { text: size(version.size) })),
+      btn('Restore', 'small', () => restoreVersion(place, version))))));
+}
+
+async function restoreVersion(place, version, undo) {
+  if (!undo) {
+    const players = playersIn(place);
+    const restart = players ? ` ${plural(players, 'player')} are saved, then the servers restart.` : '';
+    if (!await ask(`Restore the file from ${when(version.savedAt)}?`, `It becomes version ${place.version + 1}, and the current file goes to Previous versions.${restart}`, 'Restore')) return;
+  }
+  const result = await act(() => change('POST', `/api/places/${place.placeId}/versions/${encodeURIComponent(version.id)}/restore`, '{}'),
+    undo ? 'Putting the old file back' : 'Restoring', undo ? 'Undone' : 'Restored');
+  if (!result) return;
+  if (undo) replacing = null;
+  versionsKey = `${place.placeId}:${result.place.version}`;
+  versions = { placeId: place.placeId, version: result.place.version, list: result.versions || [] };
+  renderDrawer(false);
+}
 
 $('restore-file').addEventListener('change', async () => {
   const file = $('restore-file').files[0];

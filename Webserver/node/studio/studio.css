@@ -1,113 +1,300 @@
-/* Studio's start page and publish dialog: light, like Studio 2017 itself. */
-* { box-sizing: border-box; }
+/* Studio's start page and publish dialog (lib/studio.js).
+   Studio 2017 shows them in QtWebKit 5.6 (WebKit 538, about Safari 7):
+   no flexbox, grid, CSS variables or object-fit; prefix transitions. */
+* { box-sizing: border-box; -webkit-box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body {
-  background: #f2f2f2;
-  color: #1e1e1e;
-  font-family: "Source Sans Pro", "Segoe UI", Arial, sans-serif;
+  background: #f3f4f6;
+  color: #1d2125;
+  font-family: "Segoe UI", "Source Sans Pro", Tahoma, Arial, sans-serif;
   font-size: 14px;
+  line-height: 1.35;
 }
-a { color: #0074bd; }
+a { color: #0b72d9; text-decoration: none; }
+a:hover { text-decoration: underline; }
 h1, h2, h3 { font-weight: 600; margin: 0; }
 h2 { font-size: 18px; margin: 22px 0 10px; }
-.hint { color: #666; font-size: 13px; }
+.hint { color: #69707a; font-size: 13px; }
+.clear:after { content: ""; display: table; clear: both; }
 
-.top {
-  background: #fff;
-  border-bottom: 1px solid #d6d6d6;
-  padding: 14px 24px;
-  overflow: hidden;
-}
-.top .brand { float: left; }
-.top .brand h1 { font-size: 22px; }
-.top .brand .hint { margin-top: 2px; }
-.top .who { float: right; text-align: right; padding-top: 6px; }
-.top .who b { font-weight: 600; }
+/* --- form controls ------------------------------------------------------------------------ */
 
-main { padding: 6px 24px 30px; max-width: 1180px; }
-
-.panel {
-  background: #fff;
-  border: 1px solid #d6d6d6;
-  border-radius: 3px;
-  padding: 18px 20px;
-  margin-top: 18px;
-}
-.panel.narrow { max-width: 420px; }
-.panel p { margin: 0 0 12px; line-height: 1.4; }
-
-label { display: block; font-size: 13px; color: #444; margin: 10px 0 4px; }
-input[type=text], input[type=password], textarea {
+label { display: block; font-size: 13px; color: #454b52; margin: 12px 0 5px; }
+input[type=text], input[type=password], textarea, select {
   width: 100%;
-  border: 1px solid #b9b9b9;
-  border-radius: 2px;
-  padding: 7px 8px;
+  border: 1px solid #cdd2d8;
+  border-radius: 6px;
+  padding: 8px 10px;
   font: inherit;
+  color: inherit;
   background: #fff;
 }
-input:focus, textarea:focus { outline: none; border-color: #00a2ff; }
-textarea { resize: vertical; min-height: 54px; }
-.check { margin-top: 12px; color: #1e1e1e; font-size: 14px; }
-.check input { margin-right: 6px; vertical-align: middle; }
+input:focus, textarea:focus, select:focus { outline: none; border-color: #1f8bff; box-shadow: 0 0 0 3px rgba(31, 139, 255, 0.18); }
+textarea { resize: vertical; min-height: 60px; }
+.check { margin-top: 14px; color: #1d2125; font-size: 14px; }
+.check input { margin: 0 7px 0 0; vertical-align: middle; }
 
-button {
-  background: #00a2ff;
-  border: 1px solid #0090e2;
-  border-radius: 2px;
+button, .btn {
+  display: inline-block;
+  background: #1f8bff;
+  border: 1px solid #1f8bff;
+  border-radius: 6px;
   color: #fff;
   cursor: pointer;
   font: inherit;
   font-weight: 600;
   padding: 7px 16px;
+  line-height: 20px;
+  vertical-align: middle;
+  -webkit-transition: background-color 0.12s, border-color 0.12s;
+  transition: background-color 0.12s, border-color 0.12s;
 }
-button:hover { background: #0090e2; }
-button:disabled { background: #9ccfee; border-color: #9ccfee; cursor: default; }
-button.ghost { background: #fff; border-color: #b9b9b9; color: #1e1e1e; font-weight: 400; }
-button.ghost:hover { background: #f0f0f0; }
-.row { margin-top: 14px; }
+button:hover, .btn:hover { background: #0d77e8; border-color: #0d77e8; text-decoration: none; }
+button:disabled { background: #a9cdf5; border-color: #a9cdf5; cursor: default; }
+button.ghost, .btn.ghost { background: #fff; border-color: #cdd2d8; color: #1d2125; font-weight: 600; }
+button.ghost:hover, .btn.ghost:hover { background: #f1f3f5; border-color: #b9c0c8; }
+button.quiet, .btn.quiet { background: transparent; border-color: transparent; color: #454b52; font-weight: 600; }
+button.quiet:hover, .btn.quiet:hover { background: #eceff2; border-color: #eceff2; }
+button.small, .btn.small { padding: 4px 12px; font-size: 13px; }
+
+.row { margin-top: 16px; }
 .row button { margin-right: 8px; }
-
-.status { display: inline-block; margin-left: 6px; font-size: 13px; color: #555; }
+.status { display: inline-block; margin-left: 6px; font-size: 13px; color: #555c63; }
 .status.bad { color: #c62828; }
-.status.good { color: #2e7d32; }
+.status.good { color: #1f7a3f; }
 
-.games { overflow: hidden; margin: 0 -8px; }
-.game {
+/* --- publish dialog and the toolbox page -------------------------------------------------- */
+
+main { padding: 6px 24px 30px; max-width: 1180px; }
+.panel {
+  background: #fff;
+  border: 1px solid #e2e5e9;
+  border-radius: 10px;
+  padding: 20px 22px;
+  margin-top: 18px;
+}
+.panel.narrow { max-width: 420px; }
+.panel p { margin: 0 0 12px; }
+.choice { border: 1px solid #e2e5e9; border-radius: 8px; padding: 10px 12px; margin-top: 8px; cursor: pointer; background: #fff; }
+.choice:hover { border-color: #b9c0c8; }
+.choice.selected { border-color: #1f8bff; background: #f0f7ff; }
+.choice input { margin-right: 8px; vertical-align: middle; }
+.choice .meta { color: #69707a; font-size: 12px; margin-left: 24px; }
+.choice-list { max-height: 210px; overflow-y: auto; }
+.toolbox { padding: 16px; }
+
+/* --- start page: top bar ---------------------------------------------------------------- */
+
+.topbar {
+  background: #fff;
+  border-bottom: 1px solid #e2e5e9;
+  height: 56px;
+  padding: 0 24px;
+}
+.topbar .brand { float: left; line-height: 56px; }
+.topbar .brand b { font-size: 18px; font-weight: 700; letter-spacing: 0.2px; }
+.topbar .brand span { color: #8a919a; font-size: 13px; margin-left: 10px; }
+.topbar .who { float: right; line-height: 56px; }
+.topbar .who .avatar { margin-right: 8px; }
+.topbar .who .name { font-weight: 600; vertical-align: middle; }
+.topbar .who .tag { margin-left: 6px; }
+.topbar .who button { margin-left: 12px; }
+
+.avatar {
+  display: inline-block;
+  width: 30px;
+  height: 30px;
+  border-radius: 15px;
+  background: #1f8bff;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 30px;
+  text-align: center;
+  vertical-align: middle;
+}
+.tag {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  padding: 0 7px;
+  border-radius: 9px;
+  background: #eceff2;
+  color: #454b52;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.tag.blue { background: #e3f0ff; color: #0b5fb8; }
+
+.notice {
+  background: #fff7e0;
+  border-bottom: 1px solid #f0dfa6;
+  color: #6b5200;
+  font-size: 13px;
+  padding: 8px 24px;
+}
+
+/* --- start page: toolbar ------------------------------------------------------------------ */
+
+.page { padding: 0 24px 40px; }
+.toolbar { padding: 18px 0 16px; }
+.toolbar .tabs { float: left; }
+.toolbar .tools { float: right; }
+.tabs a {
+  display: inline-block;
+  color: #555c63;
+  font-weight: 600;
+  padding: 7px 14px;
+  margin-right: 4px;
+  border-radius: 18px;
+  cursor: pointer;
+}
+.tabs a:hover { background: #e8ebee; text-decoration: none; }
+.tabs a.on { background: #1d2125; color: #fff; }
+.tabs a .n { font-weight: 400; opacity: 0.7; margin-left: 5px; }
+
+.tools > * { vertical-align: middle; margin-left: 8px; }
+.search { position: relative; display: inline-block; width: 240px; }
+.search input { padding-left: 32px; border-radius: 18px; }
+.search svg { position: absolute; left: 11px; top: 11px; }
+.tools select { width: auto; border-radius: 18px; padding: 7px 10px; }
+.tools .btn { border-radius: 18px; padding: 7px 16px 7px 13px; }
+.tools .btn svg { vertical-align: -2px; margin-right: 5px; }
+
+/* --- start page: game cards ------------------------------------------------------------ */
+
+.grid { margin: 0 -8px; }
+.card {
   float: left;
-  width: 200px;
+  width: 244px;
   margin: 0 8px 16px;
   background: #fff;
-  border: 1px solid #d6d6d6;
-  border-radius: 3px;
+  border: 1px solid #e2e5e9;
+  border-radius: 10px;
   overflow: hidden;
+  -webkit-transition: box-shadow 0.15s, border-color 0.15s;
+  transition: box-shadow 0.15s, border-color 0.15s;
 }
-.game .art {
-  height: 112px;
-  background: #5a6b7d;
-  color: #fff;
-  font-size: 15px;
-  font-weight: 600;
-  padding: 10px;
+.card:hover { border-color: #cfd5db; box-shadow: 0 6px 18px rgba(20, 30, 40, 0.10); }
+.thumb {
+  display: block;
   position: relative;
-  overflow: hidden;
+  height: 137px;
+  background-color: #5b6b7c;
+  background-position: center center;
+  background-size: cover;
+  cursor: pointer;
 }
-.game .art img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
-.game .body { padding: 9px 10px 10px; }
-.game .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.game .meta { color: #666; font-size: 12px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.game .actions { margin-top: 8px; }
-.game .actions button { padding: 5px 12px; }
-.game .actions a { font-size: 12px; margin-left: 8px; }
-.game.new .art { background: #dfe8ef; color: #335; text-align: center; padding-top: 34px; font-size: 32px; }
-.editors { margin-top: 8px; }
-.editors input { font-size: 13px; padding: 5px 6px; }
-.editors .row { margin-top: 6px; }
-.empty { color: #666; margin: 4px 0 8px; }
+.thumb .letter {
+  position: absolute;
+  left: 0; right: 0; top: 38px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 44px;
+  font-weight: 700;
+  line-height: 56px;
+}
+.thumb .pill {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  background: rgba(16, 20, 24, 0.72);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 20px;
+  padding: 0 8px;
+  border-radius: 10px;
+}
+.thumb .pill .dot { display: inline-block; width: 7px; height: 7px; border-radius: 4px; background: #b5bcc4; margin-right: 6px; vertical-align: 1px; }
+.thumb .pill.live .dot { background: #3ddc84; }
+.thumb .pill.idle .dot { background: #8fd3ff; }
+.thumb .tc { position: absolute; right: 8px; top: 8px; background: rgba(16, 20, 24, 0.72); color: #fff; }
+.thumb .open {
+  position: absolute;
+  left: 0; top: 0; right: 0; bottom: 0;
+  background: rgba(10, 20, 30, 0.35);
+  color: #fff;
+  font-weight: 700;
+  text-align: center;
+  line-height: 137px;
+  opacity: 0;
+  -webkit-transition: opacity 0.15s;
+  transition: opacity 0.15s;
+}
+.thumb:hover .open { opacity: 1; }
 
-.choice { border: 1px solid #d6d6d6; border-radius: 3px; padding: 9px 11px; margin-top: 8px; cursor: pointer; background: #fff; }
-.choice.selected { border-color: #00a2ff; background: #f0f9ff; }
-.choice input { margin-right: 8px; vertical-align: middle; }
-.choice .meta { color: #666; font-size: 12px; margin-left: 24px; }
-.choice-list { max-height: 210px; overflow-y: auto; }
+.card .body { padding: 10px 12px 12px; }
+.card .title { font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .sub { color: #69707a; font-size: 12px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; height: 17px; }
+.card .actions { margin-top: 10px; height: 30px; }
+.card .actions .btn { margin-right: 4px; }
+.card .actions .id { float: right; color: #9aa1aa; font-size: 12px; line-height: 30px; }
 
-.toolbox { padding: 16px; }
+.empty { color: #69707a; text-align: center; padding: 56px 20px; }
+.empty b { display: block; color: #1d2125; font-size: 16px; margin-bottom: 6px; }
+.empty .btn { margin-top: 14px; }
+
+/* --- start page: log in ---------------------------------------------------------------- */
+
+.login {
+  width: 380px;
+  margin: 60px auto 0;
+  background: #fff;
+  border: 1px solid #e2e5e9;
+  border-radius: 12px;
+  padding: 26px 28px 24px;
+}
+.login h1 { font-size: 22px; }
+.login .hint { margin: 6px 0 4px; }
+.login .btn { width: 100%; margin-top: 18px; padding: 9px 16px; }
+.login .status { display: block; margin: 10px 0 0; min-height: 18px; }
+
+/* --- start page: editors dialog and toast ----------------------------------------------- */
+
+.scrim { position: fixed; left: 0; top: 0; right: 0; bottom: 0; background: rgba(15, 20, 25, 0.45); }
+.dialog {
+  position: fixed;
+  left: 50%;
+  top: 90px;
+  width: 400px;
+  margin-left: -200px;
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px 22px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+}
+.dialog h3 { font-size: 17px; }
+.dialog .sub { color: #69707a; font-size: 13px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dialog .people { margin: 14px 0 4px; min-height: 30px; }
+.dialog .person {
+  display: inline-block;
+  background: #eef1f4;
+  border-radius: 15px;
+  padding: 0 4px 0 12px;
+  margin: 0 6px 6px 0;
+  line-height: 28px;
+  font-weight: 600;
+}
+.dialog .person a { display: inline-block; width: 22px; text-align: center; color: #69707a; cursor: pointer; font-weight: 400; }
+.dialog .person a:hover { color: #c62828; text-decoration: none; }
+.dialog .none { color: #9aa1aa; line-height: 28px; }
+.dialog .add input { width: 252px; margin-right: 6px; }
+.dialog .status { display: block; margin: 8px 0 0; min-height: 18px; }
+.dialog .foot { text-align: right; margin-top: 10px; }
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  width: 360px;
+  margin-left: -180px;
+  background: #1d2125;
+  color: #fff;
+  text-align: center;
+  border-radius: 8px;
+  padding: 10px 14px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+.toast.bad { background: #b3261e; }

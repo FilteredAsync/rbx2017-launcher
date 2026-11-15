@@ -88,7 +88,8 @@
     // Lists "a new game" and every game this account may publish over, then
     // selects selectId (0 = a new game).
     function loadChoices(selectId) {
-      Studio.api('GET', '/studio/api/games', null, function (error, data) {
+      // scope=all: admins may publish over any game (others get their own and shared ones).
+      Studio.api('GET', '/studio/api/games?scope=all', null, function (error, data) {
         if (error) { Studio.status($('publish-status'), error, 'bad'); return; }
         games = [];
         for (var i = 0; i < data.games.length; i++) if (data.games[i].canEdit) games.push(data.games[i]);
