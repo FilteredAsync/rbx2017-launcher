@@ -15,18 +15,20 @@
 //     SharedString, UniqueId, SecurityCapabilities, OptionalCoordinateFrame,
 //     int64, NetAssetRef and attributes are removed (IntValue values,
 //     int64 in newer files, become the 2017 int instead)
-//   - scripts: task.wait/spawn/delay/defer become wait/spawn/delay, and
-//     simple compound assignments (x += 1) are written out; Lua 5.1 has
-//     neither
+//   - scripts: simple compound assignments (x += 1) are written out here;
+//     the rest of Luau's syntax by lib/luaulower.js, and newer functions
+//     (task, buffer, attributes...) get stand-ins from lib/luacompat.js
 // What it reports but cannot fix: classes the 2017 engine does not have,
-// unions saved in the newer CSG format, and Luau-only script syntax
-// (continue, type annotations, `interpolated strings`, if-expressions).
+// unions saved in the newer CSG format, and Luau syntax the lowering left
+// (continue in a repeat loop, anything it could not parse).
 
 const fs = require('fs');
 const path = require('path');
 const luacompat = require('./luacompat');
 const unionshapes = require('./unionshapes');
 const gamepatches = require('./gamepatches');
+const attributes = require('./attributes');
+const luaulower = require('./luaulower');
 
 const LOCAL = 'http://localhost./';
 const API_DUMP = path.join(__dirname, '..', '..', '..', 'Client', 'apidump.txt');
@@ -128,13 +130,15 @@ function fontEnum(fontXml) {
 const COMPOUND = /^(\s*)([A-Za-z_]\w*(?:\.[A-Za-z_]\w*|\[[^[\]\n]+\])*)\s*(\/\/|\.\.|[-+*/%^])=\s*(.+?)\s*$/;
 
 // "x += expr -- note" -> "x = x + (expr) -- note"; null when it is not that
-// simple (string quotes, a second statement, a long comment).
+// simple (string quotes, a second statement, a long comment, an expression
+// that goes on to the next line). lib/luaulower.js does those.
 function expandCompound(line) {
   const match = COMPOUND.exec(line);
   if (!match) return null;
   const [, indent, target, op] = match;
   let expr = match[4];
   let comment = '';
+  if (expr.includes('`') || /\b(?:if|then|function|do|end)\b/.test(expr)) return null;
   const dash = expr.indexOf('--');
   if (dash >= 0) {
     const before = expr.slice(0, dash);
@@ -143,29 +147,18 @@ function expandCompound(line) {
     expr = before.trim();
   }
   if (expr === '' || expr.includes(';') || expr.includes('[[') || /(^|[^=~<>])=($|[^=])/.test(expr)) return null;
+  const count = (c) => expr.split(c).length - 1;
+  if (count('(') !== count(')') || count('[') !== count(']') || count('{') !== count('}') || /[-+*/%^,.(]$|\.\.$/.test(expr)) return null;
   if (op === '//') return `${indent}${target} = math.floor(${target} / (${expr}))${comment}`;
   return `${indent}${target} = ${target} ${op} (${expr})${comment}`;
 }
-
-const LUAU_CHECKS = [
-  ['continue', /(?:^|\bthen|\bdo|\belse|;)[ \t]*continue[ \t]*(?:end\b|;|--|$)/m],
-  ['type annotations', /^\s*(?:export\s+)?type\s+\w+(?:<[^>]*>)?\s*=|\blocal\s+\w+\s*:\s*[A-Za-z{(]|\bfunction\b[^(\n]*\([^)\n]*\w\s*:\s*[A-Za-z{(]/m],
-  ['`interpolated strings`', /`[^`\n]*\{[^`\n]*\}[^`\n]*`/],
-  ['if-then-else expressions', /(?:=|return|\()\s*if\s+[^\n]+\bthen\b[^\n]+\belse\b/],
-  ['task.cancel/task.synchronize', /\btask\.(?:cancel|synchronize|desynchronize)\b/],
-];
 
 function convertScript(source, counts, scriptName) {
   // Fixes for single games' own scripts (lib/gamepatches.js).
   let text = gamepatches.apply(source, counts.gamePatches);
   let changed = text !== source;
-  if (!/\blocal\s+task\b|\bfunction\s+task\b|^\s*task\s*=/m.test(text)) {
-    text = text.replace(/\btask\.(wait|spawn|delay|defer)(\s*\()/g, (match, name, paren) => {
-      counts.taskCalls++;
-      changed = true;
-      return (name === 'defer' ? 'spawn' : name) + paren;
-    });
-  }
+  // (task.wait/spawn/delay/defer/cancel get stand-ins in lib/luacompat.js:
+  // 2017's spawn and delay pass no arguments and return no thread.)
   // Line by line, outside long strings and long comments.
   const lines = text.split('\n');
   let inLong = false;
@@ -188,14 +181,14 @@ function convertScript(source, counts, scriptName) {
   }
   if (changed) text = lines.join('\n');
   // Functions and features newer than 2017 (lib/luacompat.js).
-  const compat = luacompat.convertSource(text);
+  const compat = luacompat.convertSource(text, { attributes: counts.attributesInUse, newerProperties: counts.newerProperties });
   if (compat.changes.length > 0) {
     text = compat.text;
     changed = true;
     counts.compatScripts++;
     for (const change of compat.changes) counts.compatChanges.set(change, (counts.compatChanges.get(change) || 0) + 1);
   }
-  const found = LUAU_CHECKS.filter(([, pattern]) => pattern.test(text)).map(([name]) => name);
+  const found = luaulower.leftovers(text);
   if (found.length > 0) counts.luauScripts.push(`${scriptName}: ${found.join(', ')}`);
   return changed ? text : null;
 }
@@ -461,6 +454,11 @@ function partClassesOf2017() {
 // Studio allows more (an attachment inside another, e.g. in R15 rigs). Such
 // an object becomes a Folder of the same name, so the place loads and
 // scripts still find it; its children stay in it.
+// Newer classes 2017 would skip with everything inside, as the nearest class
+// it has: an Actor (parallel Luau, 2021) is a Model holding scripts that games
+// find by name (Defenders Legacy's zone workers).
+const CLASS_STANDINS = new Map([['Actor', 'Model'], ['WorldModel', 'Model']]);
+
 function misplaced(className, parentClass) {
   if (className === 'Attachment') return !partClassesOf2017().has(parentClass);
   if (className === 'Team') return parentClass !== 'Teams';
@@ -685,8 +683,8 @@ function convertPlace(input, options) {
   }
   const counts = {
     robloxLinks: 0, thumbnails: 0, gameAssets: 0, contentIds: 0, fonts: 0, droppedProperties: 0, intValues: 0,
-    attributes: 0, sharedStrings: 0, newCsg: 0, taskCalls: 0, compoundAssignments: 0, materials: 0, unionCollision: 0, unionShapes: 0, filteringEnabled: 0, pgsSolver: 0, streaming: 0, gamePatches: new Set(),
-    compatScripts: 0, compatChanges: new Map(), madeFolders: new Map(), chatSetAside: 0, coreGuiSetAside: 0, localizationTables: 0, playerModule: false,
+    attributes: 0, attributeSets: 0, attributeValues: 0, attributesInUse: false, sharedStrings: 0, newCsg: 0, compoundAssignments: 0, materials: 0, unionCollision: 0, unionShapes: 0, filteringEnabled: 0, pgsSolver: 0, streaming: 0, gamePatches: new Set(),
+    compatScripts: 0, compatChanges: new Map(), madeFolders: new Map(), standIns: new Map(), chatSetAside: 0, coreGuiSetAside: 0, localizationTables: 0, playerModule: false,
     gameAssetNames: new Set(), unsupportedThumbnails: new Set(), luauScripts: [], unknownClasses: new Map(),
   };
   const known = classesOf2017();
@@ -699,6 +697,12 @@ function convertPlace(input, options) {
   const coreGuiRefs = dumpedCoreGui(input);
   const translations = localizationTables(input);
   const playerModule = needsPlayerModule(input);
+  // Attributes in the file or set by a script: GetChildren then leaves out
+  // the __2017Attributes folders (lib/luacompat.js).
+  counts.attributesInUse = [...pieces(input)].some((piece) => /AttributesSerialize">[^<]|:SetAttribute\s*\(/.test(piece.toString('latin1')));
+  // Newer properties the file has: scripts setting them are guarded.
+  counts.newerProperties = new Set();
+  for (const piece of pieces(input)) luacompat.newerPropertyNames(piece.toString('latin1'), counts.newerProperties);
   for (const piece of pieces(dropSharedStrings(input, counts))) {
     // Latin-1 keeps every byte as it was; only ASCII markup is touched.
     let text = piece.toString('latin1');
@@ -706,6 +710,12 @@ function convertPlace(input, options) {
       if (className === undefined) {
         if (match === '</Item>') openItems.pop();
         return match;
+      }
+      if (CLASS_STANDINS.has(className)) {
+        const standIn = CLASS_STANDINS.get(className);
+        counts.standIns.set(className, standIn);
+        openItems.push(standIn);
+        return `<Item class="${standIn}"${rest}>`;
       }
       if (openItems.length > 0 && misplaced(className, openItems[openItems.length - 1])) {
         counts.madeFolders.set(className, (counts.madeFolders.get(className) || 0) + 1);
@@ -729,7 +739,23 @@ function convertPlace(input, options) {
     });
     text = text.replace(/(<Item\s+class="([^"]+)"[^>]*>\s*<Properties>)([\s\S]*?)(<\/Properties>)/g, (match, open, className, props, close) => {
       if (known !== null && !known.has(className)) counts.unknownClasses.set(className, (counts.unknownClasses.get(className) || 0) + 1);
+      // Attributes -> Value objects in a __2017Attributes child (lib/attributes.js).
+      let attributeItems = '';
+      const serialized = /<BinaryString\s+name="AttributesSerialize">([^<]+)<\/BinaryString>/.exec(props);
+      // A model's scale (Model:ScaleTo, 2023) as an attribute for the GetScale stand-in.
+      const scale = className === 'Model' ? /<float\s+name="ScaleFactor">([^<]+)<\/float>/.exec(props) : null;
+      if (serialized || (scale && Number(scale[1]) !== 1)) {
+        try {
+          const list = serialized ? attributes.decode(serialized[1]) : [];
+          if (scale && Number(scale[1]) !== 1 && Number.isFinite(Number(scale[1]))) list.push({ name: '__2017Scale', type: 'number', value: Number(scale[1]) });
+          attributeItems = attributes.items(list);
+          if (list.length > 0) { counts.attributeSets++; counts.attributeValues += list.length; }
+        } catch (error) {
+          // unreadable: dropped as before
+        }
+      }
       let converted = convertProperties(className, props, options, counts);
+      if (attributeItems) return open + converted + close + attributeItems;
       const referent = setAsideRefs.size > 0 || coreGuiRefs.size > 0 ? /referent="([^"]+)"/.exec(open) : null;
       if (referent && setAsideRefs.has(referent[1])) {
         converted = setAside(converted);
@@ -854,9 +880,9 @@ function summarize(counts, options) {
   changed(counts.fonts, 'FontFace values -> the old Font list');
   changed(counts.intValues, 'IntValue values int64 -> int (2017 would read them as 0)');
   changed(counts.droppedProperties, 'values of types the 2017 engine cannot read removed');
-  changed(counts.attributes, 'attribute sets removed (attributes came after 2017)');
+  changed(counts.attributeValues, 'attributes kept as Value objects (in a __2017Attributes child; scripts read them through stand-ins)');
+  changed(counts.attributes - counts.attributeSets, 'attribute sets removed (unreadable)');
   changed(counts.sharedStrings, 'shared strings removed');
-  changed(counts.taskCalls, 'task.wait/spawn/delay/defer calls -> wait/spawn/delay');
   changed(counts.compoundAssignments, 'compound assignments (x += 1) written out');
   changed(counts.unionShapes, 'unions given collision shaped like them (made from their mesh; 2017 cannot read their newer collision data)');
   changed(counts.unionCollision, 'unions given box collision (2017 cannot read their newer collision data)');
@@ -865,6 +891,7 @@ function summarize(counts, options) {
   if (counts.coreGuiSetAside > 0) lines.push('  a copy of Roblox\'s own UI scripts saved into StarterGui (RobloxGui) set aside; players get the 2017 topbar, backpack and player list');
   if (counts.playerModule) lines.push('  a stand-in PlayerModule (move input) added to StarterPlayerScripts, which the game\'s scripts look for');
   if (counts.localizationTables > 0) lines.push(`  ${counts.localizationTables} localization table${counts.localizationTables === 1 ? '' : 's'} given to clients as ModuleScripts (ReplicatedStorage.${LOCALIZATION_FOLDER}) for the GetTranslator stand-in`);
+  if (counts.standIns.size > 0) lines.push(`  newer classes as the nearest 2017 one: ${[...counts.standIns].map(([from, to]) => `${from} -> ${to}`).join(", ")}`);
   if (counts.madeFolders.size > 0) {
     lines.push(`  ${[...counts.madeFolders].map(([name, n]) => `${n} ${name}${n === 1 ? '' : 's'}`).join(', ')} where the 2017 engine does not allow them (it would refuse the whole place) -> folders of the same name`);
   }

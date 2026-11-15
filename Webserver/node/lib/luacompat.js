@@ -30,6 +30,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const luaulower = require('./luaulower');
 
 const MARK = '--[[2017]]';
 
@@ -52,6 +53,34 @@ function unknownTo2017(name) {
   }
   return members2017 ? !members2017.has(name) : NEWER_EVENTS.has(name);
 }
+
+// Enums the 2017 engine has: enum -> Set(item names), or null without the dump.
+let enums2017;
+function enumsOf2017() {
+  if (enums2017 === undefined) {
+    try {
+      enums2017 = new Map();
+      let current = null;
+      for (const line of fs.readFileSync(API_DUMP, 'latin1').split(/\r?\n/)) {
+        const type = /^Enum (\w+)/.exec(line);
+        if (type) { current = new Set(); enums2017.set(type[1], current); continue; }
+        const item = /^\tEnumItem \w+\.(\w+)/.exec(line);
+        if (item && current) current.add(item[1]);
+        else if (!line.startsWith('\t')) current = null;
+      }
+    } catch (error) {
+      enums2017 = null;
+    }
+  }
+  return enums2017;
+}
+// Newer items of 2017 enums -> the nearest item it has (others become their name).
+const ENUM_NEAREST = new Map([
+  ['Material', { Glass: 'SmoothPlastic', ForceField: 'SmoothPlastic', Cardboard: 'Wood', Carpet: 'Fabric', CeramicTiles: 'Tile', ClayRoofTiles: 'Slate',
+    RoofShingles: 'Slate', Leather: 'Fabric', Plaster: 'Concrete', Rubber: 'Plastic', Asphalt: 'Concrete', Basalt: 'Slate', Ground: 'Grass', Mud: 'Grass', Salt: 'Sand', Sandstone: 'Slate', Limestone: 'Slate', Pavement: 'Concrete', Rock: 'Slate', Snow: 'Ice', LeafyGrass: 'Grass', Glacier: 'Ice', CrackedLava: 'Slate' }],
+  ['EasingStyle', { Cubic: 'Quad', Exponential: 'Quint', Circular: 'Sine' }],
+  ['AnimationPriority', { Action2: 'Action', Action3: 'Action', Action4: 'Action' }],
+]);
 
 // Classes the 2017 engine has (for GetService of newer services).
 let classes2017 = null;
@@ -85,9 +114,32 @@ const NEWER_SETTABLE = new Set(['AutoLocalize', 'RootLocalizationTable', 'Automa
   'Brightness', 'LightInfluence',
   // Motor6D.Transform (the 2017 client lacks it; see SetTransform), and C0,
   // which scripts must see without the stand-in's offset.
-  'Transform', 'C0']);
+  'Transform', 'C0',
+  // GuiObject.FontFace (2022; the Font stand-in is a table).
+  'FontFace',
+  // BasePart.CanTouch/CanQuery (2021), CastShadow (2019): set by most newer games.
+  'CanTouch', 'CanQuery', 'CastShadow']);
+// More properties newer than 2017 that scripts set on objects they make
+// (so they are not in the place file: Cmdr builds its GUI in code). Guarded
+// like NEWER_SETTABLE where the 2017 API has no member of that name.
+const NEWER_COMMON = ['TextEditable', 'AutomaticCanvasSize', 'TextDirection', 'SelectionGroup', 'SelectionOrder', 'SelectionBehaviorUp',
+  'SelectionBehaviorDown', 'SelectionBehaviorLeft', 'SelectionBehaviorRight', 'ScrollingDirection', 'ElasticBehavior', 'ScrollBarImageColor3',
+  'ScrollBarImageTransparency', 'VerticalScrollBarInset', 'HorizontalScrollBarInset', 'ZIndexBehavior', 'IgnoreGuiInset', 'ScreenInsets',
+  'SafeAreaCompatibility', 'ClipToDeviceSafeArea', 'SizingMode', 'PixelsPerStud', 'ResampleMode', 'SliceScale', 'BorderMode', 'ImageContent',
+  'PivotOffset', 'RootPriority', 'EnableFluidForces', 'AudioCanCollide', 'FlipbookLayout', 'FlipbookMode', 'FlipbookFramerate',
+  'FlipbookStartRandom', 'FlipbookSizeX', 'FlipbookSizeY', 'Squash', 'ShapeInOut', 'ShapeStyle', 'ShapePartial', 'TimeScale', 'WindAffectsDrag',
+  'PlaybackRegion', 'LoopRegion', 'PlaybackRegionsEnabled', 'BreakJointsOnDeath', 'RequiresNeck', 'EvaluateStateMachine', 'UseJumpPower',
+  'JumpHeight', 'AutomaticScalingEnabled', 'EnvironmentDiffuseScale', 'EnvironmentSpecularScale', 'ExposureCompensation', 'ShadowSoftness',
+  'LevelOfDetail', 'ModelStreamingMode', 'WorldPivot', 'EmissiveStrength', 'EmissiveTint', 'DoubleSided', 'RenderFidelity', 'CollisionFidelity',
+  'OpenTypeFeatures', 'TextTruncate', 'MaxBubbles', 'BubbleDuration'];
+let newerCommon = null;
+function newerCommonProperty(name) {
+  if (newerCommon === null) newerCommon = new Set(NEWER_COMMON.filter((n) => unknownTo2017(n)));
+  return newerCommon.has(name);
+}
+
 // Newer properties read through a helper of their own: property -> helper.
-const READ_HELPERS = { RootPart: 'RootPart', DisplayName: 'DisplayName', ClockTime: 'ClockTime', Transform: 'GetTransform', C0: 'C0' };
+const READ_HELPERS = { RootPart: 'RootPart', DisplayName: 'DisplayName', ClockTime: 'ClockTime', Transform: 'GetTransform', C0: 'C0', ExtentsSize: 'ExtentsSize', ExtentsCFrame: 'ExtentsCFrame' };
 // Setters with a helper of their own; Set for those with a 2017 fallback
 // name; the others are guarded inline: do local __o2017, __v2017 = x, v
 // pcall(function() __o2017.Name = __v2017 end) end.
@@ -262,6 +314,16 @@ const METHODS = {
   split: [0, 1],
   // The 2021 collision group API -> the 2017 one (CreateCollisionGroup...).
   RegisterCollisionGroup: [1], IsCollisionGroupRegistered: [1], UnregisterCollisionGroup: [1], GetRegisteredCollisionGroups: [0],
+  // Attributes (2020) on Value objects (lib/attributes.js); GetChildren
+  // leaves their folders out (only in places that have attributes).
+  GetAttribute: [1], SetAttribute: [2], GetAttributes: [0], GetAttributeChangedSignal: [1], GetChildren: [0],
+  // RBXScriptSignal:Once (2022), workspace:BulkMoveTo (2020).
+  Once: [1], BulkMoveTo: [2, 3],
+  // Spatial queries (2021); Model:GetScale/ScaleTo (2023); PathfindingService:CreatePath (2018).
+  GetPartBoundsInBox: [2, 3], GetPartBoundsInRadius: [2, 3], GetPartsInPart: [1, 2], GetScale: [0], ScaleTo: [1], CreatePath: [0, 1],
+  // Color3:ToHSV, Model:GetBoundingBox, AnimationTrack:GetMarkerReachedSignal; Actor messages (2021).
+  ToHSV: [0], GetBoundingBox: [0], GetMarkerReachedSignal: [1],
+  BindToMessage: [2], BindToMessageParallel: [2], SendMessage: [1, 2, 3, 4, 5, 6, 7, 8],
 };
 
 // A game's own object (a table) with a method of that name keeps its method.
@@ -310,12 +372,65 @@ const CFRAME_METHODS = new Set(['PointToObjectSpace', 'PointToWorldSpace', 'Vect
 const CFRAME_MEMBERS = new Set(['LookVector', 'RightVector', 'UpVector', 'rightVector', 'upVector', 'XVector', 'YVector', 'ZVector']);
 const CFRAME_NAME = /cframe$|cf$/i;
 const CFRAME_NAMED_MEMBERS = new Set(['Position', 'Rotation']);
+// Does the call ending at token `close` (a ')') give a CFrame: GetPivot,
+// ExtentsCFrame, or a function named like one (resolveLinkCFrame)?
+function cframeCall(tokens, close) {
+  const open = matchBackward(tokens, close);
+  const callee = open > 0 ? tokens[open - 1] : null;
+  return Boolean(callee && callee.type === 'name' && (/cframe$|cf$|pivot$/i.test(callee.value) || /^(?:ToWorldSpace|ToObjectSpace|toWorldSpace|toObjectSpace|Lerp|lerp|inverse|Inverse|lookAt|fromMatrix|Angles|fromEulerAnglesXYZ|fromEulerAnglesYXZ|fromOrientation|fromAxisAngle)$/.test(callee.value)));
+}
 
 // CollectionService:Name(...) with this many arguments -> __rbx2017.CSName(service, ...).
 const CS_METHODS = { HasTag: 2, AddTag: 2, RemoveTag: 2, GetTags: 1, GetTagged: 1, GetInstanceAddedSignal: 1, GetInstanceRemovedSignal: 1 };
 const CS_PARAMS = { HasTag: 'cs, o, t', AddTag: 'cs, o, t', RemoveTag: 'cs, o, t', GetTags: 'cs, o', GetTagged: 'cs, t', GetInstanceAddedSignal: 'cs, t', GetInstanceRemovedSignal: 'cs, t' };
+// Attribute values (lib/attributes.js): Value objects; types with no Value
+// class are StringValues "@@2017@@Type@@n1,n2,...". dec(valueObject) -> value;
+// the encoder sets c (class) and s (stored value) from x.
+const ATTR_DECODE = 'local function dec(v) local x = v.Value if v.ClassName ~= "StringValue" or x:sub(1, 8) ~= "@@2017@@" then return x end '
+  + 'local k, d = x:match("^@@2017@@(%w+)@@(.*)$") if not k then return x end local n = {} for p in d:gmatch("[^,]+") do n[#n + 1] = tonumber(p) or p end '
+  + 'if k == "UDim2" then return UDim2.new(n[1], n[2], n[3], n[4]) elseif k == "UDim" then return UDim.new(n[1], n[2]) elseif k == "Vector2" then return Vector2.new(n[1], n[2]) '
+  + 'elseif k == "NumberRange" then return NumberRange.new(n[1], n[2]) elseif k == "Rect" then return Rect.new(n[1], n[2], n[3], n[4]) '
+  + 'elseif k == "NumberSequence" then local kp = {} for i = 1, #n, 3 do kp[#kp + 1] = NumberSequenceKeypoint.new(n[i], n[i + 1], n[i + 2]) end return NumberSequence.new(kp) '
+  + 'elseif k == "ColorSequence" then local kp = {} for i = 1, #n, 4 do kp[#kp + 1] = ColorSequenceKeypoint.new(n[i], Color3.new(n[i + 1], n[i + 2], n[i + 3])) end return ColorSequence.new(kp) '
+  + 'elseif k == "EnumItem" then local ok, e = pcall(function() return Enum[n[1]][n[2]] end) if ok and e then return e end return n[2] '
+  + 'elseif k == "EnumValue" then local ok, e = pcall(function() for _, it in ipairs(Enum[n[1]]:GetEnumItems()) do if it.Value == n[2] then return it end end end) if ok and e then return e end return n[2] end return d end ';
+const ATTR_ENCODE = 'local t = typeof(x) local c = ({string = "StringValue", boolean = "BoolValue", number = "NumberValue", Vector3 = "Vector3Value", CFrame = "CFrameValue", '
+  + 'Color3 = "Color3Value", BrickColor = "BrickColorValue"})[t] local s = x if not c then c = "StringValue" local p '
+  + 'if t == "UDim2" then p = {x.X.Scale, x.X.Offset, x.Y.Scale, x.Y.Offset} elseif t == "UDim" then p = {x.Scale, x.Offset} elseif t == "Vector2" then p = {x.X, x.Y} '
+  + 'elseif t == "NumberRange" then p = {x.Min, x.Max} elseif t == "Rect" then p = {x.Min.X, x.Min.Y, x.Max.X, x.Max.Y} '
+  + 'elseif t == "NumberSequence" then p = {} for _, k in ipairs(x.Keypoints) do p[#p + 1] = k.Time p[#p + 1] = k.Value p[#p + 1] = k.Envelope end '
+  + 'elseif t == "ColorSequence" then p = {} for _, k in ipairs(x.Keypoints) do p[#p + 1] = k.Time p[#p + 1] = k.Value.r p[#p + 1] = k.Value.g p[#p + 1] = k.Value.b end '
+  + 'elseif t == "EnumItem" then p = {(tostring(x):match("^Enum%.(%w+)%.")), x.Name} else t = "string" p = {tostring(x)} end '
+  + 'for i = 1, #p do p[i] = tostring(p[i]) end s = t == "string" and p[1] or ("@@2017@@" .. t .. "@@" .. table.concat(p, ",")) end';
+// Spatial queries (2021) on 2017's Region3 (Workspace) or the parts' bounds
+// (any other root: a WorldModel is a Model here). bounds(cf, size) -> the
+// world box's min and max; query(root, min, max, overlapParams) -> parts.
+const SPATIAL = 'local function flat(x, out) out = out or {} if type(x) == "table" then for _, v in pairs(x) do flat(v, out) end elseif typeof(x) == "Instance" then out[#out + 1] = x end return out end '
+  + 'local function bounds(cf, size) local x, y, z, a, b, c, d, e, f, g, h, i = cf:components() local hx, hy, hz = size.X / 2, size.Y / 2, size.Z / 2 '
+  + 'local ex = math.abs(a) * hx + math.abs(b) * hy + math.abs(c) * hz local ey = math.abs(d) * hx + math.abs(e) * hy + math.abs(f) * hz '
+  + 'local ez = math.abs(g) * hx + math.abs(h) * hy + math.abs(i) * hz return Vector3.new(x - ex, y - ey, z - ez), Vector3.new(x + ex, y + ey, z + ez) end '
+  + 'local function inList(p, list) for _, x in ipairs(list) do if p == x or p:IsDescendantOf(x) then return true end end return false end '
+  + 'local function query(root, lo, hi, params) local list = flat(params and params.FilterDescendantsInstances) local ft = params and tostring(params.FilterType) or "Exclude" '
+  + 'local include = ft:find("Include") ~= nil or ft:find("Whitelist") ~= nil local parts = {} '
+  + 'if root == workspace then local region = Region3.new(lo, hi) local ok, r = pcall(function() if include then return workspace:FindPartsInRegion3WithWhiteList(region, list, 2000) end '
+  + 'return workspace:FindPartsInRegion3WithIgnoreList(region, list, 2000) end) if ok then parts = r end '
+  + 'else local function walk(x) for _, c in ipairs(x:GetChildren()) do if c:IsA("BasePart") then local a, b = bounds(c.CFrame, c.Size) '
+  + 'if a.X <= hi.X and b.X >= lo.X and a.Y <= hi.Y and b.Y >= lo.Y and a.Z <= hi.Z and b.Z >= lo.Z and inList(c, list) == include then parts[#parts + 1] = c end end walk(c) end end walk(root) end '
+  + 'return parts end ';
+
+// Actor messages: e = the actor's entry {h = handlers by topic, q = messages waiting}.
+const ACTOR_ENTRY = 'local R = _G.__rbx2017Actors if not R then R = setmetatable({}, {__mode = "k"}) _G.__rbx2017Actors = R end '
+  + 'local e = R[o] if not e then e = {h = {}, q = {}} R[o] = e end';
+const ACTOR_BIND = `${ACTOR_ENTRY} e.h[topic] = fn local q = e.q[topic] if q then e.q[topic] = nil for _, args in ipairs(q) do spawn(function() fn(unpack(args, 1, args.n)) end) end end `
+  + 'local c = {Connected = true} function c:Disconnect() if e.h[topic] == fn then e.h[topic] = nil end c.Connected = false end c.disconnect = c.Disconnect return c end';
+
+// Once and Wait for a stand-in signal s that has Connect.
+const SIGNAL_EXTRAS = 'function s:Once(fn) local c c = s:Connect(function(...) if c then c:Disconnect() end fn(...) end) return c end '
+  + 'function s:Wait() local e = Instance.new("BindableEvent") local r local c = s:Connect(function(...) r = {...} e:Fire() end) e.Event:wait() c:Disconnect() e:Destroy() return unpack(r) end '
+  + 's.wait = s.Wait s.once = s.Once';
+
 const HELPERS = {
-  GetDescendants: `function(o) ${own('GetDescendants', '')} local r = {} local function w(x) for _, c in ipairs(x:GetChildren()) do r[#r + 1] = c w(c) end end w(o) return r end`,
+  GetDescendants: `function(o) ${own('GetDescendants', '')} local r = {} local function w(x) for _, c in ipairs(x:GetChildren()) do if c.Name ~= "__2017Attributes" then r[#r + 1] = c w(c) end end end w(o) return r end`,
   HasTag: `function(o, t) ${own('HasTag', 't')} local cs = game:GetService("CollectionService") ${TAG_BODIES.HasTag} end`,
   AddTag: `function(o, t) ${own('AddTag', 't')} local cs = game:GetService("CollectionService") ${TAG_BODIES.AddTag} end`,
   RemoveTag: `function(o, t) ${own('RemoveTag', 't')} local cs = game:GetService("CollectionService") ${TAG_BODIES.RemoveTag} end`,
@@ -335,7 +450,7 @@ const HELPERS = {
   SetCollisionGroup: 'function(p, n) pcall(function() game:GetService("PhysicsService"):SetPartCollisionGroup(p, n) end) end',
   // A newer event: the real one, else the 2017 one it became, else a stand-in that never fires.
   Event: 'function(o, n) local ok, e = pcall(function() return o[n] end) if ok and e ~= nil then return e end '
-    + 'local a = ({PromptGamePassPurchaseFinished = "PromptPurchaseFinished"})[n] if a then ok, e = pcall(function() return o[a] end) if ok and e ~= nil then return e end end '
+    + 'local a = ({PromptGamePassPurchaseFinished = "PromptPurchaseFinished", PreRender = "RenderStepped", PostSimulation = "Heartbeat"})[n] if a then ok, e = pcall(function() return o[a] end) if ok and e ~= nil then return e end end '
     + 'local s = {} local c = {connected = false, Connected = false} function c:disconnect() end c.Disconnect = c.disconnect function s:connect() return c end s.Connect = s.connect s.Once = s.connect s.ConnectParallel = s.connect function s:wait() while true do wait(3600) end end s.Wait = s.wait return s end',
   Service: 'function(o, n) local ok, s = pcall(function() return o:GetService(n) end) if ok and s then return s end local x x = setmetatable({}, {__index = function() return x end, __call = function() return nil end}) return x end',
   Prop: 'function(o, n, d) local ok, v = pcall(function() return o[n] end) if ok and v ~= nil then return v end return d end',
@@ -437,6 +552,101 @@ const HELPERS = {
     + 'if type(args) == "table" then s = s:gsub("{([%w_]+)}", function(k) local v = args[k] if v == nil then v = args[tonumber(k)] end if v ~= nil then return tostring(v) end end) end return s end '
     + 'function tr:Translate(context, text) return text end tr.formatByKey = tr.FormatByKey return tr end',
   split: 'function(s, sep) if type(s) ~= "string" then return s:split(sep) end sep = sep or "," local r = {} if sep == "" then for i = 1, #s do r[i] = s:sub(i, i) end return r end local i = 1 while true do local a, b = s:find(sep, i, true) if not a then r[#r + 1] = s:sub(i) return r end r[#r + 1] = s:sub(i, a - 1) i = b + 1 end end',
+  // Generalized iteration (for k, v in t do, lib/luaulower.js): a table is
+  // walked with next (or its __iter / __call); iterator functions pass through.
+  Iter: 'function(t, ...) if type(t) ~= "table" then return t, ... end local m = getmetatable(t) '
+    + 'if type(m) == "table" then if m.__iter then return m.__iter(t) end if m.__call then return t, ... end end return next, t end',
+  // Attributes: Value objects in a __2017Attributes Configuration (lib/attributes.js).
+  GetAttribute: `(function() ${ATTR_DECODE} return function(o, n) if type(o) == "table" and o.GetAttribute then return o:GetAttribute(n) end `
+    + 'local f = o:FindFirstChild("__2017Attributes") local v = f and f:FindFirstChild(n) if not v then return nil end return dec(v) end end)()',
+  GetAttributes: `(function() ${ATTR_DECODE} return function(o) if type(o) == "table" and o.GetAttributes then return o:GetAttributes() end `
+    + 'local r = {} local f = o:FindFirstChild("__2017Attributes") if f then for _, v in ipairs(f:GetChildren()) do if v.Name:sub(1, 6) ~= "__2017" then r[v.Name] = dec(v) end end end return r end end)()',
+  SetAttribute: `function(o, n, x) if type(o) == "table" and o.SetAttribute then return o:SetAttribute(n, x) end `
+    + 'local f = o:FindFirstChild("__2017Attributes") local v = f and f:FindFirstChild(n) if x == nil then if v then v:Destroy() end return end '
+    + `${ATTR_ENCODE} if v and v.ClassName ~= c then v:Destroy() v = nil end if v then v.Value = s return end `
+    + 'v = Instance.new(c) v.Name = n v.Value = s if f then v.Parent = f else f = Instance.new("Configuration") f.Name = "__2017Attributes" v.Parent = f f.Parent = o end end',
+  GetAttributeChangedSignal: `function(o, n) if type(o) == "table" and o.GetAttributeChangedSignal then return o:GetAttributeChangedSignal(n) end local s = {} `
+    + 'function s:Connect(fn) local live, cv, cf, ca, cr = true '
+    + 'local function watch(v) if cv then cv:disconnect() end cv = v.Changed:connect(function() if live then fn() end end) end '
+    + 'local function folder(f) local v = f:FindFirstChild(n) if v then watch(v) end '
+    + 'ca = f.ChildAdded:connect(function(c) if c.Name == n then watch(c) if live then fn() end end end) '
+    + 'cr = f.ChildRemoved:connect(function(c) if c.Name == n and not f:FindFirstChild(n) then if cv then cv:disconnect() cv = nil end if live then fn() end end end) end '
+    + 'local f = o:FindFirstChild("__2017Attributes") if f then folder(f) else cf = o.ChildAdded:connect(function(c) '
+    + 'if c.Name == "__2017Attributes" and not ca then if cf then cf:disconnect() end folder(c) if c:FindFirstChild(n) and live then fn() end end end) end '
+    + 'local c = {Connected = true} function c:Disconnect() live = false c.Connected = false '
+    + 'if cv then cv:disconnect() end if cf then cf:disconnect() end if ca then ca:disconnect() end if cr then cr:disconnect() end end c.disconnect = c.Disconnect return c end '
+    + `s.connect = s.Connect ${SIGNAL_EXTRAS} return s end`,
+  AttributeChanged: 'function(o) if type(o) == "table" then return o.AttributeChanged end local s = {} '
+    + 'function s:Connect(fn) local live, conns, cf, ca, cr = true, {} '
+    + 'local function watch(v) if conns[v] then return end conns[v] = v.Changed:connect(function() if live then fn(v.Name) end end) end '
+    + 'local function folder(f) for _, v in ipairs(f:GetChildren()) do watch(v) end '
+    + 'ca = f.ChildAdded:connect(function(v) watch(v) if live then fn(v.Name) end end) '
+    + 'cr = f.ChildRemoved:connect(function(v) if conns[v] then conns[v]:disconnect() conns[v] = nil end if live then fn(v.Name) end end) end '
+    + 'local f = o:FindFirstChild("__2017Attributes") if f then folder(f) else cf = o.ChildAdded:connect(function(c) '
+    + 'if c.Name == "__2017Attributes" and not ca then if cf then cf:disconnect() end folder(c) for _, v in ipairs(c:GetChildren()) do if live then fn(v.Name) end end end end) end '
+    + 'local c = {Connected = true} function c:Disconnect() live = false c.Connected = false for _, x in pairs(conns) do x:disconnect() end '
+    + 'if cf then cf:disconnect() end if ca then ca:disconnect() end if cr then cr:disconnect() end end c.disconnect = c.Disconnect return c end '
+    + `s.connect = s.Connect ${SIGNAL_EXTRAS} return s end`,
+  GetChildren: `function(o) ${own('GetChildren', '')} local r = o:GetChildren() for i = #r, 1, -1 do if r[i].Name == "__2017Attributes" then table.remove(r, i) end end return r end`,
+  Once: `function(o, f) ${own('Once', 'f')} local c c = o:connect(function(...) if c then c:disconnect() end f(...) end) return c end`,
+  BulkMoveTo: `function(o, parts, cfs, mode) ${own('BulkMoveTo', 'parts, cfs, mode')} for i, p in ipairs(parts) do p.CFrame = cfs[i] end end`,
+  // Buffers are byte arrays (the buffer stand-in) and come through remotes as plain ones.
+  IsBuffer: 'function(x) if type(x) ~= "table" then return false end local n = #x for i = 1, n do local v = x[i] '
+    + 'if type(v) ~= "number" or v < 0 or v > 255 or v % 1 ~= 0 then return false end end return next(x, n > 0 and n or nil) == nil end',
+  // Instance.new of a class 2017 lacks.
+  New: 'function(c, p) local ok, o = pcall(Instance.new, c) if not ok then o = nil local m = ({UnreliableRemoteEvent = "RemoteEvent", WorldModel = "Model", Actor = "Model"})[c] if m then o = Instance.new(m) end end '
+    + 'if not o then local fields = {ClassName = c, Name = c} o = setmetatable({}, {__index = function(_, k) local v = fields[k] if v ~= nil then return v end '
+    + 'if k == "IsA" then return function(_, x) return x == c or x == "Instance" end end return function() end end, '
+    + '__newindex = function(_, k, v) fields[k] = v end, __tostring = function() return tostring(fields.Name) end}) end if p then o.Parent = p end return o end',
+  Stub: 'function() local x x = setmetatable({}, {__index = function() return x end, __call = function() return x end}) return x end',
+  GetPartBoundsInBox: `(function() ${SPATIAL} return function(o, cf, size, params) ${own('GetPartBoundsInBox', 'cf, size, params')} local lo, hi = bounds(cf, size) return query(o, lo, hi, params) end end)()`,
+  GetPartBoundsInRadius: `(function() ${SPATIAL} return function(o, pos, r, params) ${own('GetPartBoundsInRadius', 'pos, r, params')} `
+    + 'local out = {} for _, p in ipairs(query(o, pos - Vector3.new(r, r, r), pos + Vector3.new(r, r, r), params)) do local a, b = bounds(p.CFrame, p.Size) '
+    + 'local q = Vector3.new(math.max(a.X, math.min(pos.X, b.X)), math.max(a.Y, math.min(pos.Y, b.Y)), math.max(a.Z, math.min(pos.Z, b.Z))) if (q - pos).magnitude <= r then out[#out + 1] = p end end return out end end)()',
+  GetPartsInPart: `(function() ${SPATIAL} return function(o, part, params) ${own('GetPartsInPart', 'part, params')} local lo, hi = bounds(part.CFrame, part.Size) `
+    + 'local out = {} for _, p in ipairs(query(o, lo, hi, params)) do if p ~= part then out[#out + 1] = p end end return out end end)()',
+  // Model:GetScale/ScaleTo (2023). The scale is kept in _G (and a model's
+  // scale from the file in its __2017Scale attribute, lib/placefile.js).
+  GetScale: `function(o) ${own('GetScale', '')} local S = _G.__rbx2017Scales if S and S[o] then return S[o] end `
+    + 'local f = o:FindFirstChild("__2017Attributes") local v = f and f:FindFirstChild("__2017Scale") return v and v.Value or 1 end',
+  ScaleTo: `function(o, s) ${own('ScaleTo', 's')} local S = _G.__rbx2017Scales if not S then S = setmetatable({}, {__mode = "k"}) _G.__rbx2017Scales = S end `
+    + 'local f = o:FindFirstChild("__2017Attributes") local fv = f and f:FindFirstChild("__2017Scale") local k = s / (S[o] or (fv and fv.Value) or 1) S[o] = s if fv then fv.Value = s end '
+    + 'if k == 1 then return end local pivot = o.PrimaryPart and o.PrimaryPart.CFrame or o:GetModelCFrame() local parts = {} '
+    + 'local function walk(x) for _, c in ipairs(x:GetChildren()) do pcall(function() '
+    + 'if c:IsA("BasePart") then parts[#parts + 1] = {c, pivot:toObjectSpace(c.CFrame)} elseif c:IsA("JointInstance") then c.C0 = c.C0 - c.C0.p + c.C0.p * k c.C1 = c.C1 - c.C1.p + c.C1.p * k '
+    + 'elseif c:IsA("Attachment") then c.Position = c.Position * k elseif c:IsA("SpecialMesh") then c.Scale = c.Scale * k c.Offset = c.Offset * k '
+    + 'elseif c:IsA("Humanoid") then c.HipHeight = c.HipHeight * k end end) walk(c) end end walk(o) '
+    + 'for _, e in ipairs(parts) do pcall(function() local p, rel = e[1], e[2] p.Size = p.Size * k p.CFrame = pivot * CFrame.new(rel.p * k) * (rel - rel.p) end) end end',
+  ToHSV: `function(o) ${own('ToHSV', '')} return Color3.toHSV(o) end`,
+  GetBoundingBox: `function(o) ${own('GetBoundingBox', '')} return o:GetModelCFrame(), o:GetExtentsSize() end`,
+  // Keyframe markers (2018) are named keyframes to 2017's KeyframeReached.
+  GetMarkerReachedSignal: `function(o, n) ${own('GetMarkerReachedSignal', 'n')} local s = {} `
+    + 'function s:Connect(fn) local k = o.KeyframeReached:connect(function(name) if name == n then fn() end end) '
+    + 'local c = {Connected = true} function c:Disconnect() k:disconnect() c.Connected = false end c.disconnect = c.Disconnect return c end '
+    + `s.connect = s.Connect ${SIGNAL_EXTRAS} return s end`,
+  // Actor:BindToMessage/SendMessage (an Actor is a Model here): handlers in
+  // _G (scripts on one machine share it), messages sent early wait for one.
+  BindToMessage: `function(o, topic, fn) ${own('BindToMessage', 'topic, fn')} ${ACTOR_BIND}`,
+  BindToMessageParallel: `function(o, topic, fn) ${own('BindToMessageParallel', 'topic, fn')} ${ACTOR_BIND}`,
+  SendMessage: `function(o, topic, ...) ${own('SendMessage', 'topic, ...')} ${ACTOR_ENTRY} local fn = e.h[topic] local args = {n = select("#", ...), ...} `
+    + 'if fn then spawn(function() fn(unpack(args, 1, args.n)) end) else e.q[topic] = e.q[topic] or {} table.insert(e.q[topic], args) end end',
+  SetAlignCF: 'function(a, cf) if pcall(function() a.CFrame = cf end) then return end local t = a.Attachment1 '
+    + 'if not t or t.Name ~= "__2017AlignTarget" then t = Instance.new("Attachment") t.Name = "__2017AlignTarget" t.Parent = workspace.Terrain a.Attachment1 = t '
+    + 'local c c = a.AncestryChanged:connect(function() if not a.Parent then c:disconnect() t:Destroy() end end) end t.CFrame = cf - cf.p end',
+  // PathfindingService:CreatePath (2018) on 2017's ComputeSmoothPathAsync.
+  CreatePath: `function(o, params) ${own('CreatePath', 'params')} local p = {Status = Enum.PathStatus.FailStartNotEmpty, _pts = {}} `
+    + 'local function never() local s = {} local c = {Connected = false} function c:Disconnect() end c.disconnect = c.Disconnect '
+    + 'function s:Connect() return c end s.connect = s.Connect s.Once = s.Connect function s:Wait() while true do wait(3600) end end s.wait = s.Wait return s end '
+    + 'p.Blocked = never() p.Unblocked = never() '
+    + 'function p:ComputeAsync(a, b) local ok, raw = pcall(function() return o:ComputeSmoothPathAsync(a, b, 512) end) '
+    + 'if ok and raw then self.Status = raw.Status self._pts = raw.Status == Enum.PathStatus.Success and raw:GetPointCoordinates() or {} else self.Status = Enum.PathStatus.FailStartNotEmpty self._pts = {} end end '
+    + 'function p:GetWaypoints() local w = {} for i, pt in ipairs(self._pts) do w[i] = {Position = pt, Action = "Walk", Label = ""} end return w end '
+    + 'function p:CheckOcclusionAsync() return -1 end function p:Destroy() end return p end',
+  // BasePart.ExtentsSize/ExtentsCFrame (newer): a part's own size and CFrame.
+  ExtentsSize: 'function(p) local ok, v = pcall(function() return p.ExtentsSize end) if ok then return v end return p.Size end',
+  ExtentsCFrame: 'function(p) local ok, v = pcall(function() return p.ExtentsCFrame end) if ok then return v end return p.CFrame end',
+  // Enum types 2017 lacks: items are their names.
+  EnumType: 'function(n) return setmetatable({}, {__index = function(_, k) if k == "GetEnumItems" then return function() return {} end end return k end, __tostring = function() return n end}) end',
 };
 
 // Helpers a script converted before may have in an older form that is now
@@ -452,12 +662,50 @@ const REFRESHED = {
   Event: ['.PromptGamePassPurchaseFinished', '"PromptGamePassPurchaseFinished"'],
 };
 
+// Pieces of the stand-ins below.
+const CANCEL = 'local C = _G.__rbx2017Cancelled if not C then C = setmetatable({}, {__mode = "k"}) _G.__rbx2017Cancelled = C end C[co] = true';
+const RESUME_LATER = 'local C = _G.__rbx2017Cancelled if (C and C[co]) or coroutine.status(co) ~= "suspended" then return end '
+  + 'local ok, e = coroutine.resume(co, unpack(a, 1, n)) if not ok then error(e, 0) end';
+const OUT_OF_BOUNDS = 'error("buffer access out of bounds", 2)';
+const bounds = (size) => `if o < 0 or o + ${size} > #b or o % 1 ~= 0 then ${OUT_OF_BOUNDS} end`;
+const WRITE32 = 'v = math.floor(v) % 4294967296 b[o + 1] = v % 256 b[o + 2] = math.floor(v / 256) % 256 b[o + 3] = math.floor(v / 65536) % 256 b[o + 4] = math.floor(v / 16777216)';
+// A bit32 function over any number of arguments: start value, and when a bit
+// of the result is set (s, t: the bits of the result so far and of the next).
+const bitop = (start, rule) => `function(...) local r = ${start} for i = 1, select("#", ...) do local a, b, x, p = r, math.floor((select(i, ...))) % 4294967296, 0, 1 `
+  + `for _ = 1, 32 do local s, t = a % 2, b % 2 if ${rule} then x = x + p end a = (a - s) / 2 b = (b - t) / 2 p = p * 2 end r = x end return r end`;
+
+// A DateTime stand-in from Unix milliseconds.
+const DATETIME = 'function(ms) local d = {UnixTimestampMillis = ms, UnixTimestamp = math.floor(ms / 1000)} '
+  + 'local function parts(f) local t = os.date(f, d.UnixTimestamp) return {Year = t.year, Month = t.month, Day = t.day, Hour = t.hour, Minute = t.min, Second = t.sec, Millisecond = ms % 1000} end '
+  + 'function d:ToUniversalTime() return parts("!*t") end function d:ToLocalTime() return parts("*t") end '
+  + 'function d:ToIsoDate() return os.date("!%Y-%m-%dT%H:%M:%SZ", d.UnixTimestamp) end '
+  + 'function d:FormatUniversalTime() return os.date("!%c", d.UnixTimestamp) end function d:FormatLocalTime() return os.date("%c", d.UnixTimestamp) end return d end';
+
+// string.pack/unpack's shared parts: INT sizes, item(fmt, i) -> option,
+// next index, count; order(bytes, little) -> string; float(v, single) ->
+// little-endian bytes; unfloat(little-endian bytes) -> number.
+const PACK_COMMON = 'local INT = {b = 1, B = 1, h = 2, H = 2, i = 4, I = 4, l = 8, L = 8, j = 8, J = 8, T = 8} '
+  + 'local function item(fmt, i) local c = fmt:sub(i, i) i = i + 1 local d = fmt:match("^%d+", i) if d then i = i + #d end return c, i, tonumber(d) end '
+  + 'local function order(b, little) if not little then local t = {} for k = 1, #b do t[k] = b[#b + 1 - k] end b = t end return string.char(unpack(b)) end '
+  + 'local function float(v, single) local eb, mb, bias = single and 8 or 11, single and 23 or 52, single and 127 or 1023 local s, e, m = 0, 0, 0 '
+  + 'if v ~= v then e, m = 2 ^ eb - 1, 2 ^ (mb - 1) else if v < 0 or (v == 0 and 1 / v < 0) then s = 1 v = -v end '
+  + 'if v == math.huge then e = 2 ^ eb - 1 elseif v ~= 0 then local f, x = math.frexp(v) x = x + bias - 1 '
+  + 'if x <= 0 then m = math.floor(v / 2 ^ (1 - bias - mb) + 0.5) else e = x m = math.floor((f * 2 - 1) * 2 ^ mb + 0.5) if m >= 2 ^ mb then m = 0 e = e + 1 end end end end '
+  + 'local b = {} local n = single and 3 or 7 for k = 1, n - 1 do b[k] = m % 256 m = math.floor(m / 256) end '
+  + 'local low = single and 128 or 16 b[n] = m + e % (single and 2 or 16) * low b[n + 1] = s * 128 + math.floor(e / (single and 2 or 16)) return b end '
+  + 'local function unfloat(b) local single = #b == 4 local mb, bias, n = single and 23 or 52, single and 127 or 1023, single and 3 or 7 '
+  + 'local low = single and 128 or 16 local m = 0 for k = n - 1, 1, -1 do m = m * 256 + b[k] end m = m + b[n] % low * 2 ^ (8 * (n - 1)) '
+  + 'local e = b[n + 1] % 128 * (single and 2 or 16) + math.floor(b[n] / low) local s = b[n + 1] >= 128 and -1 or 1 local top = single and 255 or 2047 '
+  + 'if e == 0 then return s * m * 2 ^ (1 - bias - mb) end if e == top then if m == 0 then return s * math.huge end return 0 / 0 end return s * (1 + m / 2 ^ mb) * 2 ^ (e - bias) end ';
+
 // Library members the 2017 engine lacks: library -> member -> Lua value.
 const LIBRARY = {
   math: {
     clamp: 'function(x, a, b) if x < a then return a elseif x > b then return b end return x end',
     sign: 'function(x) if x > 0 then return 1 elseif x < 0 then return -1 end return 0 end',
     round: 'function(x) if x >= 0 then return math.floor(x + 0.5) end return math.ceil(x - 0.5) end',
+    // 2017's math.log ignores a base.
+    log: 'function(x, b) if b then return math.log(x) / math.log(b) end return math.log(x) end',
   },
   table: {
     find: 'function(t, v, init) for i = init or 1, #t do if t[i] == v then return i end end return nil end',
@@ -465,9 +713,33 @@ const LIBRARY = {
     unpack: 'unpack',
     pack: 'function(...) return {n = select("#", ...), ...} end',
     create: 'function(n, v) local t = {} for i = 1, n do t[i] = v end return t end',
+    freeze: 'function(t) return t end',
+    isfrozen: 'function(t) return false end',
+    clone: 'function(t) local r = {} for k, v in pairs(t) do r[k] = v end local m = getmetatable(t) if type(m) == "table" then setmetatable(r, m) end return r end',
     move: 'function(a, f, e, t, b) b = b or a if e >= f then if t > f and t <= e and a == b then for i = e - f, 0, -1 do b[t + i] = a[f + i] end else for i = 0, e - f do b[t + i] = a[f + i] end end end return b end',
   },
-  string: { split: 'HELPER_split' },
+  string: {
+    split: 'HELPER_split',
+    // string.pack/unpack (Lua 5.3, Luau): integers (b B h H i[n] I[n] l L j J),
+    // f d n, s[n], z, x, and < > = byte order.
+    pack: `(function() ${PACK_COMMON} return function(fmt, ...) local args, ai, out, little, i = {...}, 1, {}, true, 1 `
+      + 'while i <= #fmt do local c, n c, i, n = item(fmt, i) '
+      + 'if c == "<" or c == "=" then little = true elseif c == ">" then little = false elseif c == "x" then out[#out + 1] = "\\0" '
+      + 'elseif INT[c] then local size = n or INT[c] local v = math.floor(args[ai]) ai = ai + 1 if v < 0 then v = v + 2 ^ (8 * size) end '
+      + 'local b = {} for k = 1, size do b[k] = v % 256 v = math.floor(v / 256) end out[#out + 1] = order(b, little) '
+      + 'elseif c == "f" or c == "d" or c == "n" then out[#out + 1] = order(float(args[ai], c == "f"), little) ai = ai + 1 '
+      + 'elseif c == "s" then local s = tostring(args[ai]) ai = ai + 1 local size, v, b = n or 8, #s, {} for k = 1, n or 8 do b[k] = v % 256 v = math.floor(v / 256) end out[#out + 1] = order(b, little) .. s '
+      + 'elseif c == "z" then out[#out + 1] = tostring(args[ai]) .. "\\0" ai = ai + 1 end end return table.concat(out) end end)()',
+    unpack: `(function() ${PACK_COMMON} return function(fmt, s, pos) local r, little, i, p = {}, true, 1, pos or 1 `
+      + 'local function bytes(size) local b = {s:byte(p, p + size - 1)} p = p + size if not little then local t = {} for k = 1, #b do t[k] = b[#b + 1 - k] end b = t end return b end '
+      + 'while i <= #fmt do local c, n c, i, n = item(fmt, i) '
+      + 'if c == "<" or c == "=" then little = true elseif c == ">" then little = false elseif c == "x" then p = p + 1 '
+      + 'elseif INT[c] then local size = n or INT[c] local b, v = bytes(size), 0 for k = size, 1, -1 do v = v * 256 + (b[k] or 0) end '
+      + 'if c:lower() == c and v >= 2 ^ (8 * size - 1) then v = v - 2 ^ (8 * size) end r[#r + 1] = v '
+      + 'elseif c == "f" or c == "d" or c == "n" then r[#r + 1] = unfloat(bytes(c == "f" and 4 or 8)) '
+      + 'elseif c == "s" then local b, v = bytes(n or 8), 0 for k = #b, 1, -1 do v = v * 256 + b[k] end r[#r + 1] = s:sub(p, p + v - 1) p = p + v '
+      + 'elseif c == "z" then local e = s:find("\\0", p, true) or (#s + 1) r[#r + 1] = s:sub(p, e - 1) p = e + 1 end end r[#r + 1] = p return unpack(r) end end)()',
+  },
   os: { clock: 'function() return tick() end' },
   Vector3: {
     zero: 'Vector3.new(0, 0, 0)', one: 'Vector3.new(1, 1, 1)',
@@ -482,7 +754,130 @@ const LIBRARY = {
   Color3: {
     fromHex: 'function(h) h = tostring(h):gsub("#", "") return Color3.new(tonumber(h:sub(1, 2), 16) / 255, tonumber(h:sub(3, 4), 16) / 255, tonumber(h:sub(5, 6), 16) / 255) end',
   },
+  coroutine: {
+    close: `function(co) ${CANCEL} return true end`,
+    isyieldable: 'function() return true end',
+  },
+  // task (2021). 2017's spawn and delay pass no arguments and return no
+  // thread; these run threads as coroutines (2017 resumes a coroutine that
+  // waits). A cancelled thread stops at its next task.wait.
+  task: {
+    spawn: 'function(f, ...) local co = type(f) == "thread" and f or coroutine.create(f) local ok, e = coroutine.resume(co, ...) if not ok then spawn(function() error(e, 0) end) end return co end',
+    defer: `function(f, ...) local co = type(f) == "thread" and f or coroutine.create(f) local n, a = select("#", ...), {...} spawn(function() ${RESUME_LATER} end) return co end`,
+    delay: `function(t, f, ...) local co = type(f) == "thread" and f or coroutine.create(f) local n, a = select("#", ...), {...} delay(t or 0, function() ${RESUME_LATER} end) return co end`,
+    wait: 'function(t) local co = coroutine.running() local r = wait(t) local C = _G.__rbx2017Cancelled if C and C[co] then Instance.new("BindableEvent").Event:wait() end return r end',
+    cancel: `function(co) ${CANCEL} end`,
+    synchronize: 'function() end',
+    desynchronize: 'function() end',
+  },
+  // bit32 (Lua 5.2, in Roblox since 2018), on 32-bit unsigned numbers.
+  bit32: {
+    band: bitop('4294967295', 's == 1 and t == 1'),
+    bor: bitop('0', 's == 1 or t == 1'),
+    bxor: bitop('0', 's ~= t'),
+    btest: `function(...) return (${bitop('4294967295', 's == 1 and t == 1')})(...) ~= 0 end`,
+    bnot: 'function(x) return 4294967295 - math.floor(x) % 4294967296 end',
+    lshift: 'function(x, n) x = math.floor(x) % 4294967296 if n < 0 then return math.floor(x / 2 ^ -n) end if n >= 32 then return 0 end return x * 2 ^ n % 4294967296 end',
+    rshift: 'function(x, n) x = math.floor(x) % 4294967296 if n < 0 then return x * 2 ^ -n % 4294967296 end if n >= 32 then return 0 end return math.floor(x / 2 ^ n) end',
+    arshift: 'function(x, n) x = math.floor(x) % 4294967296 if n <= 0 then return x * 2 ^ -n % 4294967296 end if n >= 32 then return x >= 2147483648 and 4294967295 or 0 end '
+      + 'local r = math.floor(x / 2 ^ n) if x >= 2147483648 then r = r + 4294967296 - 2 ^ (32 - n) end return r end',
+    extract: 'function(x, f, w) w = w or 1 return math.floor((math.floor(x) % 4294967296) / 2 ^ f) % 2 ^ w end',
+    replace: 'function(x, v, f, w) w = w or 1 local m = 2 ^ w x = math.floor(x) % 4294967296 local old = math.floor(x / 2 ^ f) % m return x - old * 2 ^ f + (math.floor(v) % m) * 2 ^ f end',
+    lrotate: 'function(x, n) x = math.floor(x) % 4294967296 n = n % 32 return x * 2 ^ n % 4294967296 + math.floor(x / 2 ^ (32 - n)) end',
+    rrotate: 'function(x, n) x = math.floor(x) % 4294967296 n = n % 32 return math.floor(x / 2 ^ n) + x * 2 ^ (32 - n) % 4294967296 end',
+    countlz: 'function(x) x = math.floor(x) % 4294967296 if x == 0 then return 32 end local n = 0 while x < 2147483648 do x = x * 2 n = n + 1 end return n end',
+    countrz: 'function(x) x = math.floor(x) % 4294967296 if x == 0 then return 32 end local n = 0 while x % 2 == 0 do x = x / 2 n = n + 1 end return n end',
+    byteswap: 'function(x) x = math.floor(x) % 4294967296 return x % 256 * 16777216 + math.floor(x / 256) % 256 * 65536 + math.floor(x / 65536) % 256 * 256 + math.floor(x / 16777216) end',
+  },
+  // buffer (2023): an array of bytes (b[1] is offset 0), so it also goes
+  // through remotes (as a plain array; typeof(x) == "buffer" -> IsBuffer).
+  buffer: {
+    create: 'function(n) local b = {} for i = 1, n do b[i] = 0 end return b end',
+    len: 'function(b) return #b end',
+    fromstring: 'function(s) local b = {} for i = 1, #s, 4096 do local t = {s:byte(i, math.min(#s, i + 4095))} for k = 1, #t do b[i + k - 1] = t[k] end end return b end',
+    tostring: 'function(b) local p = {} for i = 1, #b, 4096 do p[#p + 1] = string.char(unpack(b, i, math.min(#b, i + 4095))) end return table.concat(p) end',
+    copy: `function(t, to, s, so, n) so = so or 0 n = n or (#s - so) if to < 0 or so < 0 or n < 0 or to + n > #t or so + n > #s then ${OUT_OF_BOUNDS} end `
+      + 'if t == s and to > so then for i = n, 1, -1 do t[to + i] = s[so + i] end else for i = 1, n do t[to + i] = s[so + i] end end end',
+    fill: `function(b, o, v, n) n = n or (#b - o) if o < 0 or n < 0 or o + n > #b then ${OUT_OF_BOUNDS} end v = math.floor(v) % 256 for i = o + 1, o + n do b[i] = v end end`,
+    readu8: `function(b, o) ${bounds(1)} return b[o + 1] end`,
+    readi8: `function(b, o) ${bounds(1)} local v = b[o + 1] if v >= 128 then return v - 256 end return v end`,
+    readu16: `function(b, o) ${bounds(2)} return b[o + 1] + b[o + 2] * 256 end`,
+    readi16: `function(b, o) ${bounds(2)} local v = b[o + 1] + b[o + 2] * 256 if v >= 32768 then return v - 65536 end return v end`,
+    readu32: `function(b, o) ${bounds(4)} return b[o + 1] + b[o + 2] * 256 + b[o + 3] * 65536 + b[o + 4] * 16777216 end`,
+    readi32: `function(b, o) ${bounds(4)} local v = b[o + 1] + b[o + 2] * 256 + b[o + 3] * 65536 + b[o + 4] * 16777216 if v >= 2147483648 then return v - 4294967296 end return v end`,
+    writeu8: `function(b, o, v) ${bounds(1)} b[o + 1] = math.floor(v) % 256 end`,
+    writei8: `function(b, o, v) ${bounds(1)} b[o + 1] = math.floor(v) % 256 end`,
+    writeu16: `function(b, o, v) ${bounds(2)} v = math.floor(v) % 65536 b[o + 1] = v % 256 b[o + 2] = math.floor(v / 256) end`,
+    writei16: `function(b, o, v) ${bounds(2)} v = math.floor(v) % 65536 b[o + 1] = v % 256 b[o + 2] = math.floor(v / 256) end`,
+    writeu32: `function(b, o, v) ${bounds(4)} ${WRITE32} end`,
+    writei32: `function(b, o, v) ${bounds(4)} ${WRITE32} end`,
+    readstring: `function(b, o, n) if o < 0 or n < 0 or o + n > #b then ${OUT_OF_BOUNDS} end local p = {} `
+      + 'for i = o + 1, o + n, 4096 do p[#p + 1] = string.char(unpack(b, i, math.min(o + n, i + 4095))) end return table.concat(p) end',
+    writestring: `function(b, o, s, n) n = n or #s if n > #s or o < 0 or o + n > #b then ${OUT_OF_BOUNDS} end for i = 1, n do b[o + i] = s:byte(i) end end`,
+    writef32: `function(b, o, v) ${bounds(4)} local s, e, m = 0, 0, 0 if v ~= v then e, m = 255, 4194304 else `
+      + 'if v < 0 or (v == 0 and 1 / v < 0) then s = 128 v = -v end if v == math.huge then e = 255 elseif v ~= 0 then local f, x = math.frexp(v) x = x + 126 '
+      + 'if x <= 0 then m = math.floor(v / 2 ^ -149 + 0.5) if m >= 8388608 then e, m = 1, m - 8388608 end '
+      + 'else e = x m = math.floor((f * 2 - 1) * 8388608 + 0.5) if m >= 8388608 then m = 0 e = e + 1 end if e >= 255 then e, m = 255, 0 end end end end '
+      + 'b[o + 1] = m % 256 b[o + 2] = math.floor(m / 256) % 256 b[o + 3] = math.floor(m / 65536) + e % 2 * 128 b[o + 4] = s + math.floor(e / 2) end',
+    readf32: `function(b, o) ${bounds(4)} local b3, b4 = b[o + 3], b[o + 4] local s = b4 >= 128 and -1 or 1 local e = b4 % 128 * 2 + math.floor(b3 / 128) `
+      + 'local m = b3 % 128 * 65536 + b[o + 2] * 256 + b[o + 1] if e == 0 then return s * math.ldexp(m, -149) elseif e == 255 then if m == 0 then return s * math.huge end return 0 / 0 end '
+      + 'return s * math.ldexp(1 + m / 8388608, e - 127) end',
+    writef64: `function(b, o, v) ${bounds(8)} local s, e, m = 0, 0, 0 if v ~= v then e, m = 2047, 2 ^ 51 else `
+      + 'if v < 0 or (v == 0 and 1 / v < 0) then s = 128 v = -v end if v == math.huge then e = 2047 elseif v ~= 0 then local f, x = math.frexp(v) x = x + 1022 '
+      + 'if x <= 0 then m = v / 2 ^ -1074 else e = x m = (f * 2 - 1) * 2 ^ 52 end end end '
+      + 'for i = 1, 6 do b[o + i] = m % 256 m = math.floor(m / 256) end b[o + 7] = m + e % 16 * 16 b[o + 8] = s + math.floor(e / 16) end',
+    readf64: `function(b, o) ${bounds(8)} local m = 0 for i = 6, 1, -1 do m = m * 256 + b[o + i] end local b7, b8 = b[o + 7], b[o + 8] m = m + b7 % 16 * 2 ^ 48 `
+      + 'local e = b8 % 128 * 16 + math.floor(b7 / 16) local s = b8 >= 128 and -1 or 1 if e == 0 then return s * math.ldexp(m, -1074) '
+      + 'elseif e == 2047 then if m == 0 then return s * math.huge end return 0 / 0 end return s * math.ldexp(1 + m / 2 ^ 52, e - 1023) end',
+  },
+  // Luau's vector library (2024) on Vector3.
+  vector: {
+    create: 'function(x, y, z) return Vector3.new(x, y, z or 0) end',
+    magnitude: 'function(v) return v.magnitude end',
+    normalize: 'function(v) return v.unit end',
+    dot: 'function(a, b) return a:Dot(b) end',
+    cross: 'function(a, b) return a:Cross(b) end',
+    zero: 'Vector3.new(0, 0, 0)',
+    one: 'Vector3.new(1, 1, 1)',
+    abs: 'function(v) return Vector3.new(math.abs(v.X), math.abs(v.Y), math.abs(v.Z)) end',
+    floor: 'function(v) return Vector3.new(math.floor(v.X), math.floor(v.Y), math.floor(v.Z)) end',
+    ceil: 'function(v) return Vector3.new(math.ceil(v.X), math.ceil(v.Y), math.ceil(v.Z)) end',
+    max: 'function(a, b) return Vector3.new(math.max(a.X, b.X), math.max(a.Y, b.Y), math.max(a.Z, b.Z)) end',
+    min: 'function(a, b) return Vector3.new(math.min(a.X, b.X), math.min(a.Y, b.Y), math.min(a.Z, b.Z)) end',
+  },
+  // OverlapParams (2021), for the spatial query stand-ins.
+  OverlapParams: {
+    new: 'function() local p = {FilterDescendantsInstances = {}, FilterType = "Exclude", MaxParts = 0, CollisionGroup = "Default", RespectCanCollide = false, BruteForceAllSlow = false} '
+      + 'function p:AddToFilter(x) local t = self.FilterDescendantsInstances t[#t + 1] = x end return p end',
+  },
+  // debug's newer members: memory categories do nothing; info gives
+  // placeholders (2017 cannot look at other functions' sources).
+  debug: {
+    setmemorycategory: 'function() return "" end',
+    resetmemorycategory: 'function() end',
+    info: 'function(a, b, c) local o = c or b if type(o) ~= "string" then return nil end local r, n = {}, 0 for ch in o:gmatch(".") do '
+      + 'if ch == "s" then n = n + 1 r[n] = "?" elseif ch == "l" then n = n + 1 r[n] = -1 elseif ch == "n" then n = n + 1 r[n] = "" '
+      + 'elseif ch == "a" then r[n + 1] = 0 r[n + 2] = false n = n + 2 elseif ch == "f" then n = n + 1 r[n] = type(a) == "function" and a or nil end end return unpack(r, 1, n) end',
+  },
+  // DateTime (2020) on os.time/tick.
+  DateTime: {
+    now: `function() return (${DATETIME})(os.time() * 1000 + math.floor(tick() % 1 * 1000)) end`,
+    fromUnixTimestamp: `function(s) return (${DATETIME})(math.floor(s * 1000)) end`,
+    fromUnixTimestampMillis: `function(ms) return (${DATETIME})(math.floor(ms)) end`,
+  },
+  // Font (2022): FontFace is newer too (its setting is skipped), so a table does.
+  Font: {
+    new: 'function(f, w, s) return {Family = f, Weight = w, Style = s} end',
+    fromEnum: 'function(e) return {Family = tostring(e)} end',
+    fromName: 'function(n, w, s) return {Family = n, Weight = w, Style = s} end',
+    fromId: 'function(i, w, s) return {Family = i, Weight = w, Style = s} end',
+  },
 };
+
+// Names from scripts index these tables: with no prototype, a Lua name such
+// as constructor or toString finds nothing instead of Object's own.
+for (const table of [NEWER_PROPERTIES, READ_HELPERS, SETTERS, OPEN, CLOSE, METHODS, TAG_BODIES, NEWER_METHODS, CS_METHODS, CS_PARAMS,
+  HELPERS, REFRESHED, LIBRARY, ...Object.values(LIBRARY)]) Object.setPrototypeOf(table, null);
 
 // Random did not exist yet: a stand-in on math.random.
 const RANDOM = 'local Random = {new = function(seed) if seed then math.randomseed(seed) end local r = {} '
@@ -579,6 +974,14 @@ function skipType(tokens, i) {
   } else if (isSymbol(t, '...')) {
     i++;
     if (tokens[i] && (tokens[i].type === 'name' || isSymbol(tokens[i], '(') || isSymbol(tokens[i], '{'))) i = skipType(tokens, i);
+  } else if (isSymbol(t, '<')) {
+    // a generic function type: <T>(a: T) -> T
+    let depth = 0;
+    for (; i < tokens.length; i++) {
+      if (isSymbol(tokens[i], '<')) depth++;
+      else if (isSymbol(tokens[i], '>') && --depth === 0) break;
+    }
+    return isSymbol(tokens[i + 1], '(') ? skipType(tokens, i + 1) : -1;
   } else if (t.type === 'name') {
     if (t.value === 'typeof' && isSymbol(tokens[i + 1], '(')) {
       const close = matchForward(tokens, i + 1);
@@ -595,6 +998,8 @@ function skipType(tokens, i) {
         }
         i++;
       }
+      // a generic type pack: T...
+      if (isSymbol(tokens[i], '...')) i++;
     }
   } else if (t.type === 'string' || (t.type === 'keyword' && (t.value === 'nil' || t.value === 'true' || t.value === 'false'))) {
     i++;
@@ -706,8 +1111,12 @@ function stripTypes(text) {
   return out;
 }
 
-function convertSource(source) {
+// options: attributes (the place has attributes: GetChildren leaves out their
+// folders), newerProperties (a Set of property names the place's file has that
+// 2017 lacks: setting them is guarded like NEWER_SETTABLE).
+function convertSource(source, options = {}) {
   if (typeof source !== 'string') return { text: source, changes: [] };
+  const newerProperties = options.newerProperties || null;
   // A script converted before gets only the rewrites added since (newer
   // services and properties); everything else was done then.
   const marked = source.startsWith(MARK);
@@ -725,6 +1134,35 @@ function convertSource(source) {
     text = untyped;
     changes.add('type annotations');
   }
+  // Luau-only syntax (continue, if-expressions, `strings`, //...) in Lua 5.1
+  // (lib/luaulower.js); scripts converted before may still have it.
+  const lowered = luaulower.lower(text);
+  if (lowered.text !== text) {
+    text = lowered.text;
+    for (const change of lowered.changes) changes.add(change);
+    for (const helper of lowered.helpers) helpers.add(helper);
+  }
+  // a.Locked, a.CastShadow = true, false: newer properties among several targets.
+  const split = luaulower.guardMultipleAssignments(text, (name) => NEWER_SETTABLE.has(name) || newerCommonProperty(name) || (newerProperties !== null && newerProperties.has(name)));
+  if (split.count > 0) {
+    text = split.text;
+    changes.add('newer properties set with others');
+  }
+  // BasePart.AssemblyLinearVelocity/AssemblyAngularVelocity (2020) are the
+  // part's Velocity/RotVelocity in 2017.
+  text = text.replace(/\.Assembly(Linear|Angular)Velocity\b/g, (match, kind) => {
+    changes.add(`.Assembly${kind}Velocity`);
+    return kind === 'Linear' ? '.Velocity' : '.RotVelocity';
+  });
+  // alignOrientation.CFrame = x (OneAttachment mode, 2022): 2017's
+  // AlignOrientation turns Attachment0 to Attachment1, so one is made to hold x.
+  text = text.split('\n').map((line) => {
+    const m = /^(\s*)([A-Za-z_][\w.]*[Aa]lign\w*|[A-Za-z_][\w.]*\.AlignOrientation)\.CFrame\s*=\s*([^=].*?)\s*(\r?)$/.exec(line);
+    if (!m || m[3].includes('--') || m[3].includes(';') || /\b(?:then|do|end|local)\b/.test(m[3])) return line;
+    helpers.add('SetAlignCF');
+    changes.add('AlignOrientation.CFrame =');
+    return `${m[1]}__rbx2017.SetAlignCF(${m[2]}, ${m[3]})${m[4]}`;
+  }).join('\n');
   // attachment.WorldCFrame = expression (a whole line) -> __rbx2017.SetWorldCF(attachment, expression).
   text = text.split('\n').map((line) => {
     const m = /^(\s*)([A-Za-z_]\w*(?:\.[A-Za-z_]\w*|\[[^[\]\n]+\])*)\.WorldCFrame\s*=\s*([^=].*?)\s*(\r?)$/.exec(line);
@@ -733,6 +1171,33 @@ function convertSource(source) {
     changes.add('.WorldCFrame =');
     return `${m[1]}__rbx2017.SetWorldCF(${m[2]}, ${m[3]})${m[4]}`;
   }).join('\n');
+  // typeof(x) == "buffer": buffers are byte arrays here (the buffer stand-in),
+  // and arrive as plain arrays through remotes.
+  text = text.replace(/\btypeof\s*\(\s*([A-Za-z_][\w.:[\]"']*)\s*\)\s*(==|~=)\s*(["'])buffer\3/g, (match, value, op) => {
+    helpers.add('IsBuffer');
+    changes.add('typeof buffer');
+    return `${op === '~=' ? 'not ' : ''}__rbx2017.IsBuffer(${value})`;
+  });
+  // require("@rbx/Package") (Roblox's own packages): a stand-in that takes any call.
+  text = text.replace(/\brequire\s*\(\s*(["'])@[\w/@.-]+\1\s*\)/g, () => {
+    helpers.add('Stub');
+    changes.add('require("@rbx/...")');
+    return '__rbx2017.Stub()';
+  });
+  // "UnreliableRemoteEvent" (2023) anywhere (Instance.new(if u then "UnreliableRemoteEvent"
+  // else "RemoteEvent"), IsA...) -> "RemoteEvent".
+  text = text.replace(/(["'])UnreliableRemoteEvent\1/g, (match, quote) => {
+    changes.add('UnreliableRemoteEvent');
+    return `${quote}RemoteEvent${quote}`;
+  });
+  // Instance.new("NewerClass") -> a stand-in (UnreliableRemoteEvent -> RemoteEvent;
+  // others take any property and method and do nothing).
+  text = text.replace(/\bInstance\.new\s*\(\s*(["'])(\w+)\1/g, (match, quote, className) => {
+    if (classKnownTo2017(className)) return match;
+    helpers.add('New');
+    changes.add(`Instance.new("${className}")`);
+    return `__rbx2017.New(${quote}${className}${quote}`;
+  });
 
   // 1. object:Method(...) -> __rbx2017.Method(object, ...), one at a time
   //    (each rewrite moves text, so the tokens are read again).
@@ -898,7 +1363,9 @@ function convertSource(source) {
       }
       // cf.LookVector / someCFrame.Position (read) -> __rbx2017.CFMember(cf, "LookVector").
       if (isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && !isSymbol(tokens[i + 2], '=') && !isSymbol(tokens[i + 2], '(')
-        && (CFRAME_MEMBERS.has(tokens[i + 1].value) || (CFRAME_NAMED_MEMBERS.has(tokens[i + 1].value) && tokens[i - 1] && tokens[i - 1].type === 'name' && CFRAME_NAME.test(tokens[i - 1].value)))) {
+        && (CFRAME_MEMBERS.has(tokens[i + 1].value) || (CFRAME_NAMED_MEMBERS.has(tokens[i + 1].value) && tokens[i - 1] && tokens[i - 1].type === 'name' && CFRAME_NAME.test(tokens[i - 1].value))
+          // x:GetPivot().Position, resolveLinkCFrame().Position: calls that give a CFrame
+          || (CFRAME_NAMED_MEMBERS.has(tokens[i + 1].value) && isSymbol(tokens[i - 1], ')') && cframeCall(tokens, i - 1)))) {
         const start = prefixStart(tokens, i);
         if (start >= 0 && text.slice(tokens[start].start, tokens[i].start) !== '__rbx2017') {
           const object = text.slice(tokens[start].start, tokens[i].start);
@@ -923,7 +1390,8 @@ function convertSource(source) {
       }
       // x.NewerProperty = value (one token) -> __rbx2017.Set(x, "NewerProperty", value).
       // The value may be simple operands (literals, a.b.c) joined by and/or/arithmetic.
-      const valueEnd = isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && NEWER_SETTABLE.has(tokens[i + 1].value) && isSymbol(tokens[i + 2], '=')
+      const valueEnd = isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && isSymbol(tokens[i + 2], '=')
+        && (NEWER_SETTABLE.has(tokens[i + 1].value) || newerCommonProperty(tokens[i + 1].value) || (newerProperties !== null && newerProperties.has(tokens[i + 1].value)))
         && (tokens[i + 1].value !== 'C0' || usesTransform)
         ? simpleExpressionEnd(tokens, i + 3) : -1;
       if (valueEnd > 0) {
@@ -982,6 +1450,19 @@ function convertSource(source) {
         done = false;
         break;
       }
+      // object.AttributeChanged -> __rbx2017.AttributeChanged(object) (attributes are Value objects here).
+      if (isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && tokens[i + 1].value === 'AttributeChanged' && !isSymbol(tokens[i + 2], '=')
+        && !isSymbol(tokens[i + 2], '(') && tokens[i - 1].value !== '__rbx2017') {
+        const start = prefixStart(tokens, i);
+        if (start >= 0) {
+          const object = text.slice(tokens[start].start, tokens[i].start);
+          text = `${text.slice(0, tokens[start].start)}__rbx2017.AttributeChanged(${object})${text.slice(tokens[i + 1].end)}`;
+          helpers.add('AttributeChanged');
+          changes.add('.AttributeChanged');
+          done = false;
+          break;
+        }
+      }
       // object.NewerEvent:Connect(...) -> __rbx2017.Event(object, "NewerEvent"):Connect(...)
       // (the real event when there is one, else a stand-in that never fires).
       if (isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && tokens[i + 1].value !== 'Activated' && isSymbol(tokens[i + 2], ':')
@@ -1020,6 +1501,7 @@ function convertSource(source) {
       const name = tokens[i + 1];
       const paren = tokens[i + 2];
       if (name.type !== 'name' || !METHODS[name.value] || paren.type !== 'symbol' || paren.value !== '(') continue;
+      if (name.value === 'GetChildren' && !options.attributes) continue;
       const close = matchForward(tokens, i + 2);
       if (close < 0) continue;
       const count = argumentCount(tokens, i + 2, close);
@@ -1057,6 +1539,23 @@ function convertSource(source) {
       if (font && font.type === 'name' && !FONTS_2017.has(font.value)) fontEdits.push([font.start, font.end, fontFor(font.value)]);
       continue;
     }
+    // Enum.Newer.Item / Enum.Type.NewerItem (2017 errors on both): the nearest
+    // item, else the item's name; Enum.Newer alone: a stand-in.
+    const enums = t.value === 'Enum' && isSymbol(dot, '.') && member && member.type === 'name' && member.value !== 'Font' ? enumsOf2017() : null;
+    if (enums) {
+      const items = enums.get(member.value);
+      const item = isSymbol(tokens[i + 3], '.') && tokens[i + 4] && tokens[i + 4].type === 'name' ? tokens[i + 4] : null;
+      if (!items && item) {
+        fontEdits.push([t.start, item.end, `("${item.value}")`]);
+      } else if (!items) {
+        fontEdits.push([t.start, member.end, `__rbx2017.EnumType("${member.value}")`]);
+        helpers.add('EnumType');
+      } else if (items && item && !items.has(item.value)) {
+        const near = ENUM_NEAREST.has(member.value) ? ENUM_NEAREST.get(member.value)[item.value] : undefined;
+        fontEdits.push([t.start, item.end, near ? `Enum.${member.value}.${near}` : `("${item.value}")`]);
+      }
+      continue;
+    }
     if (t.value === 'Random' && dot && dot.value === '.' && member && member.value === 'new') { random = true; continue; }
     if (!LIBRARY[t.value] || !dot || dot.type !== 'symbol' || dot.value !== '.' || !member || member.type !== 'name') continue;
     if (LIBRARY[t.value][member.value] === undefined) continue;
@@ -1064,7 +1563,7 @@ function convertSource(source) {
   }
   for (const [start, end, font] of fontEdits.reverse()) {
     text = text.slice(0, start) + font + text.slice(end);
-    changes.add('Enum.Font');
+    changes.add(/^[(_]|^Enum\./.test(font) ? 'newer Enum items' : 'Enum.Font');
   }
 
   const prelude = [];
@@ -1082,6 +1581,11 @@ function convertSource(source) {
       return `${member} = ${value}`;
     });
     prelude.push(`local ${library} = setmetatable({${fields.join(', ')}}, {__index = ${library}});`);
+    // A script copying the library (for k, v in pairs(table): PartCache's
+    // Table module) must see all of it, not only the stand-ins.
+    if (new RegExp(String.raw`\bpairs\s*\(\s*${library}\s*\)`).test(text)) {
+      prelude.push(`for k, v in pairs(getmetatable(${library}).__index or {}) do if rawget(${library}, k) == nil then rawset(${library}, k, v) end end;`);
+    }
   }
   if (random && !declaresOwn(tokens, 'Random', from) && !existing.includes('local Random = {new = ')) {
     prelude.push(RANDOM);
@@ -1123,4 +1627,16 @@ function convertSource(source) {
   return { text: `${MARK} ${prelude.join(' ')} ${text}`, changes: [...changes] };
 }
 
-module.exports = { convertSource, tokenize, prefixStart, MARK };
+// Property names a place file has that 2017 lacks (convertSource's
+// newerProperties), from the names in its XML. Names that games also use for
+// their own table fields are left out (guarding those only costs time).
+const COMMON_FIELD_NAMES = new Set(['Type', 'State', 'Mode', 'Content', 'Tags', 'Selector', 'Sink', 'Wind', 'Materials', 'Technology',
+  'Decoration', 'Pants', 'Shirt', 'Wraps', 'shape', 'AssetId', 'Health_XML', 'Retargeting', 'AttributesSerialize']);
+function newerPropertyNames(xmlText, into = new Set()) {
+  for (const m of xmlText.matchAll(/<(?:bool|int|int64|float|double|string|token|Vector3|Vector2|Color3|Color3uint8|CoordinateFrame|UDim|UDim2|NumberRange|NumberSequence|ColorSequence|Rect2D|Content|Ref|Font|Faces|Axes|PhysicalProperties)\s+name="(\w+)"/g)) {
+    if (!into.has(m[1]) && !COMMON_FIELD_NAMES.has(m[1]) && unknownTo2017(m[1])) into.add(m[1]);
+  }
+  return into;
+}
+
+module.exports = { convertSource, newerPropertyNames, tokenize, prefixStart, MARK };
