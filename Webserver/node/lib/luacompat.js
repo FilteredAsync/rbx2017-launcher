@@ -297,8 +297,9 @@ const TAG_BODIES = {
 };
 // Newer methods with stand-ins: name -> the argument counts they take.
 // (Raycast and PreloadAsync: workspace:Raycast(origin, direction, params),
-// ContentProvider:PreloadAsync(instances or ids, callback).)
-const NEWER_METHODS = { PivotTo: [1], GetPivot: [0], Raycast: [2, 3], PreloadAsync: [1, 2] };
+// ContentProvider:PreloadAsync(instances or ids, callback); these also reach
+// scripts converted before.)
+const NEWER_METHODS = { PivotTo: [1], GetPivot: [0], Raycast: [2, 3], PreloadAsync: [1, 2], UserHasBadgeAsync: [2] };
 // CFrame methods with capitals (2019); 2017 has them in lower case
 // (inverse, toObjectSpace...), GetComponents as components.
 const CFRAME_METHODS = new Set(['PointToObjectSpace', 'PointToWorldSpace', 'VectorToObjectSpace', 'VectorToWorldSpace',
@@ -324,6 +325,8 @@ const HELPERS = {
   UserOwnsGamePassAsync: `function(o, u, p) ${own('UserOwnsGamePassAsync', 'u, p')} local ok, r = pcall(function() `
     + 'local pl = game:GetService("Players"):GetPlayerByUserId(u) return pl ~= nil and o:PlayerOwnsAsset(pl, p) end) return ok and r == true end',
   PromptGamePassPurchase: `function(o, u, p) ${own('PromptGamePassPurchase', 'u, p')} pcall(function() o:PromptPurchase(u, p) end) end`,
+  // BadgeService:UserHasBadgeAsync (2018) is UserHasBadge in 2017 (Jailbreak's garage stopped on it).
+  UserHasBadgeAsync: `function(o, u, b) ${own('UserHasBadgeAsync', 'u, b')} local ok, r = pcall(function() return o:UserHasBadge(u, b) end) return ok and r == true end`,
   Activated: 'function(o) local ok, e = pcall(function() return o.Activated end) if ok and e then return e end return o.MouseButton1Click end',
   RegisterCollisionGroup: `function(o, n) ${own('RegisterCollisionGroup', 'n')} pcall(function() o:CreateCollisionGroup(n) end) end`,
   IsCollisionGroupRegistered: `function(o, n) ${own('IsCollisionGroupRegistered', 'n')} return (pcall(function() return o:GetCollisionGroupId(n) end)) end`,
