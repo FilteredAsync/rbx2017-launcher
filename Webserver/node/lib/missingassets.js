@@ -8,14 +8,22 @@
 //   assets-override/<id>.<ext>              a replacement, served instead of the
 //                                           Roblox asset from then on
 //   Webserver/node/data/asset-info.json     names and types looked up on Roblox
+//   Webserver/node/data/missing-asset-places.json
+//                                           which games asked for each one
 
 const fs = require('fs');
 const path = require('path');
 const core = require('./core');
 const assets = require('./assets');
+const places = require('./places');
+const games = require('./games');
 
 const OVERRIDES = core.rootPath('assets-override');
 const INFO = core.rootPath('Webserver', 'node', 'data', 'asset-info.json');
+const USES = core.rootPath('Webserver', 'node', 'data', 'missing-asset-places.json');
+const USES_PER_ASSET = 20;
+const USES_ASSETS = 5000;
+const USES_SAVE_MS = 5000;
 const MAX_BYTES = 20 * 1024 * 1024;
 const TYPE_NAMES = { 1: 'Image', 2: 'T-Shirt', 3: 'Audio', 4: 'Mesh', 8: 'Hat', 10: 'Model', 11: 'Shirt', 12: 'Pants', 13: 'Decal', 24: 'Animation', 40: 'MeshPart', 62: 'Video' };
 
@@ -53,9 +61,86 @@ function replacementOf(id) {
   }
 }
 
+// Which games asked for each missing asset:
+//   { "<assetId>": { "<placeId>" | "avatar" | "unknown": lastSeen } }
+// Kept in memory, saved a few seconds after a change, and kept when a
+// replacement is uploaded (the newest assets and places win past the caps).
+let uses = null;
+let usesTimer = null;
+
+function readUses() {
+  if (uses === null) {
+    const data = core.readJsonFile(USES);
+    uses = data && !Array.isArray(data) ? data : {};
+  }
+  return uses;
+}
+
+function saveUses() {
+  if (usesTimer) clearTimeout(usesTimer);
+  usesTimer = null;
+  fs.mkdirSync(path.dirname(USES), { recursive: true });
+  core.writeFileAtomic(USES, JSON.stringify(uses));
+}
+process.on('exit', () => { if (usesTimer) saveUses(); });
+
+const lastSeenOf = (seen) => Object.values(seen).reduce((newest, at) => (String(at) > newest ? String(at) : newest), '');
+
+// placeIds: the games the request came from ([] when nobody knows).
+function noteUse(assetId, placeIds) {
+  const id = String(assetId);
+  if (!/^\d{1,15}$/.test(id)) return;
+  const keys = [...new Set((placeIds || []).map(String).filter((key) => /^\d{1,15}$/.test(key) || key === 'avatar' || key === 'unknown'))];
+  if (!keys.length) keys.push('unknown');
+  const all = readUses();
+  const seen = all[id] && typeof all[id] === 'object' ? all[id] : (all[id] = {});
+  const now = Date.now();
+  // The same game asking again within a minute changes nothing worth a save.
+  if (keys.every((key) => seen[key] && now - Date.parse(seen[key]) < 60000)) return;
+  const at = core.isoDate();
+  for (const key of keys) seen[key] = at;
+  const placeKeys = Object.keys(seen);
+  if (placeKeys.length > USES_PER_ASSET) {
+    placeKeys.sort((a, b) => String(seen[b]).localeCompare(String(seen[a])));
+    for (const key of placeKeys.slice(USES_PER_ASSET)) delete seen[key];
+  }
+  const assetIds = Object.keys(all);
+  if (assetIds.length > USES_ASSETS) {
+    // Drop to 90% so this sort runs once per few hundred new assets.
+    assetIds.sort((a, b) => lastSeenOf(all[b]).localeCompare(lastSeenOf(all[a])));
+    for (const old of assetIds.slice(Math.floor(USES_ASSETS * 0.9))) delete all[old];
+  }
+  if (!usesTimer) {
+    usesTimer = setTimeout(saveUses, USES_SAVE_MS);
+    if (usesTimer.unref) usesTimer.unref();
+  }
+}
+
+// -> [{ placeId, name, lastSeen }], newest first. name is null for 'avatar',
+// 'unknown' and places no longer in the library or the games list.
+function usedBy(id, names) {
+  const seen = readUses()[id];
+  if (!seen || typeof seen !== 'object') return [];
+  return Object.entries(seen)
+    .map(([placeId, lastSeen]) => ({ placeId, name: names.get(placeId) || null, lastSeen }))
+    .sort((a, b) => String(b.lastSeen).localeCompare(String(a.lastSeen)));
+}
+
+function placeNames() {
+  const names = new Map();
+  try {
+    for (const game of games.listAll()) if (game.name) names.set(String(game.placeId), game.name);
+  } catch (error) { /* no games */ }
+  try {
+    for (const [placeId, place] of Object.entries(places.load().places)) if (place && place.name) names.set(placeId, String(place.name));
+  } catch (error) { /* no library */ }
+  return names;
+}
+
 // Every missing asset, plus every asset that has a replacement.
 function list() {
   const info = readInfo();
+  const names = placeNames();
   const byId = new Map();
   const dir = core.cacheDir('assets');
   for (const name of fs.readdirSync(dir)) {
@@ -80,6 +165,7 @@ function list() {
       creator: known.creator || null,
       replaced: replacement !== null,
       replacement: replacement ? path.basename(replacement) : null,
+      usedBy: usedBy(entry.id, names),
     });
   }).sort((a, b) => (a.type || 'zzz').localeCompare(b.type || 'zzz') || (a.name || '').localeCompare(b.name || ''));
 }
@@ -132,4 +218,4 @@ function removeReplacement(id) {
   return true;
 }
 
-module.exports = { list, lookUpNames, saveReplacement, removeReplacement };
+module.exports = { list, lookUpNames, saveReplacement, removeReplacement, noteUse };

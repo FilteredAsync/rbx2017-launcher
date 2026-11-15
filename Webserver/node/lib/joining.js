@@ -56,20 +56,40 @@ function startProblem(error) {
   return `could not start the client: ${error && error.message ? error.message : error}`;
 }
 
+// The 2017 client and Studio get a profile folder of their own. They find
+// AppData and Documents through USERPROFILE (not LOCALAPPDATA), so with it
+// their settings (GlobalBasicSettings_13.xml, GlobalSettings_13.xml, the
+// same names the real Roblox uses), logs and autosaves stay out of the real
+// Roblox's folders.
+const PROFILE = core.rootPath('profile');
+const PROFILE_LOCAL_APPDATA = path.join(PROFILE, 'AppData', 'Local');
+
+function isolatedEnv() {
+  for (const parts of [['AppData', 'Local'], ['AppData', 'Roaming'], ['Documents']]) {
+    try { fs.mkdirSync(path.join(PROFILE, ...parts), { recursive: true }); } catch (error) { /* spawn still works; it just isn't isolated */ }
+  }
+  return Object.assign({}, process.env, { USERPROFILE: PROFILE });
+}
+
 // The last lines of the 2017 client's own log written since startedAt
-// (%LOCALAPPDATA%\Roblox\logs\log_<hex>_<n>.txt), or [].
+// (<profile>\AppData\Local\Roblox\logs\log_<hex>_<n>.txt; before 1.9.0 in
+// %LOCALAPPDATA%\Roblox\logs), or [].
 function clientLogTail(startedAt, lines = 15) {
-  const dir = path.join(process.env.LOCALAPPDATA || '', 'Roblox', 'logs');
-  if (!process.env.LOCALAPPDATA) return [];
+  const dirs = [path.join(PROFILE_LOCAL_APPDATA, 'Roblox', 'logs')];
+  if (process.env.LOCALAPPDATA) dirs.push(path.join(process.env.LOCALAPPDATA, 'Roblox', 'logs'));
   let newest = null;
   try {
-    for (const name of fs.readdirSync(dir)) {
-      if (!/^log_[0-9A-F]{4,8}_\d+\.txt$/i.test(name)) continue;
-      const stat = fs.statSync(path.join(dir, name));
-      if (stat.mtimeMs >= startedAt - 2000 && (!newest || stat.mtimeMs > newest.mtimeMs)) newest = { name, mtimeMs: stat.mtimeMs };
+    for (const dir of dirs) {
+      let names = [];
+      try { names = fs.readdirSync(dir); } catch (error) { continue; }
+      for (const name of names) {
+        if (!/^log_[0-9A-F]{4,8}_\d+\.txt$/i.test(name)) continue;
+        const stat = fs.statSync(path.join(dir, name));
+        if (stat.mtimeMs >= startedAt - 2000 && (!newest || stat.mtimeMs > newest.mtimeMs)) newest = { dir, name, mtimeMs: stat.mtimeMs };
+      }
     }
     if (!newest) return [];
-    const text = fs.readFileSync(path.join(dir, newest.name), 'utf8');
+    const text = fs.readFileSync(path.join(newest.dir, newest.name), 'utf8');
     // Players share this log: leave out join tickets and signatures.
     const redact = (line) => line.replace(/\b(ticket|sig|t)=[^&\s"\\]+/gi, '$1=…');
     return [`(${newest.name})`, ...text.split(/\r?\n/).filter((line) => line.trim()).slice(-lines).map(redact)];
@@ -182,6 +202,7 @@ async function joinGame({ centralUrl, username, ticket = null, name = null, game
     child = spawn(CLIENT_EXE, ['--play', '-a', 'http://localhost./Login/Negotiate.ashx/', '-t', 'Test', '-j', joinUrl], {
       cwd: path.dirname(CLIENT_EXE),
       stdio: 'ignore',
+      env: isolatedEnv(),
     });
   } catch (error) {
     // Windows refuses some files at once (spawn UNKNOWN: blocked, damaged or
@@ -229,5 +250,5 @@ async function joinGame({ centralUrl, username, ticket = null, name = null, game
 
 module.exports = {
   joinGame, joinTicket, fetchGames, validUsername, loadConfig, saveConfig, CONFIG, CLIENT_EXE,
-  earlyExitProblem, startProblem, exitCodeText, clientLogTail, EARLY_EXIT_SECONDS,
+  earlyExitProblem, startProblem, exitCodeText, clientLogTail, EARLY_EXIT_SECONDS, isolatedEnv, PROFILE, PROFILE_LOCAL_APPDATA,
 };

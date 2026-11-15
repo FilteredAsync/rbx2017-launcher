@@ -1,5 +1,19 @@
 [
   {
+    "version": "1.9.0",
+    "date": "2026-11-15",
+    "title": "Faster joins, blocking that works, fixed games",
+    "items": [
+      "Games fill the launcher window with nothing on top. Leave from the game's menu (Esc); F11 toggles full screen.",
+      "Joining a friend's server works again.",
+      "Joining is much faster: big games like Jailbreak load in seconds instead of about a minute, and a server warms up while you look at a game's page.",
+      "Block and Follow in a game's player list work now. Blocking someone also ends the friendship, and you can block from profiles too.",
+      "Windows notifications when someone sends you a friend request or accepts yours.",
+      "The 2017 game and Studio keep their settings and logs to themselves, so they no longer change your real Roblox's.",
+      "Fixed on the server: Lumber Tycoon 2 saves tools, Clone Tycoon 2 lets you play, and Jailbreak and Phantom Forces purchases work."
+    ]
+  },
+  {
     "version": "1.8.0",
     "date": "2026-11-14",
     "title": "See who's online, follow players, mix body parts",

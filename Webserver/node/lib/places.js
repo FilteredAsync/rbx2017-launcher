@@ -5,7 +5,7 @@
 // and is never handed out again (saves and thumbnails are kept by place ID).
 //
 //   Webserver/node/data/places.json            the library
-//   Server/content/places/<placeId>.rbxlx      uploaded places
+//   Server/content/places/<placeId>.rbxl       uploaded places (binary; older ones .rbxlx, XML)
 //   Server/content/places/old/                 replaced versions (last 3 kept)
 //   Server/content/places/deleted/             removed places
 //
@@ -198,19 +198,25 @@ function get(placeId) {
 // places/old yet. Such an error has busy: true.
 const FILE_BUSY_CODES = new Set(['EBUSY', 'EPERM', 'EACCES']);
 
+// Binary files (lib/rbxbinary.js writes converted places so, Studio
+// publishes so) are stored as .rbxl, XML as .rbxlx; RCC reads either.
 function storePlaceFile(placeId, bytes) {
   fs.mkdirSync(PLACES_DIR, { recursive: true });
-  const relative = `places/${placeId}.rbxlx`;
-  const target = path.join(CONTENT, 'places', `${placeId}.rbxlx`);
-  if (core.isFile(target)) {
+  const ext = bytes.toString('latin1', 0, 8) === '<roblox!' ? 'rbxl' : 'rbxlx';
+  const relative = `places/${placeId}.${ext}`;
+  const target = path.join(CONTENT, 'places', `${placeId}.${ext}`);
+  const current = ['rbxlx', 'rbxl'].filter((kind) => core.isFile(path.join(PLACES_DIR, `${placeId}.${kind}`)));
+  if (current.length > 0) {
     const oldDir = path.join(PLACES_DIR, 'old');
     fs.mkdirSync(oldDir, { recursive: true });
     const stamp = now().replace(/[-:]/g, '').replace(/\..*$/, '');
-    try {
-      fs.renameSync(target, path.join(oldDir, `${placeId}-${stamp}.rbxlx`));
-    } catch (error) {
-      if (FILE_BUSY_CODES.has(error.code)) throw Object.assign(new Error(`the place file is in use (${error.code})`), { busy: true });
-      throw error;
+    for (const kind of current) {
+      try {
+        fs.renameSync(path.join(PLACES_DIR, `${placeId}.${kind}`), path.join(oldDir, `${placeId}-${stamp}.${kind}`));
+      } catch (error) {
+        if (FILE_BUSY_CODES.has(error.code)) throw Object.assign(new Error(`the place file is in use (${error.code})`), { busy: true });
+        throw error;
+      }
     }
     const old = fs.readdirSync(oldDir).filter((name) => name.startsWith(`${placeId}-`)).sort();
     for (const name of old.slice(0, Math.max(0, old.length - KEEP_OLD_VERSIONS))) {
@@ -361,7 +367,7 @@ function remove(placeId) {
   if (place.file !== 'place.rbxlx') {
     const deletedDir = path.join(PLACES_DIR, 'deleted');
     fs.mkdirSync(deletedDir, { recursive: true });
-    try { fs.renameSync(filePath(place), path.join(deletedDir, `${id}-${now().replace(/[-:]/g, '').replace(/\..*$/, '')}.rbxlx`)); } catch (error) { /* already gone */ }
+    try { fs.renameSync(filePath(place), path.join(deletedDir, `${id}-${now().replace(/[-:]/g, '').replace(/\..*$/, '')}${path.extname(place.file) || '.rbxlx'}`)); } catch (error) { /* already gone */ }
   }
   delete library.places[id];
   save(library);

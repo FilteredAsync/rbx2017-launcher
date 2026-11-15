@@ -91,8 +91,11 @@ function add(total, part) {
   return total;
 }
 
-module.exports = function cleanup({ root, localAppData, updaterDir = null, appVersion = '0.0.0', studioDownloaded = () => false, busy = () => false }) {
-  const logDirs = localAppData ? [path.join(localAppData, 'Roblox', 'logs'), path.join(localAppData, 'Roblox', 'logs', 'archive')] : [];
+module.exports = function cleanup({ root, localAppData, privateLocalAppData = null, updaterDir = null, appVersion = '0.0.0', studioDownloaded = () => false, busy = () => false }) {
+  // Since 1.9.0 the 2017 programs log into their own profile (lib/joining.js
+  // isolatedEnv); older logs are still in the shared folder.
+  const logDirs = [privateLocalAppData, localAppData].filter(Boolean)
+    .flatMap((base) => [path.join(base, 'Roblox', 'logs'), path.join(base, 'Roblox', 'logs', 'archive')]);
   const downloads = path.join(root, 'downloads');
 
   // The 2017 programs' logs and crash reports: [{ file, size, mtimeMs }]

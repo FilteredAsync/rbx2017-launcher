@@ -230,6 +230,13 @@ function startCall(placeId, port, domain, scriptTimeout, cloudEdit = false) {
 // friend requests to friends.
 const FRIEND_SERVICE = 'pcall(function() game:GetService("FriendService") end)\r\n';
 
+// Replication speed. RCC sends join data in steps, DataSendRate a second (30
+// by default, 120 at most), and big games (Jailbreak) then load at about
+// 54 KB/s once the first burst is through. 120 cut a Jailbreak join on this
+// PC from 57 to 37 s. Most of the rest is terrain, which RCC caps at
+// DFIntMaxClusterKBPerSecond (40 KB/s) from its settings (lib/routes.js).
+const NETWORK_SETTINGS = 'pcall(function() settings().Network.DataSendRate = 120 end)\r\n';
+
 // The admins' server console (lib/adminconsole.js); nothing when this PC has
 // no accounts or library.
 function adminConsoleCall(placeId) {
@@ -278,6 +285,20 @@ function gamePassCall(domain) {
   if (domain === null) return '';
   const url = `http://${domain}/Game/GamePass/GamePassHandler.ashx?Action=HasPass&UserID=%d&PassID=%d`;
   return `pcall(function() game:GetService("GamePassService"):SetPlayerHasPassUrl(${JSON.stringify(url)}) end)\r\n`;
+}
+
+// BadgeService's addresses (answered by lib/badges.js via routes.js).
+// gameserver.lua sets them only "if access ~= nil" (start() gets no access
+// key here) and empties IsBadgeLegal's, so UserHasBadge and AwardBadge failed
+// (Clone Tycoon 2 stopped setting up players). Runs after start().
+function badgeCall(domain) {
+  if (domain === null) return '';
+  const url = (call, query) => JSON.stringify(`http://${domain}/Game/Badge/${call}.ashx?${query}`);
+  return 'pcall(function() local b = game:GetService("BadgeService")'
+    + ` b:SetHasBadgeUrl(${url('HasBadge', 'UserID=%d&BadgeID=%d')})`
+    + ` b:SetAwardBadgeUrl(${url('AwardBadge', 'UserID=%d&BadgeID=%d&PlaceID=%d')})`
+    + ` b:SetIsBadgeDisabledUrl(${url('IsBadgeDisabled', 'BadgeID=%d&PlaceID=%d')})`
+    + ` b:SetIsBadgeLegalUrl(${url('IsBadgeLegal', 'BadgeID=%d')}) end)\r\n`;
 }
 
 // Newer games (2018 on) put their menus in PlayerGui before the player has a
@@ -364,7 +385,7 @@ async function startGameJob(placeId, port, domain, scriptTimeout, log, soapPort 
   // before and after the place loads, in case the place file has its own) is not.
   const limit = !cloudEdit && Number(maxPlayers) >= 1
     ? `pcall(function() game:GetService("Players").MaxPlayersInternal = ${Math.round(Number(maxPlayers))} end)\r\n` : '';
-  const script = `${source}\r\n${creatorCall(placeId)}${cloudEdit ? '' : FRIEND_SERVICE + gamePassCall(domain)}${limit}${startCall(placeId, port, domain, scriptTimeout, Boolean(cloudEdit))}\r\n${limit}${cloudEdit ? '' : `${avatarTypeCall(placeId)}${appearanceHook()}\r\n${PLAYERGUI_HOOK}\r\n${adminConsoleCall(placeId)}`}\r\n`;
+  const script = `${source}\r\n${NETWORK_SETTINGS}${creatorCall(placeId)}${cloudEdit ? '' : FRIEND_SERVICE + gamePassCall(domain)}${limit}${startCall(placeId, port, domain, scriptTimeout, Boolean(cloudEdit))}\r\n${limit}${cloudEdit ? '' : `${badgeCall(domain)}${avatarTypeCall(placeId)}${appearanceHook()}\r\n${PLAYERGUI_HOOK}\r\n${adminConsoleCall(placeId)}`}\r\n`;
   soap('Execute', executeEnvelope('GameServer', script), 0, soapPort).then((result) => {
     if (result.status < 200 || result.status >= 300) log(`RCC answered the game job with HTTP ${result.status}`);
   }, (error) => log(`game job connection ended: ${error.code || error.message}`));

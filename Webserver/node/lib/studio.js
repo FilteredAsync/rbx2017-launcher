@@ -694,6 +694,7 @@ pcall(function() history:SetEnabled(true) end)
   }
 
   // RCC's Team Create autosave (and save on close): the whole place.
+  const lastTeamCreateSave = new Map(); // placeId -> sha1 of the last saved bytes
   async function uploadFromCloudEdit(ctx) {
     const headers = { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' };
     if (ctx.method !== 'POST') return send(ctx, 405, headers, 'use POST');
@@ -715,9 +716,16 @@ pcall(function() history:SetEnabled(true) end)
       logStudio(`refused a Team Create save for ${place.name}: not a place (${bytes.length} bytes, starts ${JSON.stringify(bytes.subarray(0, 12).toString('latin1'))})`);
       return send(ctx, 400, headers, 'not a place');
     }
+    // Autosaves come every 5 minutes while someone edits; one that changes
+    // nothing since the last Team Create save makes no new version.
+    const hash = require('crypto').createHash('sha1').update(bytes).digest('hex');
+    if (lastTeamCreateSave.get(String(place.placeId)) === hash && place.versionSource === 'teamcreate') {
+      return send(ctx, 200, headers, String(place.version));
+    }
     let updated;
     try {
       updated = await places.replaceFile(place.placeId, { bytes, notes: [], from: 'Team Create', source: 'teamcreate' });
+      lastTeamCreateSave.set(String(place.placeId), hash);
     } catch (error) {
       if (!error.busy) throw error;
       // The Team Create server saves again in a few minutes.

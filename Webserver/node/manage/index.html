@@ -146,7 +146,7 @@
         </div>
         <div class="table-wrap">
           <table class="table">
-            <thead><tr><th>Asset</th><th class="hide-sm">Type</th><th class="num hide-sm">ID</th><th class="hide-sm">Why</th><th></th></tr></thead>
+            <thead><tr><th>Asset</th><th class="hide-sm">Type</th><th class="hide-sm">Games</th><th class="num hide-sm">ID</th><th class="hide-sm">Why</th><th></th></tr></thead>
             <tbody id="asset-rows"></tbody>
           </table>
         </div>
@@ -242,8 +242,8 @@
       </header>
       <div class="modal-body" id="upload-fields">
         <label class="drop" id="upload-drop">
-          <input type="file" id="upload-file" accept=".rbxlx,.rbxmx" required>
-          <span class="drop-main" id="upload-file-name">Choose a .rbxlx file, or drop it here</span>
+          <input type="file" id="upload-file" accept=".rbxl,.rbxlx,.rbxm,.rbxmx" required>
+          <span class="drop-main" id="upload-file-name">Choose a .rbxl or .rbxlx file, or drop it here</span>
           <span class="drop-sub">Places from newer Studio versions are converted on the way in.</span>
         </label>
         <label class="field">
@@ -292,7 +292,7 @@
 
   <div class="toasts" id="toasts" aria-live="polite"></div>
 
-  <input type="file" id="replace-file" accept=".rbxlx,.rbxmx" hidden>
+  <input type="file" id="replace-file" accept=".rbxl,.rbxlx,.rbxm,.rbxmx" hidden>
   <input type="file" id="thumb-file" accept=".png,.jpg,.jpeg,.gif,.webp" hidden>
   <input type="file" id="missing-file" accept=".ogg,.mp3,.wav,.png,.jpg,.jpeg,.rbxm,.rbxmx" hidden>
   <input type="file" id="srv-upload" accept=".rbxupd" hidden>

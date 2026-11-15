@@ -456,13 +456,8 @@ button.with-icon svg { width: 21px; height: 21px; fill: none; stroke: currentCol
 .loading-bar > div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
 .loading-actions { position: absolute; right: 34px; bottom: 30px; display: flex; gap: 12px; }
 
-/* The game inside the launcher's window: a bar on top, the game's window
-   (a child window placed by main.js) everywhere under it. */
-.game-bar { position: fixed; top: 0; left: 0; right: 0; height: 44px; z-index: 50; display: flex; align-items: center; gap: 10px;
-  padding: 0 12px; background: #0b1218; border-bottom: 1px solid var(--line); }
-.game-bar-name { font-size: 16px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.game-bar-hint { flex: 1; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.game-bar button { padding: 6px 12px; font-size: 13px; }
+/* The game inside the launcher: its window (a child window placed by
+   main.js) covers everything; the page underneath shows nothing. */
 body.in-game { background: #000; }
 body.in-game .backdrop, body.in-game .screen, body.in-game #shell, body.in-game .overlay, body.in-game .loading-screen,
 body.in-game .settings-hint { display: none !important; }
@@ -510,6 +505,7 @@ body.in-game .settings-hint { display: none !important; }
 .profile-joined:empty { display: none; }
 .profile-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .profile-actions .profile-report-link { margin-left: auto; font-size: 14px; color: var(--muted); }
+.profile-actions .profile-block-link { font-size: 14px; color: var(--muted); }
 .profile-report { display: grid; gap: 10px; margin-top: 18px; padding: 14px 16px; background: rgba(255, 97, 89, .08); border-left: 4px solid var(--bad); }
 .profile-report .detail-head { margin: 0; }
 .profile-report .detail-head span { font-size: 18px; }

@@ -295,6 +295,7 @@ function remove(name) {
   try { require('./friends').forget(data.accounts[key].userId); } catch (error) { /* no friends file */ }
   try { require('./privateservers').forget(data.accounts[key].userId); } catch (error) { /* no private servers file */ }
   try { require('./follows').forget(data.accounts[key].userId); } catch (error) { /* no follows file */ }
+  try { require('./blocks').forget(data.accounts[key].userId); } catch (error) { /* no blocks file */ }
   delete data.accounts[key];
   for (const [hash, session] of Object.entries(data.sessions)) {
     if (session.name === key) delete data.sessions[hash];

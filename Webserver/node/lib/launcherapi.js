@@ -34,6 +34,8 @@
 //   GET  following        (session) who you follow, and who follows you
 //   POST follow | unfollow   (session) {userId} -> their profile
 //   POST report           (session) {userId, reason, text}: reports a player to the admins
+//   POST block | unblock  (session) {userId} -> their profile (lib/blocks.js)
+//   POST warm             {placeId}: start a server for a game whose page is open
 //   GET  outfits          (session) your saved avatars
 //   POST outfits          (session) {name, image: PNG as base64} saves what you wear
 //   POST outfits/<id>/wear | rename {name} | delete   (session)
@@ -59,6 +61,7 @@ const avatarStore = require('./avatarstore');
 const games = require('./games');
 const friends = require('./friends');
 const follows = require('./follows');
+const blocks = require('./blocks');
 const presence = require('./presence');
 const places = require('./places');
 const privateservers = require('./privateservers');
@@ -188,8 +191,15 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
     pruneTickets();
     const entry = /^[0-9a-f]{32}$/.test(String(ticket || '')) ? tickets.get(ticket) : null;
     const who = entry ? { name: entry.name, userId: entry.userId, guest: entry.guest } : guestIdentity();
-    if (remote) players.set(addressKey(remote), Object.assign({ at: Date.now() }, who));
+    const game = entry && entry.gameId ? games.get(String(entry.gameId)) : null;
+    if (remote) players.set(addressKey(remote), Object.assign({ at: Date.now(), placeId: game ? String(game.placeId) : null }, who));
     return who;
+  }
+
+  // The game the player at that address joined last (missing assets name it), or null.
+  function placeAt(remote) {
+    const entry = players.get(addressKey(remote));
+    return entry && entry.at > Date.now() - PLAYER_MS && entry.placeId ? entry.placeId : null;
   }
 
   function playerAt(remote) {
@@ -311,8 +321,11 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
     return players.length + coming;
   }
 
+  // The game list (games.listAll) has the address as text already; a server
+  // looked up by job ID (games.get, "Join" on a friend) has it as {host, port}.
   function gameFor(game) {
-    return { id: game.id, name: game.name, placeId: String(game.placeId), address: game.address, privateId: game.privateId || null };
+    const address = game.address && typeof game.address === 'object' ? games.addressText(game.address) : game.address;
+    return { id: game.id, name: game.name, placeId: String(game.placeId), address, privateId: game.privateId || null };
   }
 
   // Servers of a game (or a private server) that have room, fullest first.
@@ -894,6 +907,77 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
     };
   }
 
+  // --- the 2017 player list's Block and Follow --------------------------------------------
+  // RCC (for the client): POST userblock/blockuser | unblockuser  blockerId=&blockeeId=
+  // Client: GET userblock/getblockedusers?userId=&page=  -> {success, userList}
+  // Client: GET user/following-exists?userId=&followerUserId=  -> {success, isFollowing}
+  // Client: POST user/follow | user/unfollow  followedUserId=  (the player is who joined from that address)
+  // RCC:    POST user/multi-following-exists {userId, otherUserIds}  -> {FollowingDetails}
+
+  // RCC on the server PC, or a game server another PC registered.
+  function fromGameServer(remote) {
+    const address = String(remote || '').replace(/^::ffff:/i, '');
+    if (address === '::1' || /^127\./.test(address)) return true;
+    return games.listAll().some((listed) => {
+      const game = games.get(listed.id);
+      return Boolean(game && String(game.registeredFrom || '').replace(/^::ffff:/i, '') === address);
+    });
+  }
+
+  function socialRoute(kind) {
+    return async (ctx) => {
+      const q = await friendParams(ctx);
+      const reply = (value) => sendJson(ctx, 200, value);
+      if (kind === 'block' || kind === 'unblock') {
+        if (!fromGameServer(ctx.remote)) return sendJson(ctx, 403, { success: false, message: 'Only game servers can do that.' });
+        const blocker = Number(q.blockerid);
+        const blockee = Number(q.blockeeid);
+        if (!accounts.byUserId(blocker) || !accounts.byUserId(blockee)) return reply({ success: false, message: 'Guests cannot block or be blocked.' });
+        const result = kind === 'block' ? blocks.block(blocker, blockee) : blocks.unblock(blocker, blockee);
+        return reply(result.error ? { success: false, message: result.error } : { success: true });
+      }
+      if (kind === 'blocked-list') {
+        const page = Math.max(1, Number(q.page) || 1);
+        return reply({ success: true, userList: page === 1 ? blocks.blockedBy(Number(q.userid)) : [] });
+      }
+      if (kind === 'following-exists') {
+        return reply({ success: true, isFollowing: follows.isFollowing(Number(q.followeruserid), Number(q.userid)) });
+      }
+      if (kind === 'multi-following') {
+        const me = Number(q.userid);
+        const data = follows.load();
+        return reply({
+          FollowingDetails: idList(q.otheruserids).map((other) => ({
+            UserId1: me, UserId2: other,
+            User1FollowsUser2: follows.isFollowing(me, other, data),
+            User2FollowsUser1: follows.isFollowing(other, me, data),
+          })),
+        });
+      }
+      const me = playerAt(ctx.remote);
+      if (!me) return reply({ success: false, message: 'Only signed-in players can follow.' });
+      const target = Number(q.followeduserid);
+      if (!accounts.byUserId(target)) return reply({ success: false, message: 'That player cannot be followed.' });
+      const result = kind === 'follow' ? follows.follow(me.userId, target) : follows.unfollow(me.userId, target);
+      return reply(result.error ? { success: false, message: result.error } : { success: true });
+    };
+  }
+
+  // --- warming a server -----------------------------------------------------------------------
+  // Opening a game's page in the launcher starts a server for it when none is
+  // running, so it's usually ready by the time Play is pressed.
+  const warmed = new Map(); // placeId -> time asked
+  function warm(placeId) {
+    const id = String(placeId || '');
+    const place = libraryPlaces()[id];
+    if (!place || !place.enabled || !runner()) return false;
+    if (Date.now() - (warmed.get(id) || 0) < 60 * 1000) return false;
+    warmed.set(id, Date.now());
+    if (openServers(id, null).length) return false;
+    const coming = serverComing(id, null);
+    return Boolean(coming.starting);
+  }
+
   // --- routes ------------------------------------------------------------------------------
 
   async function route(ctx, match) {
@@ -922,13 +1006,26 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
       if (!who && !body.guest) return sendJson(ctx, 401, { error: 'Your sign-in ran out. Sign in again, or play as a guest.' });
       const chosen = chooseServer(body, who);
       if (chosen.error) return sendJson(ctx, chosen.status || 400, { error: chosen.error });
-      if (chosen.starting) return sendJson(ctx, 202, { starting: true, message: 'Starting a server…', retryMs: 2000 });
+      if (chosen.starting) return sendJson(ctx, 202, { starting: true, message: 'Starting a server…', retryMs: 1000 });
       const identity = who ? { name: who.name, userId: who.userId, guest: false } : guestIdentity();
       noteJoin(chosen.game.id, identity.name);
       return sendJson(ctx, 200, Object.assign({ ticket: newTicket(identity, chosen.game.id), game: gameFor(chosen.game) }, identity));
     }
     if (action === 'games' && method === 'GET') {
       return sendJson(ctx, 200, { games: gameList() });
+    }
+    if (action === 'warm' && method === 'POST') {
+      const body = await jsonBody(ctx);
+      return sendJson(ctx, 200, { starting: warm(body.placeId) });
+    }
+    if ((action === 'block' || action === 'unblock') && method === 'POST') {
+      const who = needAccount(ctx);
+      if (!who) return;
+      const other = friendTarget(await jsonBody(ctx));
+      if (!other) return sendJson(ctx, 404, { error: 'No such player.' });
+      const result = action === 'block' ? blocks.block(who.userId, other.userId) : blocks.unblock(who.userId, other.userId);
+      if (result.error) return sendJson(ctx, 400, { error: result.error });
+      return sendJson(ctx, 200, profileOf(accounts.profile(other.userId), who));
     }
     if (action === 'private-servers' || action.startsWith('private-servers/')) {
       const who = needAccount(ctx);
@@ -1086,6 +1183,7 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
       followerCount: live(follows.followers(found.userId, data)),
       followingCount: live(follows.following(found.userId, data)),
       followsYou: Boolean(viewer && viewer.userId !== found.userId && follows.isFollowing(found.userId, viewer.userId, data)),
+      blocked: Boolean(viewer && viewer.userId !== found.userId && blocks.hasBlocked(viewer.userId, found.userId)),
     });
   }
 
@@ -1177,9 +1275,17 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
       [/^users\/filter-friends\/?$/i, gameFriendRoute('filter-friends')],
       [/^user\/multiget-friend-requests\/?$/i, gameFriendRoute('multiget-requests')],
       [/^users\/(\d{1,15})\/friends\/?$/i, gameFriendRoute('friend-list')],
+      [/^userblock\/blockuser\/?$/i, socialRoute('block')],
+      [/^userblock\/unblockuser\/?$/i, socialRoute('unblock')],
+      [/^userblock\/getblockedusers\/?$/i, socialRoute('blocked-list')],
+      [/^user\/following-exists\/?$/i, socialRoute('following-exists')],
+      [/^user\/multi-following-exists\/?$/i, socialRoute('multi-following')],
+      [/^user\/follow\/?$/i, socialRoute('follow')],
+      [/^user\/unfollow\/?$/i, socialRoute('unfollow')],
     ],
     joinIdentity,
     playerAt,
+    placeAt,
     ticketAllows,
     joinSignature,
     checkJoinSignature,

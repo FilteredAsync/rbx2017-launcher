@@ -1,8 +1,8 @@
 'use strict';
 
 // Place file converter: makes a place or model saved by a newer Roblox Studio
-// load in the 2017 client and RCC. XML files only (.rbxlx / .rbxmx); a binary
-// .rbxl has to be saved as .rbxlx from Studio first (File > Save As).
+// load in the 2017 client and RCC. XML (.rbxlx / .rbxmx); a binary .rbxl is
+// read into XML first (lib/rbxbinary.js placeXml).
 //
 // What it changes:
 //   - asset addresses: roblox.com and assetdelivery links become
@@ -25,6 +25,7 @@ const fs = require('fs');
 const path = require('path');
 const luacompat = require('./luacompat');
 const unionshapes = require('./unionshapes');
+const gamepatches = require('./gamepatches');
 
 const LOCAL = 'http://localhost./';
 const API_DUMP = path.join(__dirname, '..', '..', '..', 'Client', 'apidump.txt');
@@ -154,8 +155,9 @@ const LUAU_CHECKS = [
 ];
 
 function convertScript(source, counts, scriptName) {
-  let text = source;
-  let changed = false;
+  // Fixes for single games' own scripts (lib/gamepatches.js).
+  let text = gamepatches.apply(source, counts.gamePatches);
+  let changed = text !== source;
   if (!/\blocal\s+task\b|\bfunction\s+task\b|^\s*task\s*=/m.test(text)) {
     text = text.replace(/\btask\.(wait|spawn|delay|defer)(\s*\()/g, (match, name, paren) => {
       counts.taskCalls++;
@@ -305,6 +307,13 @@ function convertProperties(className, props, options, counts) {
     const before = out;
     out = out.replace(/(\r?\n[ \t]*)?(<\/?[A-Za-z]+[\s>])/, (match, lead, tag) => `${lead || ''}<bool name="PGSPhysicsSolverEnabled">true</bool>${lead || ''}${tag}`);
     if (out !== before) counts.pgsSolver++;
+  }
+  // StreamingEnabled. 2017 has an early streaming that newer games' scripts
+  // do not expect: they wait for far-away parts that never arrive (Clone
+  // Tycoon 2's tycoons). Off, every player gets the whole map.
+  if (className === 'Workspace' && /<bool\s+name="StreamingEnabled">true<\/bool>/.test(out)) {
+    out = out.replace(/<bool\s+name="StreamingEnabled">true<\/bool>/, '<bool name="StreamingEnabled">false</bool>');
+    counts.streaming++;
   }
 
   // ContentId (2024) is the old Content type renamed.
@@ -654,14 +663,14 @@ function convertPlace(input, options) {
   options = options || {};
   const head = input.subarray(0, 16).toString('latin1');
   if (head.startsWith('<roblox!')) {
-    throw new Error('This is a binary place file (.rbxl). Open it in Roblox Studio and use File > Save As to save it as .rbxlx, then convert that.');
+    throw new Error('This is a binary place file (.rbxl): read it into XML first (lib/rbxbinary.js placeXml).');
   }
   if (!/<roblox[\s>]/.test(input.subarray(0, 512).toString('latin1'))) {
     throw new Error('This is not a Roblox XML place or model file (.rbxlx / .rbxmx).');
   }
   const counts = {
     robloxLinks: 0, thumbnails: 0, gameAssets: 0, contentIds: 0, fonts: 0, droppedProperties: 0,
-    attributes: 0, sharedStrings: 0, newCsg: 0, taskCalls: 0, compoundAssignments: 0, materials: 0, unionCollision: 0, unionShapes: 0, filteringEnabled: 0, pgsSolver: 0,
+    attributes: 0, sharedStrings: 0, newCsg: 0, taskCalls: 0, compoundAssignments: 0, materials: 0, unionCollision: 0, unionShapes: 0, filteringEnabled: 0, pgsSolver: 0, streaming: 0, gamePatches: new Set(),
     compatScripts: 0, compatChanges: new Map(), madeFolders: new Map(), chatSetAside: 0, coreGuiSetAside: 0, localizationTables: 0, playerModule: false,
     gameAssetNames: new Set(), unsupportedThumbnails: new Set(), luauScripts: [], unknownClasses: new Map(),
   };
@@ -845,6 +854,8 @@ function summarize(counts, options) {
   }
   if (counts.filteringEnabled > 0) lines.push('  FilteringEnabled turned on (the file leaves it out, and the 2017 engine would run the game with it off)');
   if (counts.pgsSolver > 0) lines.push('  the PGS physics solver turned on (the file leaves it out; with the older 2017 solver, forces and newer constraints do nothing)');
+  if (counts.streaming > 0) lines.push('  StreamingEnabled turned off (with 2017 streaming, newer games wait for parts that never arrive)');
+  for (const name of counts.gamePatches) lines.push(`  Fixed: ${name}`);
   if (counts.compatScripts > 0) {
     lines.push(`  ${counts.compatScripts} scripts made to run on 2017: ${[...counts.compatChanges].sort((a, b) => b[1] - a[1]).map(([name, n]) => `${name} x${n}`).join(', ')}`);
   }

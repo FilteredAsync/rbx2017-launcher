@@ -2,7 +2,7 @@
 
 // Converts a place saved by a newer Roblox Studio for the 2017 client and RCC.
 //
-//   node convert-place.js <place.rbxlx> [options]
+//   node convert-place.js <place.rbxlx or .rbxl> [options]
 //     --from-place <id>   the Roblox place ID it came from (finds its universe,
 //                         for rbxgameasset:// images)
 //     --universe <id>     the universe ID, if you already know it
@@ -16,6 +16,7 @@ const fs = require('fs');
 const path = require('path');
 const core = require('./lib/core');
 const placefile = require('./lib/placefile');
+const rbxbinary = require('./lib/rbxbinary');
 const assets = require('./lib/assets');
 const unionshapes = require('./lib/unionshapes');
 
@@ -42,7 +43,7 @@ function parseArgs(argv) {
 
 function outputPath(input) {
   const parsed = path.parse(input);
-  const ext = parsed.ext.toLowerCase() === '.rbxmx' ? '.rbxmx' : '.rbxlx';
+  const ext = /^\.rbxmx?$/i.test(parsed.ext) ? '.rbxmx' : '.rbxlx';
   return path.join(parsed.dir, `${parsed.name.replace(/\.2017$/i, '')}.2017${ext}`);
 }
 
@@ -67,7 +68,8 @@ async function convertFile(input, options) {
   }
   // Union collision shapes from the unions' meshes, downloaded from Roblox
   // (lib/unionshapes.js); without them unions keep the old rule.
-  const bytes = fs.readFileSync(input);
+  const read = rbxbinary.placeXml(fs.readFileSync(input));
+  const bytes = read.xml;
   const fetchAsset = async (id) => {
     const download = await assets.downloadAsset('id', id);
     return download.ok ? assets.normalizeAsset(download.body).bytes : null;
@@ -78,7 +80,7 @@ async function convertFile(input, options) {
   fs.writeFileSync(out, result.output);
   let installed = null;
   if (options.install) installed = install(out);
-  return { out, universeId, summary: result.summary, installed };
+  return { out, universeId, summary: [...read.notes, ...result.summary], installed };
 }
 
 async function main() {

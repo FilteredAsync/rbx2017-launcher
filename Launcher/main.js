@@ -6,7 +6,7 @@
 // and the launcher behave the same. Node scripts run on Electron's own Node,
 // so players do not need Node.js installed.
 
-const { app, BrowserWindow, ipcMain, shell, clipboard, dialog, protocol, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, clipboard, dialog, protocol, screen, globalShortcut, Notification } = require('electron');
 const { spawn, spawnSync } = require('child_process');
 const dns = require('dns').promises;
 const fs = require('fs');
@@ -407,7 +407,45 @@ function sendPresence(state) {
 function startPresence() {
   if (presenceTimer) return;
   sendPresence();
-  presenceTimer = setInterval(() => sendPresence(), 30000);
+  presenceTimer = setInterval(() => { sendPresence(); checkFriendNews(); }, 30000);
+}
+
+// --- friend notifications -------------------------------------------------------------------
+// A Windows notification when someone sends you a friend request or accepts
+// yours (checked with the presence beat), unless you're looking at the launcher.
+let friendSnapshot = null; // { url, incoming: Set, outgoing: Set, friends: Set } of the last check (reset on sign-in/out)
+
+async function checkFriendNews() {
+  let url;
+  try { url = account.serverUrl(); } catch (error) { return; }
+  let data;
+  try { data = await account.friends(url); } catch (error) { friendSnapshot = null; return; } // signed out
+  const ids = (list) => new Set((list || []).map((person) => person.userId));
+  const now = { url, incoming: ids(data.incoming), outgoing: ids(data.outgoing), friends: ids(data.friends) };
+  const before = friendSnapshot && friendSnapshot.url === url ? friendSnapshot : null;
+  friendSnapshot = now;
+  if (!before) return; // the first look only remembers
+  const looking = win && !win.isDestroyed() && win.isFocused() && !win.isMinimized() && embedState !== 'embedded';
+  if (looking || !Notification.isSupported()) return;
+  const named = (list, id) => ((list || []).find((person) => person.userId === id) || {}).name || 'Someone';
+  for (const id of now.incoming) {
+    if (!before.incoming.has(id)) notify('Friend request', `${named(data.incoming, id)} wants to be your friend.`);
+  }
+  for (const id of now.friends) {
+    if (!before.friends.has(id) && before.outgoing.has(id)) notify('New friend', `${named(data.friends, id)} accepted your friend request.`);
+  }
+}
+
+function notify(title, body) {
+  const note = new Notification({ title, body, silent: false });
+  note.on('click', () => {
+    if (!win || win.isDestroyed()) return;
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+    if (embedState !== 'embedded') send('open-view', 'players');
+  });
+  note.show();
 }
 
 function checkMovedServer() {
@@ -515,7 +553,8 @@ async function openStudio(centralUrl) {
     }
   }
   await holdProxyForStudio(url, log);
-  const child = spawn(STUDIO_EXE(), [], { cwd: path.dirname(STUDIO_EXE()), detached: true, stdio: 'ignore' });
+  // Its own profile folder, like the client's (lib/joining.js isolatedEnv).
+  const child = spawn(STUDIO_EXE(), [], { cwd: path.dirname(STUDIO_EXE()), detached: true, stdio: 'ignore', env: lib('joining').isolatedEnv() });
   child.on('error', (error) => log(`Could not start Studio: ${error.message}`));
   child.unref();
   studioPid = child.pid || null;
@@ -526,11 +565,9 @@ async function openStudio(centralUrl) {
 }
 
 // --- the game window inside the launcher (embed.js) -------------------------------------
-// With "Game window: inside the launcher" (Settings > Menu), the client's
-// window becomes part of the launcher's window, under a bar with the game's
-// name and Full screen, Pop out and Leave game (renderer #game-bar). If it
-// cannot be done, the game simply stays a window of its own.
-const GAME_BAR_DIP = 44;
+// The client's window becomes the whole of the launcher's window. Players
+// leave from the game's own menu (Esc > Leave Game); F11 toggles full screen.
+// If it cannot be done, the game simply stays a window of its own.
 let embedModule = null;
 let embedState = 'off'; // off | waiting | embedded
 let fullScreenForGame = false;
@@ -540,16 +577,28 @@ function embedder() {
   return embedModule;
 }
 
+// F11 while a game is inside the launcher. The game window has the keyboard,
+// so the launcher only hears it as a global shortcut, held just while playing.
+function toggleGameFullScreen() {
+  if (!win || win.isDestroyed() || !win.isFocused()) return;
+  fullScreenForGame = !win.isFullScreen();
+  win.setFullScreen(fullScreenForGame);
+}
+
 function setEmbedState(state) {
   embedState = state;
+  try {
+    if (state === 'embedded' && !globalShortcut.isRegistered('F11')) globalShortcut.register('F11', toggleGameFullScreen);
+    if (state !== 'embedded' && globalShortcut.isRegistered('F11')) globalShortcut.unregister('F11');
+  } catch (error) { /* another program owns F11 */ }
   send('play-embed', { state });
 }
 
-// Where the game goes in the launcher's window: under the bar (pixels).
+// Where the game goes in the launcher's window: all of it (pixels).
 function gameRect() {
   const [width, height] = win.getContentSize();
   const scale = screen.getDisplayMatching(win.getBounds()).scaleFactor || 1;
-  return { x: 0, y: Math.round(GAME_BAR_DIP * scale), w: Math.round(width * scale), h: Math.round((height - GAME_BAR_DIP) * scale) };
+  return { x: 0, y: 0, w: Math.round(width * scale), h: Math.round(height * scale) };
 }
 
 async function embedClient(session) {
@@ -592,17 +641,6 @@ async function relayoutGame() {
   }
 }
 
-// Back to a window of its own, where the launcher's content was.
-async function popOutGame() {
-  if (!embedModule || !embedModule.attached()) return false;
-  if (fullScreenForGame && win.isFullScreen()) win.setFullScreen(false);
-  fullScreenForGame = false;
-  const rect = screen.dipToScreenRect(win, win.getContentBounds());
-  await embedModule.release({ x: rect.x, y: rect.y, w: rect.width, h: rect.height });
-  setEmbedState('off');
-  return true;
-}
-
 function gameClosed() {
   if (embedModule) embedModule.forget();
   if (fullScreenForGame && win && !win.isDestroyed() && win.isFullScreen()) win.setFullScreen(false);
@@ -635,6 +673,7 @@ function cleaner() {
     cleanerModule = require('./cleanup')({
       root: ROOT,
       localAppData: process.env.LOCALAPPDATA || null,
+      privateLocalAppData: lib('joining').PROFILE_LOCAL_APPDATA,
       updaterDir: updaterDir(),
       appVersion: app.getVersion(),
       // Only Studio this launcher downloaded: on a host's PC, Studio\ is the
@@ -959,14 +998,6 @@ function registerIpc() {
     }
   });
 
-  ipcMain.handle('play:popout', () => popOutGame());
-  ipcMain.handle('play:fullscreen', () => {
-    if (!win || win.isDestroyed()) return false;
-    const next = !win.isFullScreen();
-    fullScreenForGame = next;
-    win.setFullScreen(next);
-    return next;
-  });
   ipcMain.handle('play:stop', async () => {
     joinCancelled = true; // still waiting for a server: give up
     if (playSession) playSession.stop();
@@ -1060,10 +1091,13 @@ function registerIpc() {
     const result = await account.signIn(options || {});
     syncMenuMusic();
     sendPresence();
+    friendSnapshot = null;
+    checkFriendNews();
     return result;
   });
   ipcMain.handle('auth:signout', async () => {
     await sendPresence({ state: 'offline' });
+    friendSnapshot = null;
     return account.signOut();
   });
   ipcMain.handle('avatar:get', () => account.avatar());
@@ -1089,6 +1123,9 @@ function registerIpc() {
   ipcMain.handle('follows:list', () => account.following());
   ipcMain.handle('follows:set', async (event, { userId, on }) => account.follow(undefined, userId, Boolean(on)));
   ipcMain.handle('players:report', (event, body) => account.report(undefined, body || {}));
+  ipcMain.handle('players:block', (event, { userId, on }) => account.block(undefined, userId, Boolean(on)));
+  // A game's page opened: the server starts one for it if none runs (older servers: 404, ignored).
+  ipcMain.handle('play:warm', (event, placeId) => account.warm(undefined, placeId).catch(() => null));
   // The update log (changelog.json, newest first), for Settings > About and "What's new".
   ipcMain.handle('app:changelog', () => {
     try {
@@ -1222,6 +1259,9 @@ if (!app.requestSingleInstanceLock()) {
     win.focus();
   });
 }
+
+// Windows shows notifications under the installed app's ID (package.json build.appId).
+if (process.platform === 'win32') app.setAppUserModelId('com.rbx2017.launcher');
 
 app.whenReady().then(() => {
   if (ROOT === null) {

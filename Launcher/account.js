@@ -326,6 +326,8 @@ module.exports = function accountModule({ ROOT, lib }) {
       return authed(centralUrl, 'POST', `friends/${verb}`, { body });
     },
     presence: (centralUrl, body) => authed(centralUrl, 'POST', 'presence', { body, timeoutMs: 8000 }),
+    warm: (centralUrl, placeId) => open(centralUrl, 'POST', 'warm', { body: { placeId: String(placeId || '') }, timeoutMs: 8000 }),
+    block: (centralUrl, userId, on) => authed(centralUrl, 'POST', on ? 'block' : 'unblock', { body: { userId: String(userId) } }),
     following: (centralUrl) => authed(centralUrl, 'GET', 'following', { timeoutMs: 8000 }),
     follow: (centralUrl, userId, on) => authed(centralUrl, 'POST', on ? 'follow' : 'unfollow', { body: { userId: String(userId) } }),
     report: (centralUrl, { userId, reason, text }) => authed(centralUrl, 'POST', 'report', { body: { userId: String(userId), reason: String(reason || '').slice(0, 100), text: String(text || '').slice(0, 1000) } }),

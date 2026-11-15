@@ -45,6 +45,7 @@ function isFollowing(from, to, data = load()) {
 function follow(from, to) {
   if (!valid(from) || !valid(to)) return { error: 'Guests cannot follow anyone.' };
   if (Number(from) === Number(to)) return { error: "You can't follow yourself." };
+  if (require('./blocks').between(from, to)) return { error: "You can't follow this player." };
   const data = load();
   if (isFollowing(from, to, data)) return { ok: true };
   if (following(from, data).length >= MAX_FOLLOWING) return { error: `You can follow up to ${MAX_FOLLOWING} players.` };

@@ -510,7 +510,7 @@ let uploadedId = null;
 function openUpload() {
   $('upload-form').reset();
   $('upload-enabled').checked = true;
-  $('upload-file-name').textContent = 'Choose a .rbxlx file, or drop it here';
+  $('upload-file-name').textContent = 'Choose a .rbxl or .rbxlx file, or drop it here';
   $('upload-fields').hidden = false;
   $('upload-done').hidden = true;
   $('upload-button').hidden = false;
@@ -529,7 +529,7 @@ $('upload-open-game').addEventListener('click', () => { $('upload').close(); if 
 
 $('upload-file').addEventListener('change', () => {
   const file = $('upload-file').files[0];
-  $('upload-file-name').textContent = file ? `${file.name} (${size(file.size)})` : 'Choose a .rbxlx file, or drop it here';
+  $('upload-file-name').textContent = file ? `${file.name} (${size(file.size)})` : 'Choose a .rbxl or .rbxlx file, or drop it here';
   if (file && !$('upload-name').value) $('upload-name').value = file.name.replace(/\.rbx[lm]x?$/i, '').slice(0, 60);
 });
 const drop = $('upload-drop');
@@ -781,7 +781,7 @@ async function loadMissing() {
     missing = (await response.json()).assets || [];
     renderMissing();
   } catch (error) {
-    $('asset-rows').replaceChildren(h('tr', {}, h('td', { class: 'empty-cell', colSpan: 5, text: "Couldn't load the list." })));
+    $('asset-rows').replaceChildren(h('tr', {}, h('td', { class: 'empty-cell', colSpan: 6, text: "Couldn't load the list." })));
   }
 }
 
@@ -798,12 +798,21 @@ function renderMissing() {
   }
   const shown = missing.filter((asset) => matches(asset, assetFilter));
   if (!shown.length) {
-    $('asset-rows').replaceChildren(h('tr', {}, h('td', { class: 'empty-cell', colSpan: 5, text: 'Nothing missing here.' })));
+    $('asset-rows').replaceChildren(h('tr', {}, h('td', { class: 'empty-cell', colSpan: 6, text: 'Nothing missing here.' })));
     return;
   }
+  // Games that asked for it, newest first ("Unknown" last), e.g. "Lumber Tycoon 2, Obby +2".
+  const usedBy = (asset) => {
+    const uses = (asset.usedBy || []).slice().sort((a, b) => (a.placeId === 'unknown') - (b.placeId === 'unknown'));
+    const names = [...new Set(uses.map((use) => (use.placeId === 'avatar' ? 'Avatars' : use.placeId === 'unknown' ? 'Unknown' : use.name || `Place ${use.placeId}`)))];
+    if (!names.length) return h('td', { class: 'sub hide-sm', text: '–' });
+    const text = names.slice(0, 3).join(', ') + (names.length > 3 ? ` +${names.length - 3}` : '');
+    return h('td', { class: 'sub hide-sm', text, title: names.length > 3 ? names.join(', ') : null });
+  };
   $('asset-rows').replaceChildren(...shown.map((asset) => h('tr', {},
     h('td', {}, h('div', { class: 'game-name', text: asset.name || 'Unknown' }), asset.creator && h('div', { class: 'sub', text: asset.creator })),
     h('td', { class: 'hide-sm', text: asset.type || '…' }),
+    usedBy(asset),
     h('td', { class: 'num sub mono hide-sm', text: asset.id }),
     h('td', { class: 'sub hide-sm', text: asset.reason }),
     h('td', { class: 'actions' }, asset.replaced

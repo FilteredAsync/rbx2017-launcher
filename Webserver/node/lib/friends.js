@@ -78,6 +78,7 @@ function status(me, other) {
 function request(from, to) {
   if (!valid(from) || !valid(to)) return { error: 'Guests cannot have friends.' };
   if (Number(from) === Number(to)) return { error: 'That is you.' };
+  if (require('./blocks').between(from, to)) return { error: "You can't send this player a friend request." };
   const data = load();
   const key = pairKey(from, to);
   if (data.friends.includes(key)) return { ok: true, became: 'friends' };

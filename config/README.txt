@@ -246,7 +246,7 @@ button opens it). Changes need the host key (config\host-key.txt).
   - Servers start on demand: a game that is online gets a server when the
     first player joins it (the launcher shows "Starting a server..."), and
     more servers when those are full ("Players per server" under Edit). A
-    server nobody has played on for idleStopMinutes (default 5) stops again,
+    server nobody has played on for idleStopMinutes (default 15) stops again,
     so a game nobody plays has no server. Tick "Keep one server running"
     under Edit to have one up all the time. Each server is listed under its
     game with its own Restart and Stop.
@@ -298,7 +298,7 @@ Server-wide settings, config\dedicated.json (every field optional):
       "maxGames": 4,               game servers running at the same time
                                    (players get "try again in a few
                                    minutes" past it)
-      "idleStopMinutes": 5,        stop a server nobody has played on this
+      "idleStopMinutes": 15,       stop a server nobody has played on this
                                    long; 0 = never
       "memoryLimitMB": 3000,       per game; 0 = no limit (an RCC can use 4096)
       "healthCheckSeconds": 60,

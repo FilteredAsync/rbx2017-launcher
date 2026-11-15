@@ -55,7 +55,7 @@ const DEFAULTS = {
   memoryLimitMB: 3000,
   saveWaitSeconds: 10,
   maxGames: 4,
-  idleStopMinutes: 5,
+  idleStopMinutes: 15,
   gamePortFirst: 53640,
   gamePortCount: 20,
   autoUpdate: true,
@@ -757,8 +757,9 @@ async function main() {
       }
 
       // A new version of a running game: save players and restart on it.
-      // Team Create saves (every few minutes while people build) wait until
-      // nobody is playing, so players are not kicked each time.
+      // Team Create autosaves (every 5 minutes while someone edits) wait
+      // until nobody is playing, so players are not kicked each time; a
+      // Publish from Studio is an upload and goes live at once.
       for (const slot of live()) {
         const place = entries[slot.placeId];
         if (place && slot.session && slot.startedVersion !== null && (place.version || 1) !== slot.startedVersion && !slot.restarting) {
@@ -833,7 +834,8 @@ async function main() {
   };
 
   await reconcile();
-  const reconcileTimer = setInterval(reconcile, 3000);
+  // Every second, so a player waiting for a server is not kept waiting by the tick.
+  const reconcileTimer = setInterval(reconcile, 1000);
   const sampleTimer = setInterval(() => { sampleAll().catch(() => {}); }, 10000);
   const checks = setInterval(() => {
     for (const slot of slots.values()) slot.check().catch((error) => log(slot.scope, `check failed: ${error.message}`));

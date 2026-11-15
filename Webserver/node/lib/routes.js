@@ -24,6 +24,7 @@ const datastore = require('./datastore');
 const games = require('./games');
 const gamethumbs = require('./gamethumbs');
 const placefile = require('./placefile');
+const rbxbinary = require('./rbxbinary');
 const marketplace = require('./marketplace');
 const unionshapes = require('./unionshapes');
 const missingassets = require('./missingassets');
@@ -243,6 +244,34 @@ function readHead(file, size) {
   }
 }
 
+// The games an asset request came from, for the missing assets list: [] when
+// unknown, several when it could be any of them. The engine names the place
+// (&serverplaceid= for InsertService, LinkedSource and animations, or the
+// Roblox-Place-Id header); otherwise a remote address is a player's launcher
+// (the game they joined last) or a host PC's RCC (its listed games), and
+// loopback without a launcher proxy is an RCC job on this PC (its servers).
+function placeOf(ctx) {
+  const named = places.placeKey(ctx.queryLower.serverplaceid) || places.placeKey(ctx.queryLower.moduleplaceid) || places.placeKey(ctx.req.headers['roblox-place-id']);
+  if (named) return [named];
+  const isLoopback = (remote) => /^(?:127\.|::1$)/.test(String(remote || '').replace(/^::ffff:/i, ''));
+  const loopback = isLoopback(ctx.remote);
+  const registered = () => [...new Set(games.listAll().map((listed) => games.get(listed.id))
+    .filter((game) => game && (loopback ? isLoopback(game.registeredFrom) : sameAddress(game.registeredFrom, ctx.remote)))
+    .map((game) => String(game.placeId)))];
+  if (loopback && !ctx.req.headers['x-launcher-proxy']) {
+    const runner = places.runnerStatus();
+    const running = runner && !runner.stale && runner.servers ? Object.values(runner.servers).map((server) => String(server.placeId)) : [];
+    const onThisPc = [...new Set(running.concat(registered()))].filter((placeId) => places.placeKey(placeId));
+    if (onThisPc.length) return onThisPc;
+  }
+  const joined = launcher.placeAt(ctx.remote);
+  return joined ? [joined] : registered();
+}
+
+function noteMissing(ctx, assetId, placeIds) {
+  try { missingassets.noteUse(assetId, placeIds || placeOf(ctx)); } catch (error) { /* only for /manage */ }
+}
+
 async function assetEndpoint(ctx) {
   // Launchers' proxies may ask for these answers compressed (lib/compression.js).
   ctx.compress = true;
@@ -372,6 +401,7 @@ async function assetEndpoint(ctx) {
     const ttl = [400, 403, 404].includes(missingStatus) ? 86400000 : 3600000;
     const credentialsChanged = assets.credentialsMtime() > markedAt && [0, 401, 403].includes(missingStatus);
     if (!credentialsChanged && markedAt >= Date.now() - ttl) {
+      if (kind === 'id') noteMissing(ctx, assetId);
       return fail(ctx, 404, 'Asset unavailable' + (missing && missing.reason !== undefined ? `: ${missing.reason}` : ''));
     }
     try { fs.unlinkSync(missingPath); } catch (error) { /* raced */ }
@@ -385,7 +415,11 @@ async function assetEndpoint(ctx) {
     inflight.set(key, pending);
   }
   const outcome = await pending;
-  if (!outcome.ok) return fail(ctx, outcome.status, outcome.message);
+  if (!outcome.ok) {
+    // 404: fetchIntoCache marked it missing.
+    if (kind === 'id' && outcome.status === 404) noteMissing(ctx, assetId);
+    return fail(ctx, outcome.status, outcome.message);
+  }
   return send(ctx, 200, cachedHeaders('MISS', outcome.contentType, fileEtag(cachePath)), outcome.bytes);
 }
 
@@ -401,7 +435,10 @@ async function legacyBodyPart(ctx, assetId) {
   }
   if (bytes === null) {
     const outcome = await fetchIntoCache('id', assetId, cachePath, `${cachePath}.json`, `${cachePath}.missing`);
-    if (!outcome.ok) return fail(ctx, outcome.status, outcome.message);
+    if (!outcome.ok) {
+      if (outcome.status === 404) noteMissing(ctx, assetId, ['avatar']);
+      return fail(ctx, outcome.status, outcome.message);
+    }
     bytes = outcome.bytes;
   } else if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
     bytes = assets.normalizeAsset(bytes).bytes;
@@ -942,6 +979,8 @@ const FEATURE_FLAGS = [
   'EnableParticleSpreadAngle', 'BillboardGuiMaxDistance', 'PaddingComponentEnabled', 'UIScaleComponentEnabled',
   'GridLayoutCellSizeConstraints', 'SizeFromContentsEnabled', 'EnableImageTilingInGUI', 'Motor6DTransformPropEnabled',
   'HumanoidHealthDisplayTypeEnabled',
+  // Not EmojiEnabled2: it turns emoji on, but the sheets in
+  // content/textures/emoji are from a 2018 build and draw the wrong slices.
 ];
 for (const name of FEATURE_FLAGS) {
   CLIENT_APP_SETTINGS[`FFlag${name}`] = true;
@@ -968,6 +1007,12 @@ function rccSettings(ctx) {
     // Team Create: RCC as a cloud edit server (gameserver.lua, matchmaking context 3).
     FFlagRCCSupportCloudEdit: true,
     DFFlagRCCSupportCloudEdit: true,
+    // Joining sends the map's terrain at no more than this (40 KB/s by
+    // default): most of a Jailbreak join's minute. 1000 took it from 57 s to
+    // a few seconds on this PC; it is per player, so the server's upload
+    // still has room for several joining at once.
+    FIntMaxClusterKBPerSecond: 1000,
+    DFIntMaxClusterKBPerSecond: 1000,
   };
   for (const name of FEATURE_FLAGS) {
     settings[`FFlag${name}`] = true;
@@ -1065,7 +1110,7 @@ async function gamesApi(ctx, match) {
 // --- Place library (lib/places.js) and the /manage page ----------------------------
 //   GET    /api/places                        library + what the always-on server runs
 //   POST   /api/places?name=&description=&fromPlace=&universeId=&enabled=1
-//                                            body: a .rbxlx; converted, given the next place ID
+//                                            body: a .rbxlx or .rbxl; converted, given the next place ID
 //   POST   /api/places/<id>/file?fromPlace=   new file for a place (same ID)
 //   POST   /api/places/<id>                   JSON {name, description, enabled, universeId}
 //   POST   /api/places/<id>/restart           ask the always-on server to restart its servers
@@ -1124,11 +1169,19 @@ async function convertUpload(ctx, query) {
     if (universeId === null) return { error: `could not find the universe of Roblox place ${query.fromplace}` };
   }
   try {
-    const result = placefile.convertPlace(bytes, { universeId, unionShapes: await unionShapes(bytes) });
-    return { bytes: result.output, notes: result.summary, universeId };
+    return Object.assign(await convertPlaceFile(bytes, universeId), { universeId });
   } catch (error) {
     return { error: error.message };
   }
+}
+
+// A place file (XML, or binary read into XML: lib/rbxbinary.js) through the
+// converter -> { bytes, notes }; bytes are what the server stores (binary).
+async function convertPlaceFile(bytes, universeId) {
+  const input = rbxbinary.placeXml(bytes);
+  const result = placefile.convertPlace(input.xml, { universeId, unionShapes: await unionShapes(input.xml) });
+  const stored = rbxbinary.placeToStore(result.output);
+  return { bytes: stored.bytes, notes: [...input.notes, ...result.summary, ...stored.notes] };
 }
 
 // Collision shapes for a place's unions, made from their meshes (lib/unionshapes.js),
@@ -1192,19 +1245,18 @@ async function placesApi(ctx, match) {
     const current = places.get(placeId);
     let result;
     try {
-      const bytes = fs.readFileSync(places.filePath(current));
-      result = placefile.convertPlace(bytes, { universeId: current.universeId || null, unionShapes: await unionShapes(bytes) });
+      result = await convertPlaceFile(fs.readFileSync(places.filePath(current)), current.universeId || null);
     } catch (error) {
       return sendJson(ctx, 400, { error: `could not convert the place again: ${error.message}` });
     }
     let place;
     try {
-      place = await places.replaceFile(placeId, { bytes: result.output, notes: result.summary, universeId: current.universeId, from: 'converted again' });
+      place = await places.replaceFile(placeId, { bytes: result.bytes, notes: result.notes, universeId: current.universeId, from: 'converted again' });
     } catch (error) {
       if (error.busy) return sendJson(ctx, 409, { error: PLACE_FILE_BUSY });
       throw error;
     }
-    return sendJson(ctx, 200, { place, notes: result.summary });
+    return sendJson(ctx, 200, { place, notes: result.notes });
   }
   if (action === null) {
     const body = await jsonBody(ctx);
@@ -1574,6 +1626,21 @@ function fixed(contentType, body, extra) {
   return (ctx) => send(ctx, 200, Object.assign({ 'Content-Type': contentType }, extra || {}), body);
 }
 
+// BadgeService (lib/badges.js), in the replies the 2017 engine reads:
+// HasBadge "Success" (else false), AwardBadge "0" (not awarded) or the text
+// of the player's badge notification, IsBadgeDisabled "0", IsBadgeLegal "1".
+function badgeRoute(ctx, match) {
+  const badges = require('./badges');
+  const q = ctx.queryLower;
+  const reply = (status, body) => send(ctx, status, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }, body);
+  const call = match[1].toLowerCase();
+  if (call === 'hasbadge') return reply(200, badges.has(q.userid, q.badgeid) ? 'Success' : 'Failure');
+  if (call === 'isbadgedisabled') return reply(200, '0');
+  if (call === 'isbadgelegal') return reply(200, '1');
+  if (!fromGameServer(ctx.remote)) return reply(403, '0');
+  return reply(200, badges.award(q.userid, q.badgeid) ? 'You won a badge!' : '0');
+}
+
 // Roblox Studio 2017: login, start page, editing and publishing (lib/studio.js).
 const studio = require('./studio')({ send, sendUtf8, sendFile, sendJson, jsonBody, sign });
 const launcher = require('./launcherapi')({ send, sendJson, jsonBody, assetBytes });
@@ -1626,6 +1693,7 @@ const ROUTES = [
   [new RegExp(`^my/economy-status${opt}$`, 'i'), fixed('application/json; charset=utf-8', '{"isMarketplaceEnabled":true,"isMarketplaceEnabledForAuthenticatedUser":true,"isMarketplaceEnabledForUser":true,"isMarketplaceEnabledForGroup":true}', { 'Cache-Control': 'no-store' })],
   [new RegExp(`^ownership/hasasset${opt}$`, 'i'), fixed('application/json; charset=utf-8', 'true', { 'Cache-Control': 'no-store' })],
   [/^game\/gamepass\/gamepasshandler\.ashx$/i, fixed('text/plain; charset=utf-8', '<Value Type="boolean">true</Value>', { 'Cache-Control': 'no-store' })],
+  [/^game\/badge\/(hasbadge|awardbadge|isbadgedisabled|isbadgelegal)\.ashx$/i, badgeRoute],
   [/^game\/luawebservice\/handlesocialrequest\.(?:ashx|php)$/i, socialRequest],
   [/^game\/tools\/thumbnailasset\.ashx$/i, thumbnailRoute('asset')],
   [/^(?:thumbs\/asset\.ashx|asset-thumbnail\/image)$/i, thumbnailRoute('asset')],

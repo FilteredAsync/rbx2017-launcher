@@ -617,18 +617,6 @@ function updateBackgroundButton() {
   $('toggle-background').textContent = `Background: ${entry[1]}`;
 }
 
-// The game window: inside the launcher's window (main.js embedClient; the
-// default since 1.7.3) or a window of its own.
-const gameWindowInside = () => storage('gameWindow') !== 'separate';
-function updateGameWindowButton() {
-  $('toggle-gamewindow').textContent = `Game window: ${gameWindowInside() ? 'Inside the launcher' : 'Separate window'}`;
-}
-$('toggle-gamewindow').addEventListener('click', () => {
-  storage('gameWindow', gameWindowInside() ? 'separate' : 'launcher');
-  updateGameWindowButton();
-});
-updateGameWindowButton();
-
 $('toggle-music').addEventListener('click', toggleMusic);
 $('toggle-background').addEventListener('click', () => {
   const index = BACKGROUNDS.findIndex(([key]) => key === window.backgroundMode);
@@ -741,6 +729,8 @@ function openDetail(game) {
   renderServerList(servers, playable && !busy);
   closePrivateForms();
   loadPrivate(detailGame);
+  // Starts a server now if none runs, so it's ready (or nearly) by Play.
+  if (playable && !busy && detailGame.placeId) api.warmGame(detailGame.placeId);
   $('overlay').classList.remove('hidden');
   // "More" only when the description is longer than its few lines.
   requestAnimationFrame(() => $('detail-more').classList.toggle('hidden', desc.scrollHeight <= desc.clientHeight + 2));
@@ -968,25 +958,23 @@ api.onPlayFailed((info) => {
 
 $('loading-log').addEventListener('click', () => api.openLauncherLog());
 
-// The game's window inside the launcher's: only the bar above it shows.
+// The game fills the launcher's window (main.js embedClient); nothing of the
+// launcher shows until it closes.
 api.onPlayEmbed(({ state: embed }) => {
   const inside = embed === 'embedded';
   document.body.classList.toggle('in-game', inside);
-  $('game-bar').classList.toggle('hidden', !inside);
-  if (!inside) {
-    $('game-bar-full').textContent = 'Full screen';
-    return;
-  }
-  $('game-bar-name').textContent = (lastPlayGame && lastPlayGame.name) || 'Roblox';
+  if (!inside) return;
   if (loading && !loading.failed) hideLoading();
   music.pause();
 });
-$('game-bar-full').addEventListener('click', async () => {
-  const full = await api.toggleFullScreen();
-  $('game-bar-full').textContent = full ? 'Leave full screen' : 'Full screen';
+
+// A clicked friend notification (main.js checkFriendNews).
+api.onOpenView((name) => {
+  if (screen !== 'shell') return;
+  closeProfile();
+  showView(name, true);
+  if (name === 'players') refreshOnlinePlayers(true);
 });
-$('game-bar-popout').addEventListener('click', () => api.popOutGame());
-$('game-bar-leave').addEventListener('click', () => api.stopClient());
 
 // The game window takes the focus once it is up.
 window.addEventListener('blur', () => {
@@ -1015,7 +1003,7 @@ async function startPlay(game, request) {
   playStarting = true;
   try {
     setLoadingStatus(request.privateId ? 'Joining the private server…' : 'Finding a server…');
-    const joined = await api.join({ request, game: { name: game.name, placeId: game.placeId }, guest: !me, embed: gameWindowInside() });
+    const joined = await api.join({ request, game: { name: game.name, placeId: game.placeId }, guest: !me, embed: true });
     playStarting = false;
     rememberPlayed(game);
     renderHome();
@@ -1347,7 +1335,9 @@ async function setFollow(person, on, statusId = 'friends-status') {
 }
 
 // Joins the very server someone is in (a private one only if you may).
-function joinPerson(person) {
+async function joinPerson(person) {
+  // The game list is only kept fresh on Home and Games: get it if their game isn't on it.
+  if (!onlineGame(person)) await findGames(true);
   const game = onlineGame(person);
   const gameId = person.gameId || (person.online && person.online.gameId) || null;
   if (!game || !gameId) {
@@ -1583,6 +1573,8 @@ function renderProfile(person) {
       bio.classList.add('hidden');
       focusEl($('profile-bio-text'));
     }));
+  } else if (me && person.blocked) {
+    actions.append(profileButton('Unblock', 'ghost', () => setBlock(person, false)));
   } else if (me) {
     const act = (verb) => async () => {
       if (await friendAction(verb, person, 'profile-status')) openProfile(person, true);
@@ -1607,6 +1599,23 @@ function renderProfile(person) {
       focusEl($('profile-report-reason'));
     });
     actions.append(report);
+    if (person.blocked === false) {
+      actions.append(profileButton('Block', 'link profile-block-link', () => {
+        if (window.confirm(`Block ${person.name}? You stop being friends, neither of you follows the other, and they can't send you friend requests.`)) setBlock(person, true);
+      }));
+    }
+  }
+}
+
+async function setBlock(person, on) {
+  setStatus('profile-status', '');
+  try {
+    const updated = await api.setBlock(person.userId, on);
+    setStatus('profile-status', on ? `Blocked ${person.name}` : `Unblocked ${person.name}`, 'good');
+    if (profilePerson) renderProfile(Object.assign(updated, { self: false }));
+    refreshOnlinePlayers(true);
+  } catch (error) {
+    setStatus('profile-status', message(error), 'error');
   }
 }
 
