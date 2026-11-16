@@ -1271,6 +1271,8 @@ async function gamesApi(ctx, match) {
 //   POST   /api/places/<id>/servers/<job ID>/restart | stop    one server (players saved first)
 //   DELETE /api/private-servers/<id>          remove a private server (its server stops)
 //   DELETE /api/places/<id>                   remove (saves, thumbnail and ID stay reserved)
+//   GET    /api/places/<id>/versions          the replaced versions kept in places/old
+//   POST   /api/places/<id>/versions/<file>/restore   make one of them current again (a new version)
 // Changes need the host key (X-Host-Key).
 
 // A new version that cannot go in yet (lib/places.js replaceFile waited a
@@ -1308,6 +1310,37 @@ function placesWithStatus(isAdmin) {
     // For the join code players paste into their launcher.
     server: { tailscaleUrl: core.tailscaleIPv4() ? `http://${core.tailscaleIPv4()}` : null },
   };
+}
+
+// Earlier versions of a place's file (lib/places.js oldVersions): list, or
+// restore one. Restoring stores it as a new version, so the current one
+// joins the list instead of being lost, and the restored one leaves it.
+// Stored files are already converted.
+async function placeVersionsApi(ctx, match) {
+  if (!admin.allowed(ctx)) return sendJson(ctx, 403, admin.DENIED);
+  const placeId = match[1];
+  const versionId = match[2] || null;
+  const current = places.get(placeId);
+  if (!current) return sendJson(ctx, 404, { error: 'no such place' });
+  if (versionId === null) {
+    if (ctx.method !== 'GET') return sendJson(ctx, 405, { error: 'use GET' });
+    return sendJson(ctx, 200, { versions: places.oldVersions(placeId) });
+  }
+  if (ctx.method !== 'POST') return sendJson(ctx, 405, { error: 'use POST' });
+  const version = places.oldVersions(placeId).find((item) => item.id === versionId);
+  const bytes = version ? places.oldVersionBytes(placeId, versionId) : null;
+  if (!bytes) return sendJson(ctx, 404, { error: 'That version is no longer kept.' });
+  const notes = [`Restored the version saved ${version.savedAt.replace('T', ' ').replace(/\..*$/, '')} UTC.`];
+  let place;
+  try {
+    place = await places.replaceFile(placeId, { bytes, notes, universeId: current.universeId, from: 'restored', source: 'restored' });
+  } catch (error) {
+    if (error.busy) return sendJson(ctx, 409, { error: PLACE_FILE_BUSY });
+    throw error;
+  }
+  // Now the current file (the one it replaced took its place in the list).
+  places.removeOldVersion(placeId, versionId, version.savedAt);
+  return sendJson(ctx, 200, { place, notes, versions: places.oldVersions(placeId) });
 }
 
 // An uploaded place file -> { bytes } or { error }.
@@ -1860,6 +1893,7 @@ const ROUTES = [
   ...launcher.routes,
   [/^api\/games(?:\/([a-z0-9]+)(?:\/([a-z]+))?)?\/?$/i, gamesApi],
   [/^api\/thumbnails\/(\d{1,15})\/?$/i, thumbnailsApi],
+  [/^api\/places\/(\d{1,15})\/versions(?:\/(\d{1,15}-\d{8}T\d{6}\.rbxlx?)\/restore)?\/?$/i, placeVersionsApi],
   [/^api\/places(?:\/(\d{1,15})(?:\/([a-z-]+))?)?\/?$/i, placesApi],
   [/^api\/places\/(\d{1,15})\/servers\/([0-9a-f]{16,32})\/(restart|stop)\/?$/i, placeServerApi],
   [/^api\/private-servers\/([0-9a-f]{12})\/?$/i, privateServerAdminApi],

@@ -6,211 +6,377 @@
   <link rel="stylesheet" href="/studio/studio.css">
 </head>
 <body>
-  <header class="top">
-    <div class="brand">
-      <h1>ROBLOX Studio</h1>
-      <div class="hint" id="server-line"></div>
-    </div>
+  <header class="topbar">
+    <div class="brand"><b>Studio</b><span id="server-line"></span></div>
     <div class="who" id="who" style="display:none">
-      Logged in as <b id="who-name"></b>
-      <button class="ghost" id="logout" type="button">Log out</button>
+      <span class="avatar" id="who-initial"></span><span class="name" id="who-name"></span><span class="tag blue" id="who-admin" style="display:none">Admin</span>
+      <button class="quiet small" id="logout" type="button">Log out</button>
     </div>
   </header>
+  <div class="notice" id="not-studio" style="display:none">Open this page from Roblox Studio to edit games.</div>
 
-  <main>
-    <div class="panel narrow" id="login-panel" style="display:none">
-      <h2 style="margin-top:0">Log in</h2>
-      <p class="hint">Your account on this server. First time here? Log in with a new name and a password of at least 6 characters: that creates your account. Use your Roblox username so your avatar shows up in games.</p>
-      <form id="login-form" autocomplete="off">
-        <label for="login-name">Username</label>
-        <input type="text" id="login-name" maxlength="20" spellcheck="false">
-        <label for="login-password">Password</label>
-        <input type="password" id="login-password" maxlength="200">
-        <div class="row">
-          <button type="submit" id="login-go">Log in</button>
-          <span class="status" id="login-status"></span>
-        </div>
-      </form>
-    </div>
+  <form class="login" id="login-form" autocomplete="off" style="display:none">
+    <h1>Log in</h1>
+    <p class="hint">New name? That makes your account. Use your Roblox name to get your avatar in games.</p>
+    <label for="login-name">Username</label>
+    <input type="text" id="login-name" maxlength="20" spellcheck="false">
+    <label for="login-password">Password</label>
+    <input type="password" id="login-password" maxlength="200">
+    <button type="submit" class="btn" id="login-go">Log in</button>
+    <span class="status" id="login-status"></span>
+  </form>
 
-    <div id="games-panel" style="display:none">
-      <h2>Your games</h2>
-      <div class="games" id="mine"></div>
-      <div id="shared-section">
-        <h2>Games you can edit</h2>
-        <div class="games" id="shared"></div>
-        <p class="hint">In Team Create, close a script's tab before you publish: that's when your change reaches the server.</p>
+  <div class="page" id="games-panel" style="display:none">
+    <div class="toolbar clear" id="toolbar">
+      <div class="tabs" id="tabs">
+        <a data-tab="mine">My games<span class="n" id="n-mine"></span></a><a data-tab="shared">Shared with me<span class="n" id="n-shared"></span></a><a data-tab="all" id="tab-all" style="display:none">All games<span class="n" id="n-all"></span></a>
       </div>
-      <div id="other-section">
-        <h2>Other games on this server</h2>
-        <p class="hint">Only their owners and the editors they choose can open these.</p>
-        <div class="games" id="other"></div>
+      <div class="tools">
+        <span class="search">
+          <svg width="14" height="14" viewBox="0 0 16 16"><circle cx="6.5" cy="6.5" r="5" fill="none" stroke="#8a919a" stroke-width="2"/><line x1="10.5" y1="10.5" x2="15" y2="15" stroke="#8a919a" stroke-width="2" stroke-linecap="round"/></svg>
+          <input type="text" id="search" placeholder="Search" spellcheck="false">
+        </span>
+        <select id="sort">
+          <option value="recent">Recent</option>
+          <option value="name">Name</option>
+          <option value="players">Players</option>
+        </select>
+        <button type="button" class="btn" id="new-place"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>New place</button>
       </div>
-      <p><span class="status" id="games-status"></span></p>
     </div>
-
-    <div class="panel" id="not-studio" style="display:none">
-      <p>This is Roblox Studio's start page for this server. Open it from Studio.</p>
-    </div>
-  </main>
+    <div class="grid clear" id="grid"></div>
+  </div>
 
   <script src="/studio/studio.js"></script>
   <script>
   (function () {
-    var $ = Studio.$;
+    var $ = Studio.$, make = Studio.make;
     var me = null;
-    Studio.text($('server-line'), 'Server: ' + location.host.replace(/\.$/, ''));
+    var games = [];
+    var tab = 'mine';
+    var sort = 'recent';
+    var editing = null;      // the game in the editors dialog
+    var toastTimer = null;
 
-    function open(placeId) {
-      if (!Studio.inStudio()) { Studio.status($('games-status'), 'Open this page in Roblox Studio to edit games.', 'bad'); return; }
-      Studio.status($('games-status'), 'Opening…');
+    function remember(name, value) { try { window.localStorage.setItem('studio-' + name, value); } catch (e) { /* storage off */ } }
+    function recall(name) { try { return window.localStorage.getItem('studio-' + name) || ''; } catch (e) { return ''; } }
+
+    // Players reach the server through their launcher as "localhost": say nothing then.
+    var host = location.host.replace(/\.$/, '').replace(/\.(:\d+)$/, '$1');
+    if (!/^localhost(:\d+)?$/i.test(host)) Studio.text($('server-line'), host);
+
+    function toast(message, bad, sticky) {
+      var el = $('toast');
+      if (!el) { el = make('div', 'toast'); el.id = 'toast'; document.body.appendChild(el); }
+      el.className = 'toast' + (bad ? ' bad' : '');
+      Studio.text(el, message);
+      Studio.show(el, true);
+      clearTimeout(toastTimer);
+      if (!sticky) toastTimer = setTimeout(function () { Studio.show(el, false); }, bad ? 7000 : 3500);
+    }
+
+    // --- opening a game ------------------------------------------------------------------
+
+    function open(placeId, name) {
+      if (!Studio.inStudio()) { toast('Open this page from Roblox Studio to edit games.', true); return; }
+      toast(placeId ? 'Opening ' + name + '…' : 'Opening a new place…', false, true);
       Studio.api('POST', '/studio/api/open', { placeId: placeId }, function (error, data) {
-        if (error) { Studio.status($('games-status'), error, 'bad'); return; }
-        Studio.status($('games-status'), '');
+        if (error) { toast(error, true); return; }
         window.external.StartGame(data.ticket || '', data.url || '', data.script);
+        toast(placeId ? name + ' opens in a new window.' : 'The new place opens in a new window.');
       });
     }
 
-    function editorsBox(game, card) {
-      var box = Studio.make('div', 'editors');
-      var label = Studio.make('label', '', 'Editors (names, comma-separated)');
-      var input = Studio.make('input');
-      input.type = 'text';
-      input.value = game.editors.join(', ');
-      var row = Studio.make('div', 'row');
-      var save = Studio.make('button', '', 'Save');
-      var state = Studio.make('span', 'status');
-      save.type = 'button';
-      save.onclick = function () {
-        var names = input.value.split(',');
-        var list = [];
-        for (var i = 0; i < names.length; i++) {
-          var name = names[i].replace(/^\s+|\s+$/g, '');
-          if (name) list.push(name);
-        }
-        Studio.status(state, 'Saving…');
-        Studio.api('POST', '/studio/api/editors', { placeId: game.placeId, editors: list }, function (error, data) {
-          if (error) { Studio.status(state, error, 'bad'); return; }
-          game.editors = data.editors;
-          input.value = data.editors.join(', ');
-          Studio.status(state, 'Saved', 'good');
-        });
-      };
-      row.appendChild(save);
-      row.appendChild(state);
-      box.appendChild(label);
-      box.appendChild(input);
-      box.appendChild(row);
-      card.appendChild(box);
-      return box;
-    }
+    // --- cards -----------------------------------------------------------------------------
 
-    function card(game, editable) {
-      var el = Studio.make('div', 'game');
-      var art = Studio.make('div', 'art', game.name);
-      var img = document.createElement('img');
-      img.onerror = function () { img.parentNode && img.parentNode.removeChild(img); };
-      img.src = '/api/thumbnails/' + game.placeId + '?v=' + encodeURIComponent(game.updatedAt || '');
-      art.appendChild(img);
-      el.appendChild(art);
-      var body = Studio.make('div', 'body');
-      body.appendChild(Studio.make('div', 'name', game.name));
-      body.appendChild(Studio.make('div', 'meta', 'Place ' + game.placeId + ' · ' + Studio.statusLine(game)));
-      if (game.owner && !game.isOwner) body.appendChild(Studio.make('div', 'meta', 'By ' + game.owner));
-      if (editable) {
-        var actions = Studio.make('div', 'actions');
-        var edit = Studio.make('button', '', 'Edit');
-        edit.type = 'button';
-        edit.onclick = function () { open(game.placeId); };
-        actions.appendChild(edit);
-        if (game.isOwner || (me && me.admin && game.owner)) {
-          var link = Studio.make('a', '', 'Editors');
-          var box = null;
-          link.href = '#';
-          link.onclick = function (event) {
-            event.preventDefault();
-            if (box) { Studio.show(box, box.style.display === 'none'); return; }
-            box = editorsBox(game, body);
-          };
-          actions.appendChild(link);
-        }
-        body.appendChild(actions);
+    var SHADES = ['#3d6f9e', '#4f7f5c', '#8a5a8f', '#9a6a3a', '#3f7f86', '#7a4f4f', '#5d5f9a', '#6b7a3d'];
+
+    function thumb(game) {
+      var el = make('a', 'thumb');
+      el.title = 'Edit ' + game.name;
+      if (game.thumbnail) {
+        el.style.backgroundImage = 'url(/api/thumbnails/' + game.placeId + '?v=' + Number(game.thumbnail) + ')';
+      } else {
+        el.style.backgroundColor = SHADES[game.placeId % SHADES.length];
+        el.appendChild(make('div', 'letter', (game.name.replace(/[^A-Za-z0-9]/g, '').charAt(0) || '?').toUpperCase()));
       }
-      el.appendChild(body);
+      var pill = make('span', 'pill');
+      var dot = make('span', 'dot');
+      pill.appendChild(dot);
+      if (!game.online) pill.appendChild(document.createTextNode('Offline'));
+      else if (game.running && game.players > 0) { pill.className = 'pill live'; pill.appendChild(document.createTextNode(game.players + ' playing')); }
+      else { pill.className = 'pill idle'; pill.appendChild(document.createTextNode('Online')); }
+      el.appendChild(pill);
+      if (game.teamCreate) el.appendChild(make('span', 'tag tc', 'Team Create'));
+      el.appendChild(make('span', 'open', 'Edit'));
+      el.onclick = function () { open(game.placeId, game.name); };
       return el;
     }
 
-    function newPlaceCard() {
-      var el = Studio.make('div', 'game new');
-      el.appendChild(Studio.make('div', 'art', '+'));
-      var body = Studio.make('div', 'body');
-      body.appendChild(Studio.make('div', 'name', 'New place'));
-      body.appendChild(Studio.make('div', 'meta', 'A baseplate to build on'));
-      var actions = Studio.make('div', 'actions');
-      var start = Studio.make('button', '', 'Create');
-      start.type = 'button';
-      start.onclick = function () { open(0); };
-      actions.appendChild(start);
+    function subLine(game) {
+      // updatedAt also moves when the name or editors change: "Updated", not "Edited".
+      var edited = Studio.timeAgo(game.updatedAt);
+      edited = edited ? 'Updated ' + edited : '';
+      if (game.role === 'owner') return edited;
+      var by = game.owner ? 'By ' + game.owner : 'No owner';
+      return edited ? by + ' · ' + edited : by;
+    }
+
+    function card(game) {
+      var el = make('div', 'card');
+      el.appendChild(thumb(game));
+      var body = make('div', 'body');
+      var title = make('div', 'title', game.name);
+      title.title = game.name;
+      body.appendChild(title);
+      body.appendChild(make('div', 'sub', subLine(game)));
+      var actions = make('div', 'actions');
+      var edit = make('button', 'btn small', 'Edit');
+      edit.type = 'button';
+      edit.onclick = function () { open(game.placeId, game.name); };
+      actions.appendChild(edit);
+      if (game.isOwner || (me && me.admin && game.owner)) {
+        var people = make('button', 'btn small quiet', 'Editors');
+        people.type = 'button';
+        people.onclick = function () { openEditors(game); };
+        actions.appendChild(people);
+      }
+      actions.appendChild(make('span', 'id', '#' + game.placeId));
       body.appendChild(actions);
       el.appendChild(body);
       return el;
     }
 
-    function fill(list, games, editable, emptyText) {
-      list.innerHTML = '';
-      for (var i = 0; i < games.length; i++) list.appendChild(card(games[i], editable));
-      if (!games.length && emptyText) list.appendChild(Studio.make('p', 'empty', emptyText));
+    // --- list --------------------------------------------------------------------------------
+
+    function inTab(game, which) {
+      if (which === 'mine') return game.role === 'owner';
+      if (which === 'shared') return game.role === 'editor';
+      return true;
     }
 
-    function loadGames() {
-      Studio.api('GET', '/studio/api/games', null, function (error, data) {
-        if (error) { Studio.status($('games-status'), error, 'bad'); return; }
-        var mine = [], shared = [], other = [];
-        for (var i = 0; i < data.games.length; i++) {
-          var game = data.games[i];
-          if (game.isOwner) mine.push(game);
-          else if (game.canEdit) shared.push(game);
-          else other.push(game);
-        }
-        var mineList = $('mine');
-        fill(mineList, mine, true, '');
-        mineList.insertBefore(newPlaceCard(), mineList.firstChild);
-        fill($('shared'), shared, true, '');
-        Studio.show($('shared-section'), shared.length > 0);
-        fill($('other'), other, false, '');
-        Studio.show($('other-section'), other.length > 0);
+    function count(which) {
+      var n = 0;
+      for (var i = 0; i < games.length; i++) if (inTab(games[i], which)) n++;
+      return n;
+    }
+
+    function sorted(list) {
+      return list.sort(function (a, b) {
+        if (sort === 'name') return a.name.toLowerCase() < b.name.toLowerCase() ? -1 : a.name.toLowerCase() > b.name.toLowerCase() ? 1 : 0;
+        if (sort === 'players' && b.players !== a.players) return b.players - a.players;
+        return (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0);
       });
     }
 
+    function emptyState(query) {
+      var el = make('div', 'empty');
+      if (query) {
+        el.appendChild(make('b', '', 'No games match “' + query + '”'));
+        return el;
+      }
+      if (tab === 'mine') {
+        el.appendChild(make('b', '', 'No games yet'));
+        el.appendChild(document.createTextNode('Start with a baseplate, then publish it to this server.'));
+        el.appendChild(make('br'));
+        var start = make('button', 'btn', 'New place');
+        start.type = 'button';
+        start.onclick = function () { open(0); };
+        el.appendChild(start);
+      } else if (tab === 'shared') {
+        el.appendChild(make('b', '', 'Nothing shared yet'));
+        el.appendChild(document.createTextNode('Games appear here when an owner adds you as an editor.'));
+      } else {
+        el.appendChild(make('b', '', 'No games on this server'));
+      }
+      return el;
+    }
+
+    function render() {
+      var tabs = $('tabs').getElementsByTagName('a');
+      for (var t = 0; t < tabs.length; t++) tabs[t].className = tabs[t].getAttribute('data-tab') === tab ? 'on' : '';
+      Studio.text($('n-mine'), String(count('mine')));
+      Studio.text($('n-shared'), String(count('shared')));
+      Studio.text($('n-all'), String(count('all')));
+
+      var query = $('search').value.replace(/^\s+|\s+$/g, '');
+      var needle = query.toLowerCase();
+      var shown = [];
+      for (var i = 0; i < games.length; i++) {
+        var game = games[i];
+        if (!inTab(game, tab)) continue;
+        if (needle && (game.name + ' ' + game.placeId + ' ' + (game.owner || '')).toLowerCase().indexOf(needle) < 0) continue;
+        shown.push(game);
+      }
+      var grid = $('grid');
+      grid.innerHTML = '';
+      sorted(shown);
+      for (var k = 0; k < shown.length; k++) grid.appendChild(card(shown[k]));
+      if (!shown.length) grid.appendChild(emptyState(query));
+      fit();
+    }
+
+    // Centers the cards: as many 260 px columns as fit.
+    function fit() {
+      var room = document.documentElement.clientWidth - 48 + 16;
+      var columns = Math.max(1, Math.floor(room / 260));
+      $('grid').style.width = (columns * 260) + 'px';
+      $('grid').style.margin = '0 auto';
+      $('toolbar').style.width = Math.max(columns * 260 - 16, 0) + 'px';
+      $('toolbar').style.margin = '0 auto';
+    }
+
+    function loadGames() {
+      var scope = me && me.admin ? '?scope=all' : '';
+      Studio.api('GET', '/studio/api/games' + scope, null, function (error, data) {
+        if (error) { toast(error, true); return; }
+        games = data.games || [];
+        render();
+      });
+    }
+
+    function pickTab(which) {
+      if (which === 'all' && !(me && me.admin)) which = 'mine';
+      tab = which;
+      remember('tab', tab);
+      render();
+    }
+
+    // --- editors dialog -------------------------------------------------------------------
+
+    function closeEditors() {
+      editing = null;
+      var box = $('editors');
+      if (box) box.parentNode.removeChild(box);
+    }
+
+    function saveEditors(game, names, done) {
+      var state = $('editors-status');
+      Studio.status(state, 'Saving…');
+      Studio.api('POST', '/studio/api/editors', { placeId: game.placeId, editors: names }, function (error, data) {
+        if (error) { Studio.status(state, error, 'bad'); return; }
+        game.editors = data.editors;
+        Studio.status(state, 'Saved', 'good');
+        fillPeople(game);
+        if (done) done();
+      });
+    }
+
+    function fillPeople(game) {
+      var list = $('editors-list');
+      list.innerHTML = '';
+      if (!game.editors.length) list.appendChild(make('span', 'none', 'No editors yet.'));
+      for (var i = 0; i < game.editors.length; i++) {
+        (function (name) {
+          var person = make('span', 'person', name);
+          var remove = make('a', '', '×');
+          remove.title = 'Remove ' + name;
+          remove.onclick = function () {
+            var names = [];
+            for (var j = 0; j < game.editors.length; j++) if (game.editors[j] !== name) names.push(game.editors[j]);
+            saveEditors(game, names);
+          };
+          person.appendChild(remove);
+          list.appendChild(person);
+        }(game.editors[i]));
+      }
+    }
+
+    function openEditors(game) {
+      closeEditors();
+      editing = game;
+      var box = make('div');
+      box.id = 'editors';
+      var scrim = make('div', 'scrim');
+      scrim.onclick = closeEditors;
+      box.appendChild(scrim);
+      var dialog = make('div', 'dialog');
+      dialog.appendChild(make('h3', '', 'Editors'));
+      dialog.appendChild(make('div', 'sub', game.name));
+      var list = make('div', 'people');
+      list.id = 'editors-list';
+      dialog.appendChild(list);
+      var form = make('form', 'add');
+      var input = make('input');
+      input.type = 'text';
+      input.maxLength = 20;
+      input.placeholder = 'Username';
+      input.setAttribute('spellcheck', 'false');
+      var add = make('button', 'btn ghost', 'Add');
+      add.type = 'submit';
+      form.appendChild(input);
+      form.appendChild(add);
+      form.onsubmit = function (event) {
+        event.preventDefault();
+        var name = input.value.replace(/^\s+|\s+$/g, '');
+        if (!name) return;
+        saveEditors(game, game.editors.concat([name]), function () { input.value = ''; });
+      };
+      dialog.appendChild(form);
+      var state = make('span', 'status');
+      state.id = 'editors-status';
+      dialog.appendChild(state);
+      var foot = make('div', 'foot');
+      var done = make('button', 'btn', 'Done');
+      done.type = 'button';
+      done.onclick = closeEditors;
+      foot.appendChild(done);
+      dialog.appendChild(foot);
+      box.appendChild(dialog);
+      document.body.appendChild(box);
+      fillPeople(game);
+      input.focus();
+    }
+
+    // --- log in / out ----------------------------------------------------------------------
+
     function loggedIn(account) {
       me = account;
-      Studio.text($('who-name'), account.name + (account.admin ? ' (admin)' : ''));
+      Studio.text($('who-initial'), account.name.charAt(0).toUpperCase());
+      Studio.text($('who-name'), account.name);
+      Studio.show($('who-admin'), Boolean(account.admin));
+      Studio.show($('tab-all'), Boolean(account.admin));
       Studio.show($('who'), true);
-      Studio.show($('login-panel'), false);
+      Studio.show($('login-form'), false);
       Studio.show($('games-panel'), true);
+      tab = recall('tab') || 'mine';
+      if (tab === 'all' && !account.admin) tab = 'mine';
       loadGames();
     }
 
     function loggedOut() {
       me = null;
+      games = [];
+      closeEditors();
       Studio.show($('who'), false);
       Studio.show($('games-panel'), false);
-      Studio.show($('login-panel'), true);
+      Studio.show($('login-form'), true);
       $('login-name').focus();
     }
 
+    var tabLinks = $('tabs').getElementsByTagName('a');
+    for (var i = 0; i < tabLinks.length; i++) {
+      tabLinks[i].onclick = function () { pickTab(this.getAttribute('data-tab')); };
+    }
+    $('search').oninput = render;
+    sort = recall('sort') || 'recent';
+    $('sort').value = sort;
+    $('sort').onchange = function () { sort = $('sort').value; remember('sort', sort); render(); };
+    $('new-place').onclick = function () { open(0); };
     $('logout').onclick = function () { Studio.logout(loggedOut); };
+    window.onresize = function () { if (me) fit(); };
+    document.onkeydown = function (event) {
+      if ((event.keyCode || event.which) === 27 && editing) closeEditors();
+    };
+
     Studio.loginForm(loggedIn);
     Studio.show($('not-studio'), !Studio.inStudio());
     Studio.api('GET', '/studio/api/me', null, function (error, data) {
       if (!error && data.account) loggedIn(data.account);
       else loggedOut();
     });
-    // Players come and go: keep the online counts fresh.
-    setInterval(function () {
-      var typing = document.activeElement && /INPUT|TEXTAREA/.test(document.activeElement.tagName);
-      if (me && !typing) loadGames();
-    }, 30000);
+    // Players come and go: keep the counts fresh (not while a dialog is open).
+    setInterval(function () { if (me && !editing) loadGames(); }, 30000);
   }());
   </script>
 </body>

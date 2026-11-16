@@ -303,6 +303,34 @@ main { padding: 30px 36px 80px; max-width: 1180px; width: 100%; }
 .facts dt { color: var(--muted); }
 .facts dd { margin: 0; color: var(--strong); overflow-wrap: anywhere; }
 .btn-row { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* Files tab: replacing the place file, and its earlier versions */
+.replace { padding: 14px; display: grid; gap: 12px; }
+.replace:has(> .drop) { padding: 0; border: 0; box-shadow: none; background: none; }
+.replace .drop { padding: 26px 16px; }
+.pane.dragging .replace .drop { border-color: var(--accent); background: var(--accent-soft); }
+.pane.dragging .replace:not(:has(> .drop)) { outline: 2px dashed var(--accent); outline-offset: 3px; }
+.replace.good { border-color: color-mix(in srgb, var(--good) 50%, var(--line)); }
+.replace.bad { border-color: color-mix(in srgb, var(--bad) 50%, var(--line)); }
+.replace-head { display: flex; align-items: center; gap: 12px; }
+.replace-head .text { min-width: 0; }
+.replace-head b { display: block; color: var(--strong); overflow-wrap: anywhere; }
+.replace-head small { display: block; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.file-icon {
+  flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 6px;
+  background: var(--accent-soft); color: var(--accent-ink); font-size: 11px; font-weight: 700; letter-spacing: .3px;
+}
+.replace.good .file-icon { background: var(--good-soft); color: var(--good); font-size: 18px; }
+.replace.bad .file-icon { background: var(--bad-soft); color: var(--bad); font-size: 18px; }
+.replace-note { margin: 0; color: var(--text); font-size: 14px; }
+.replace-step { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.bar { position: relative; height: 6px; border-radius: 3px; background: var(--surface-2); border: 1px solid var(--line); overflow: hidden; }
+.bar span { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); transition: width .2s; }
+.bar.working span { width: 30%; animation: working 1.2s ease-in-out infinite; }
+@keyframes working { from { left: -30%; } to { left: 100%; } }
+.versions { display: grid; gap: 8px; }
+.versions h3 { font-size: 13px; color: var(--muted); }
+
 .restore-result { display: grid; gap: 8px; padding: 14px; }
 .restore-result b { color: var(--strong); }
 .notes summary { cursor: pointer; font-weight: 600; color: var(--strong); padding: 2px 0; }

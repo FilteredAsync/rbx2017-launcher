@@ -6,7 +6,7 @@
 //
 //   Webserver/node/data/places.json            the library
 //   Server/content/places/<placeId>.rbxl       uploaded places (binary; older ones .rbxlx, XML)
-//   Server/content/places/old/                 replaced versions (last 3 kept)
+//   Server/content/places/old/                 replaced versions (last 3 kept; /manage can restore them)
 //   Server/content/places/deleted/             removed places
 //
 // "enabled": true means players can play the game: the always-on server
@@ -227,6 +227,47 @@ function storePlaceFile(placeId, bytes) {
   return relative;
 }
 
+// Replaced versions kept in places/old (the last KEEP_OLD_VERSIONS), newest
+// first -> [{ id, savedAt, replacedAt, size }]. id is the file name; savedAt
+// is when that version was written (a move keeps the time), replacedAt when
+// a newer one took its place.
+function oldVersions(placeId) {
+  const id = placeKey(placeId);
+  if (id === null) return [];
+  const oldDir = path.join(PLACES_DIR, 'old');
+  let names = [];
+  try { names = fs.readdirSync(oldDir); } catch (error) { return []; }
+  const pattern = new RegExp(`^${id}-(\\d{4})(\\d{2})(\\d{2})T(\\d{2})(\\d{2})(\\d{2})\\.rbxlx?$`);
+  const list = [];
+  for (const name of names) {
+    const match = pattern.exec(name);
+    if (!match) continue;
+    let stat;
+    try { stat = fs.statSync(path.join(oldDir, name)); } catch (error) { continue; }
+    if (!stat.isFile()) continue;
+    const [, y, mo, d, h, mi, s] = match;
+    list.push({ id: name, savedAt: new Date(stat.mtimeMs).toISOString(), replacedAt: `${y}-${mo}-${d}T${h}:${mi}:${s}Z`, size: stat.size });
+  }
+  return list.sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+}
+
+// The bytes of one of oldVersions(placeId), or null.
+function oldVersionBytes(placeId, versionId) {
+  const found = oldVersions(placeId).find((version) => version.id === versionId);
+  if (!found) return null;
+  try { return fs.readFileSync(path.join(PLACES_DIR, 'old', found.id)); } catch (error) { return null; }
+}
+
+// Drops one of oldVersions(placeId): after it was restored it is the current
+// file, and listing it again would only offer the same file twice. savedAt
+// must still match, in case the file it replaced moved in under the same
+// name (both within one second).
+function removeOldVersion(placeId, versionId, savedAt) {
+  const found = oldVersions(placeId).find((version) => version.id === versionId);
+  if (!found || found.savedAt !== savedAt) return false;
+  try { fs.unlinkSync(path.join(PLACES_DIR, 'old', found.id)); return true; } catch (error) { return false; }
+}
+
 // A new place from an already converted .rbxlx -> its description.
 function create({ name, description, universeId, enabled, bytes, notes, from, owner }) {
   const library = load();
@@ -433,7 +474,7 @@ function writeRunnerStatus(status) {
 }
 
 module.exports = {
-  load, exists, ensure, list, get, create, replaceFile, update, setAccess, remove, filePath, placeKey,
+  load, exists, ensure, list, get, create, replaceFile, oldVersions, oldVersionBytes, removeOldVersion, update, setAccess, remove, filePath, placeKey,
   creatorOf, setLookedUpCreator, maxPlayersOf, avatarTypeOf,
   requestRestart, requestStart, requestStopServer, requestCloudEdit, requestServer, readRequests, runnerStatus, writeRunnerStatus,
   LIBRARY, CONTROL, STATUS,

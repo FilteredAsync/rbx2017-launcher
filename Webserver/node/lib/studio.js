@@ -26,6 +26,7 @@ const core = require('./core');
 const accounts = require('./accounts');
 const admin = require('./admin');
 const games = require('./games');
+const gamethumbs = require('./gamethumbs');
 const places = require('./places');
 const publicnet = require('./publicnet');
 
@@ -126,11 +127,17 @@ module.exports = function studioRoutes({ send, sendUtf8, sendFile, sendJson, jso
     return /RobloxStudio|WinInet|QtWebEngine|Qt\/|QtWebKit|AppleWebKit\/538/i.test(String(ctx.req.headers['user-agent'] || ''));
   }
 
-  function canEdit(account, place) {
+  // The owner or one of the editors the owner chose (admins are neither,
+  // unless named; they may still edit every game).
+  function isMember(account, place) {
     if (!account || !place) return false;
-    if (account.admin) return true;
     if (place.owner && place.owner.userId === account.userId) return true;
     return place.editors.some((editor) => editor.userId === account.userId);
+  }
+
+  function canEdit(account, place) {
+    if (!account || !place) return false;
+    return Boolean(account.admin) || isMember(account, place);
   }
 
   function runningGames() {
@@ -140,6 +147,7 @@ module.exports = function studioRoutes({ send, sendUtf8, sendFile, sendJson, jso
 
   function gameEntry(place, account, running) {
     const status = running[place.placeId] || null;
+    const isOwner = Boolean(account && place.owner && place.owner.userId === account.userId);
     return {
       placeId: Number(place.placeId),
       name: place.name,
@@ -149,8 +157,12 @@ module.exports = function studioRoutes({ send, sendUtf8, sendFile, sendJson, jso
       players: status && Array.isArray(status.players) ? status.players.length : 0,
       owner: place.owner ? place.owner.name : null,
       editors: place.editors.map((editor) => editor.name),
-      isOwner: Boolean(account && place.owner && place.owner.userId === account.userId),
+      isOwner,
+      // "owner", "editor", or "admin" (an admin who is neither).
+      role: isOwner ? 'owner' : isMember(account, place) ? 'editor' : 'admin',
       canEdit: canEdit(account, place),
+      teamCreate: place.teamCreate,
+      thumbnail: gamethumbs.version(place.placeId),
       version: place.version,
       updatedAt: place.updatedAt,
     };
@@ -314,9 +326,14 @@ module.exports = function studioRoutes({ send, sendUtf8, sendFile, sendJson, jso
     if (!account) return sendJson(ctx, 401, { error: 'Log in first.' });
 
     if (action === 'games') {
+      // Only the games this account owns or was made an editor of. Admins
+      // may ask for every game with ?scope=all.
+      const all = String(ctx.queryLower.scope || '').toLowerCase() === 'all' && account.admin;
       const running = runningGames();
-      const games = places.list().map((place) => gameEntry(place, account, running));
-      return sendJson(ctx, 200, { account, games });
+      const games = places.list()
+        .filter((place) => all || isMember(account, place))
+        .map((place) => gameEntry(place, account, running));
+      return sendJson(ctx, 200, { account, scope: all ? 'all' : 'mine', games });
     }
 
     if (action === 'open') {
