@@ -198,9 +198,9 @@ async function enter() {
       // First run after the small Setup.exe: get the game files first.
       enterShell();
       showView('settings');
-      showSettings('network');
+      showSettings('storage');
       showFilesPanel(false);
-      focusEl(state.needsTailscale ? $('join-code') : $('files-download'));
+      focusEl($('files-download'));
       return;
     }
     $('start-press').querySelector('span').textContent = 'Signing in…';
@@ -271,7 +271,7 @@ $('acct-guest').addEventListener('click', () => playAsGuest());
 $('acct-server-change').addEventListener('click', () => {
   enterShell();
   showView('settings');
-  showSettings('network');
+  showSettings('account');
   focusEl($('play-server'));
 });
 
@@ -361,7 +361,7 @@ const editor = window.AvatarEditor.create({
 // --- views and navigation -----------------------------------------------------------
 
 let VIEWS = ['home', 'avatar', 'games', 'players', 'settings'];
-let SETTINGS = ['account', 'network', 'storage', 'menu', 'host', 'server', 'setup', 'about'];
+let SETTINGS = ['account', 'storage', 'menu', 'host', 'server', 'setup', 'about'];
 
 // A player install (no server files) cannot host or run the web server.
 let capabilitiesApplied = false;
@@ -380,9 +380,6 @@ function applyCapabilities() {
   }
   // Converting places is for hosts (the server's /manage page converts uploads).
   $('convert-panel').classList.add('hidden');
-  // Players join their host's network with a join code (only a server on a
-  // Tailscale address needs one; one reached over the internet does not).
-  if (state.needsTailscale) $('join-panel').classList.remove('hidden');
 }
 
 function showView(name, focusContent) {
@@ -738,7 +735,7 @@ function renderHome() {
   for (let i = 0; i < 3; i++) {
     const entry = played[i];
     if (!entry) {
-      if (i === 0 && state && state.needsFiles) recent.append(placeholder('Download the game files first (Settings).', '↓', () => { showView('settings'); showSettings('network'); }));
+      if (i === 0 && state && state.needsFiles) recent.append(placeholder('Download the game files first (Settings).', '↓', () => { showView('settings'); showSettings('storage'); }));
       else recent.append(i === 0 ? placeholder('Games you join show up here.', '▶', () => showView('games', true)) : placeholder(''));
       continue;
     }
@@ -1997,54 +1994,6 @@ $('files-download').addEventListener('click', async () => {
   }
 });
 
-// --- join codes (tailscale.js in the main process) --------------------------------------
-
-let joiningNetwork = false;
-$('join-go').addEventListener('click', async () => {
-  if (joiningNetwork) return;
-  const code = $('join-code').value.trim();
-  if (!code) {
-    setStatus('join-status', 'Paste the join code first.', 'error');
-    return;
-  }
-  joiningNetwork = true;
-  $('join-go').disabled = true;
-  try {
-    const result = await api.joinWithCode({ code, username: me ? me.account.name : (storage('lastName') || '') });
-    $('play-server').value = result.server;
-    $('files-server').value = result.server;
-    $('join-code').value = '';
-    setStatus('join-status', result.alreadyConnected ? 'Connected (this PC was already on the network).' : 'Connected to your host\'s network.', 'good');
-    await refreshState();
-    if (state && state.needsFiles) {
-      showFilesPanel(false);
-      $('files-download').click(); // carry on with the game files
-    } else {
-      findGames(true);
-    }
-  } catch (error) {
-    setStatus('join-status', message(error), 'error');
-  } finally {
-    joiningNetwork = false;
-    $('join-go').disabled = false;
-  }
-});
-
-api.onJoinProgress((info) => {
-  const texts = {
-    checking: 'Checking…',
-    'tailscale-verify': 'Checking that the installer is really from Tailscale…',
-    'tailscale-install': 'Installing Tailscale: choose Yes in the Windows prompt…',
-    'tailscale-connect': 'Connecting to your host\'s network…',
-    'reaching-server': 'Waiting for the server to answer…',
-  };
-  if (info.phase === 'tailscale-download') {
-    setStatus('join-status', info.total ? `Downloading Tailscale… ${Math.round(info.received / 1e6)} of ${Math.round(info.total / 1e6)} MB` : 'Downloading Tailscale…');
-  } else if (texts[info.phase]) {
-    setStatus('join-status', texts[info.phase]);
-  }
-});
-
 // "3.4" or "85" (MB): small updates still show progress.
 function mbText(bytes) {
   return bytes < 1e7 ? (bytes / 1e6).toFixed(1) : String(Math.round(bytes / 1e6));
@@ -2093,7 +2042,7 @@ async function refreshChecks() {
       const button = el('button', 'ghost small', ACTION_LABELS[check.action] || 'Fix');
       button.addEventListener('click', async () => {
         if (check.action === 'download-files') {
-          showSettings('network');
+          showSettings('storage');
           showFilesPanel(true);
           return;
         }
@@ -2432,7 +2381,6 @@ api.onServerMoved(async (info) => {
   $('play-server').value = info.to;
   showToast(`Your server moved to ${info.to}. The launcher switched to it; you're still signed in.`, 12000);
   await refreshState();
-  if (state && !state.needsTailscale) $('join-panel').classList.add('hidden');
   findGames(true);
   setTimeout(offerTailscaleRemoval, 4000);
 });

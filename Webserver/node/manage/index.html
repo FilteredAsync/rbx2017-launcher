@@ -36,7 +36,6 @@
         <a href="#accounts" data-nav="accounts">Studio accounts</a>
         <a href="#assets" data-nav="assets">Missing assets <span class="count" id="nav-assets"></span></a>
         <a href="#server" data-nav="server">Server <span class="dot" id="nav-server"></span></a>
-        <a href="#join" data-nav="join">Join codes</a>
       </nav>
       <div class="side-foot">
         <span id="who"></span>
@@ -185,33 +184,6 @@
             <button class="btn small" type="button" id="log-reload">Reload</button>
           </div>
           <pre class="log" id="srv-log"></pre>
-        </div>
-      </section>
-
-      <!-- Join codes -->
-      <section data-view="join" hidden>
-        <header class="view-head">
-          <div>
-            <h1>Join codes</h1>
-            <p class="sub">A player pastes one into the launcher, and it connects them to this server over Tailscale.</p>
-          </div>
-        </header>
-        <form class="card form-card" id="join-form" autocomplete="off">
-          <label class="field">
-            <span>Server address</span>
-            <input id="join-server" placeholder="http://100.x.y.z" spellcheck="false">
-          </label>
-          <label class="field">
-            <span>Tailscale auth key</span>
-            <input id="join-key" type="password" placeholder="tskey-auth-…" spellcheck="false">
-            <small>A reusable key for players (README-SERVER.txt, "Join codes").</small>
-          </label>
-          <div><button class="btn primary" type="submit">Make code</button></div>
-        </form>
-        <div class="card code-card" id="join-result" hidden>
-          <code id="join-output"></code>
-          <button class="btn" type="button" id="join-copy">Copy</button>
-          <p>It contains the key, so share it privately. A new key cuts off old codes.</p>
         </div>
       </section>
     </main>

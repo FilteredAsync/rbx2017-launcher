@@ -190,7 +190,6 @@
       <div class="settings-layout">
         <div class="settings-nav" id="settings-nav">
           <button class="set-link active" data-panel="account">Account</button>
-          <button class="set-link" data-panel="network">Network</button>
           <button class="set-link" data-panel="storage">Storage</button>
           <button class="set-link" data-panel="menu">Menu</button>
           <button class="set-link" data-panel="host">Host a game</button>
@@ -210,15 +209,12 @@
                 <button class="ghost" id="account-signout">Sign out</button>
               </div>
             </div>
-          </div>
-
-          <div class="set-panel hidden" id="set-network">
             <div class="panel" id="server-panel">
               <div class="label">Server</div>
-              <p class="lead">The web server you play on: your host's Tailscale address, a playit address, or http://127.0.0.1 on the host PC. Accounts belong to a server.</p>
+              <p class="lead">The web server you play on. Accounts belong to a server.</p>
               <div class="grid two">
                 <label>Server address
-                  <input id="play-server" placeholder="http://100.x.y.z" spellcheck="false">
+                  <input id="play-server" placeholder="https://play.example.com" spellcheck="false">
                 </label>
               </div>
               <div class="row">
@@ -226,27 +222,16 @@
                 <span class="status" id="server-status"></span>
               </div>
             </div>
-            <div class="panel hidden" id="join-panel">
-              <div class="label">Join with a code</div>
-              <p class="lead">Got a join code from your host? Paste it here. The launcher sets up Tailscale (Windows asks for permission once), connects you to their server and downloads the game files.</p>
-              <div class="grid two">
-                <label>Join code
-                  <input id="join-code" placeholder="RBX1-…" spellcheck="false" autocomplete="off">
-                  <span class="hint">Already use Tailscale for something else? Joining switches it to your host's network; switch back from the Tailscale icon by the clock.</span>
-                </label>
-              </div>
-              <div class="row">
-                <button class="primary" id="join-go">Join</button>
-                <span class="status" id="join-status"></span>
-              </div>
-            </div>
+          </div>
+
+          <div class="set-panel hidden" id="set-storage">
             <div class="panel hidden" id="files-panel">
               <div class="label">Game files</div>
-              <p class="lead" id="files-lead">The game files come from your server (about 75 MB). Connect Tailscale, enter the server address your host gave you, and download them.</p>
+              <p class="lead" id="files-lead">The game files come from your server (about 75 MB).</p>
               <div class="grid two">
                 <label id="files-server-field">Server address
-                  <input id="files-server" placeholder="http://100.101.102.103" spellcheck="false">
-                  <span class="hint">Your host's Tailscale address. It is also used to find games.</span>
+                  <input id="files-server" placeholder="https://play.example.com" spellcheck="false">
+                  <span class="hint">Your server's address. It is also used to find games.</span>
                 </label>
               </div>
               <div class="row">
@@ -255,9 +240,6 @@
               </div>
               <progress class="files-progress hidden" id="files-progress" max="100" value="0"></progress>
             </div>
-          </div>
-
-          <div class="set-panel hidden" id="set-storage">
             <div class="panel" id="asset-cache-panel">
               <div class="label">Game assets on this PC</div>
               <p class="lead">Meshes, textures and sounds from games you play are kept here, so games load faster the next time. The launcher still checks with your server once a day that they are current.</p>

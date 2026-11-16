@@ -97,7 +97,7 @@ module.exports = function gameFiles({ root, normalizeUrl, canPlay, onProgress = 
     try {
       response = await fetch(`${url}/download/${k.file}.json`, { signal: AbortSignal.timeout(timeoutMs) });
     } catch (error) {
-      throw new Error(`Could not reach ${url}. Is Tailscale connected, and is the server running?`);
+      throw new Error(`Could not reach ${url}. Is the server running?`);
     }
     if (response.status === 404) throw new Error(`That server has no ${kind === 'studio' ? 'Studio' : 'game files'} to hand out yet (its host runs ${k.build}).`);
     if (!response.ok) throw new Error(`The server answered HTTP ${response.status}.`);
