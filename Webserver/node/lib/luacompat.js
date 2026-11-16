@@ -323,6 +323,8 @@ const METHODS = {
   GetPartBoundsInBox: [2, 3], GetPartBoundsInRadius: [2, 3], GetPartsInPart: [1, 2], GetScale: [0], ScaleTo: [1], CreatePath: [0, 1],
   // Color3:ToHSV, Model:GetBoundingBox, AnimationTrack:GetMarkerReachedSignal; Actor messages (2021).
   ToHSV: [0], GetBoundingBox: [0], GetMarkerReachedSignal: [1],
+  // Chat:RegisterChatCallback (2018): 2017's chat has no callbacks.
+  RegisterChatCallback: [2],
   BindToMessage: [2], BindToMessageParallel: [2], SendMessage: [1, 2, 3, 4, 5, 6, 7, 8],
 };
 
@@ -618,6 +620,7 @@ const HELPERS = {
     + 'elseif c:IsA("Humanoid") then c.HipHeight = c.HipHeight * k end end) walk(c) end end walk(o) '
     + 'for _, e in ipairs(parts) do pcall(function() local p, rel = e[1], e[2] p.Size = p.Size * k p.CFrame = pivot * CFrame.new(rel.p * k) * (rel - rel.p) end) end end',
   ToHSV: `function(o) ${own('ToHSV', '')} return Color3.toHSV(o) end`,
+  RegisterChatCallback: `function(o, t, f) ${own('RegisterChatCallback', 't, f')} pcall(function() o:RegisterChatCallback(t, f) end) end`,
   GetBoundingBox: `function(o) ${own('GetBoundingBox', '')} return o:GetModelCFrame(), o:GetExtentsSize() end`,
   // Keyframe markers (2018) are named keyframes to 2017's KeyframeReached.
   GetMarkerReachedSignal: `function(o, n) ${own('GetMarkerReachedSignal', 'n')} local s = {} `
