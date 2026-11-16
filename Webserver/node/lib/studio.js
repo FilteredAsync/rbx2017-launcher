@@ -456,12 +456,33 @@ pcall(function() history:SetEnabled(true) end)
 `;
   }
 
+  // The place each Studio last opened here. Studio names the window of a
+  // place it opened through edit.ashx from marketplace/productinfo?assetId=0
+  // (it asks before the edit script sets the place ID), which answered
+  // "Local Asset 0"; that answer is now the place it just opened.
+  const OPENED_MS = 5 * 60 * 1000;
+  const opened = new Map(); // "u<userId>" / "r<address>" -> { placeId, at }
+  function rememberOpen(ctx, userId, placeId) {
+    const now = Date.now();
+    for (const [key, value] of opened) if (now - value.at > OPENED_MS) opened.delete(key);
+    const entry = { placeId, at: now };
+    if (userId) opened.set(`u${userId}`, entry);
+    opened.set(`r${ctx.remote}`, entry);
+  }
+  // -> the place ID this request's Studio opened in the last minutes, or 0.
+  function openedPlace(ctx) {
+    const account = currentAccount(ctx);
+    const entry = (account && opened.get(`u${account.userId}`)) || opened.get(`r${ctx.remote}`);
+    return entry && Date.now() - entry.at < OPENED_MS ? entry.placeId : 0;
+  }
+
   function editScript(ctx) {
     const placeId = Number(ctx.queryLower.placeid) || 0;
     const headers = { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' };
     let script;
     if (placeId === 0) {
       const account = currentAccount(ctx);
+      rememberOpen(ctx, account ? account.userId : 0, 0);
       script = editScriptFor(ctx, { placeId: 0, universeId: 0, userId: account ? account.userId : 0 });
     } else {
       const allowed = authorize(ctx, placeId);
@@ -470,6 +491,7 @@ pcall(function() history:SetEnabled(true) end)
         script = `\r\nerror(${lua(allowed.error)})\r\n`;
       } else {
         const urls = editUrls(ctx, allowed.account, placeId);
+        rememberOpen(ctx, allowed.account.userId, placeId);
         script = editScriptFor(ctx, {
           placeId, universeId: placeId, userId: allowed.account.userId,
           placeUrl: urls.placeUrl, uploadUrl: urls.uploadUrl,
@@ -876,5 +898,5 @@ pcall(function() history:SetEnabled(true) end)
     [/^(?:game\/report-stats|analytics\/measurement\.ashx|game\/report-event)\/?$/i, (ctx) => send(ctx, 200, { 'Content-Type': 'text/plain' }, '')],
   ];
 
-  return { routes, placeAsset, mayHavePlaceFile, cloudEditLaunch };
+  return { routes, placeAsset, mayHavePlaceFile, cloudEditLaunch, openedPlace };
 };

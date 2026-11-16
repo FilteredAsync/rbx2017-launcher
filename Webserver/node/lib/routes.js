@@ -965,7 +965,16 @@ async function productDetails(ctx) {
 
 // www/marketplace/productinfo.php
 async function productInfo(ctx) {
-  const assetId = core.phpInt(ctx.queryLower.assetid);
+  let assetId = core.phpInt(ctx.queryLower.assetid);
+  // Asset 0: Studio naming the window of a place it just opened (lib/studio.js).
+  if (assetId === 0) {
+    assetId = studio.openedPlace(ctx);
+    if (assetId === 0) return send(ctx, 200, { 'Content-Type': 'application/json; charset=utf-8' }, core.phpJson({
+      TargetId: 0, ProductType: 'User Product', AssetId: 0, ProductId: 0, Name: 'New Place', Description: '', AssetTypeId: 9,
+      Creator: { Id: 1, Name: 'ROBLOX', CreatorType: 'User' }, IconImageAssetId: 0, Created: '2015-01-01T00:00:00Z', Updated: '2017-01-01T00:00:00Z',
+      PriceInRobux: null, IsForSale: false, IsLimited: false, IsLimitedUnique: false, Remaining: null, MinimumMembershipLevel: 0, ContentRatingTypeId: 0,
+    }));
+  }
   // A library place: its own name and creator (the game's loading screen
   // shows "By ..."; Studio shows both, and Team Create checks the owner).
   // Anything else: its Roblox info (lib/marketplace.js), or one of the
