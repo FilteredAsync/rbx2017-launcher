@@ -10,8 +10,9 @@
 // Paths match case-insensitively, like Apache on Windows, so the same tree
 // also works on Linux. Dot-folders (.test, .127.0.0.1), private keys and
 // folder listings are not served, and place files (the original bundle's
-// LT2.rbxl) only to this PC and the host key. These rules go by the name on
-// disk: Windows also opens a file by its short name, like "LT2~1.RBX".
+// LT2.rbxl) only to this PC and the host key. Error/captures (where crash
+// uploads used to go) is not served. These rules go by the name on disk:
+// Windows also opens a file by its short name, like "LT2~1.RBX".
 
 const fs = require('fs');
 const path = require('path');
@@ -35,12 +36,15 @@ function realPath(file) {
 }
 
 let realRoot = null;
-// In a dot-folder of the web root? (Not checked past a junction out of it.)
-function inDotFolder(real) {
+// In a dot-folder of the web root, or in Error/captures? (Not checked past a
+// junction out of it.)
+function hidden(real) {
   if (realRoot === null) realRoot = realPath(core.WWW) || core.WWW;
   const relative = path.relative(realRoot, real);
   if (relative.startsWith('..') || path.isAbsolute(relative)) return false;
-  return relative.split(path.sep).some((segment) => segment.startsWith('.'));
+  const segments = relative.split(path.sep);
+  if (segments.length > 2 && segments[0].toLowerCase() === 'error' && segments[1].toLowerCase() === 'captures') return true;
+  return segments.some((segment) => segment.startsWith('.'));
 }
 
 function resolve(relative) {
@@ -163,7 +167,7 @@ function serve(ctx, send, sendFile, log) {
   }
   if (!core.isFile(file)) return false;
   file = realPath(file);
-  if (file === null || inDotFolder(file)) return false;
+  if (file === null || hidden(file)) return false;
   const type = path.extname(file).toLowerCase();
   if (BLOCKED.has(type)) return false;
   if (PLACE_FILES.has(type) && !publicnet.fromLoopback(ctx) && !admin.allowed(ctx)) return false;

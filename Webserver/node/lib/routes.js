@@ -742,29 +742,123 @@ function unsignedStartScript(ctx, match) {
 
 // --- Small endpoints ---------------------------------------------------------------------
 
-function captureUpload(ctx) {
-  return ctx.body().then((body) => {
-    const directory = path.join(core.WWW, 'Error', 'captures');
-    fs.mkdirSync(directory, { recursive: true });
-    const sourceName = ctx.query.filename !== undefined ? path.basename(ctx.query.filename.replace(/\\/g, '/')) : 'client-upload.bin';
-    const safeName = sourceName.replace(/[^A-Za-z0-9._-]/g, '_');
+// Crash uploads. The client and Studio post their dumps and logs to
+// Error/Dmp.ashx when they next start, RCC to Error/Grid.ashx. They are kept
+// in logs/captures (not the web root, so never served), newest first, within
+// the limits below. This PC may always upload. Others need a game server's
+// address or a signed-in account, and have a per-address limit. Everyone
+// else still gets "OK", so their client does not retry at every start.
+const CAPTURE_DIR = core.rootPath('Webserver', 'node', 'logs', 'captures');
+const CAPTURE_MAX_FILE = 32 * 1024 * 1024; // the largest dumps are about 10 MB
+const CAPTURE_MAX_TOTAL = 512 * 1024 * 1024;
+const CAPTURE_MAX_FILES = 200;
+const CAPTURE_PER_HOUR = 30; // files from one address that is not this PC
+const CAPTURE_AT_ONCE = 4; // uploads from other PCs read at the same time
+const HOUR_MS = 60 * 60 * 1000;
+const captureCounts = new Map();
+let captureReading = 0;
+const captureHeaders = { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' };
+
+function captureKept(ctx) {
+  if (ctx.method !== 'POST') return false;
+  if (publicnet.fromLoopback(ctx)) return true;
+  if (!fromGameServer(ctx.remote) && accounts.fromRequest(ctx.req) === null) return false;
+  if (captureReading >= CAPTURE_AT_ONCE) return false;
+  const now = Date.now();
+  let entry = captureCounts.get(ctx.remote);
+  if (!entry || now - entry.first > HOUR_MS) {
+    if (captureCounts.size > 1000) {
+      for (const [key, value] of captureCounts) if (now - value.first > HOUR_MS) captureCounts.delete(key);
+    }
+    entry = { first: now, count: 0 };
+    captureCounts.set(ctx.remote, entry);
+  }
+  if (entry.count >= CAPTURE_PER_HOUR) return false;
+  entry.count++;
+  return true;
+}
+
+// Reads the upload, keeping its bytes only when `keep`. null: over `limit`
+// (or cut off), so the caller closes the connection.
+function captureBody(req, limit, keep) {
+  if (Number(req.headers['content-length']) > limit) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const chunks = [];
+    let size = 0;
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    req.on('data', (chunk) => {
+      if (settled) return;
+      size += chunk.length;
+      if (size > limit) finish(null);
+      else if (keep) chunks.push(chunk);
+    });
+    req.on('end', () => finish(Buffer.concat(chunks)));
+    req.on('error', () => finish(null));
+    req.on('close', () => finish(null));
+  });
+}
+
+// Newest first; deletes what is past CAPTURE_MAX_FILES or CAPTURE_MAX_TOTAL.
+function pruneCaptures() {
+  let names;
+  try { names = fs.readdirSync(CAPTURE_DIR); } catch (error) { return; }
+  const files = [];
+  for (const name of names) {
+    const file = path.join(CAPTURE_DIR, name);
+    try {
+      const stat = fs.statSync(file);
+      if (stat.isFile()) files.push({ file, size: stat.size, at: stat.mtimeMs });
+    } catch (error) { /* already gone */ }
+  }
+  files.sort((a, b) => b.at - a.at || (a.file < b.file ? 1 : -1));
+  let total = 0;
+  files.forEach((item, index) => {
+    total += item.size;
+    if (index < CAPTURE_MAX_FILES && total <= CAPTURE_MAX_TOTAL) return;
+    try { fs.unlinkSync(item.file); } catch (error) { /* in use */ }
+  });
+}
+
+async function captureUpload(ctx) {
+  const keep = captureKept(ctx);
+  const counted = keep && !publicnet.fromLoopback(ctx);
+  if (counted) captureReading++;
+  let body;
+  try {
+    body = await captureBody(ctx.req, CAPTURE_MAX_FILE, keep);
+  } finally {
+    if (counted) captureReading--;
+  }
+  if (body === null) {
+    ctx.res.on('finish', () => ctx.req.destroy());
+    return send(ctx, 413, Object.assign({ Connection: 'close' }, captureHeaders), 'too large');
+  }
+  let content = body;
+  const type = String(ctx.req.headers['content-type'] || '');
+  const boundaryMatch = /multipart\/form-data;.*boundary=("?)([^";]+)\1/i.exec(type);
+  if (keep && boundaryMatch) {
+    const file = firstMultipartFile(body, boundaryMatch[2]);
+    if (file !== null) content = file;
+  }
+  if (keep && content.length > 0) {
+    const sourceName = ctx.query.filename !== undefined ? path.basename(String(ctx.query.filename).replace(/\\/g, '/')) : 'client-upload.bin';
+    const safeName = sourceName.replace(/[^A-Za-z0-9._-]/g, '_').slice(-100);
     const stamp = core.gmdate().replace(/[-:]/g, '').replace(' ', '_');
     const unique = Date.now().toString(16) + Math.floor(Math.random() * 0xfffff).toString(16);
-    const capturePath = path.join(directory, `${stamp}_${unique}_${safeName}`);
-    let content = body;
-    const type = String(ctx.req.headers['content-type'] || '');
-    const boundaryMatch = /multipart\/form-data;.*boundary=("?)([^";]+)\1/i.exec(type);
-    if (boundaryMatch) {
-      const file = firstMultipartFile(body, boundaryMatch[2]);
-      if (file !== null) content = file;
-    }
     try {
-      fs.writeFileSync(capturePath, content);
+      fs.mkdirSync(CAPTURE_DIR, { recursive: true });
+      fs.writeFileSync(path.join(CAPTURE_DIR, `${stamp}_${unique}_${safeName}`), content);
     } catch (error) {
-      return send(ctx, 500, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' }, 'capture failed');
+      return send(ctx, 500, captureHeaders, 'capture failed');
     }
-    send(ctx, 200, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' }, 'OK');
-  });
+    pruneCaptures();
+  }
+  send(ctx, 200, captureHeaders, 'OK');
 }
 
 function firstMultipartFile(body, boundary) {
