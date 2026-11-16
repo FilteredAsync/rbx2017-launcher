@@ -178,7 +178,10 @@ function showScreen(name) {
   document.body.classList.toggle('on-account', name === 'account');
   document.body.classList.toggle('on-avatar', name === 'shell' && view === 'avatar');
   if (name === 'start') focusEl($('start-press'));
-  if (name === 'shell') setTimeout(() => { popNews(); whatsNewAfterUpdate(); }, 400);
+  if (name === 'shell') {
+    setTimeout(() => { popNews(); whatsNewAfterUpdate(); }, 400);
+    setTimeout(offerTailscaleRemoval, 3000);
+  }
   if (name === 'account') {
     $('acct-server').textContent = serverAddress() ? `Server: ${serverAddress()}` : 'No server set yet';
     focusEl($('acct-name').value ? $('acct-pass') : $('acct-name'));
@@ -197,7 +200,7 @@ async function enter() {
       showView('settings');
       showSettings('network');
       showFilesPanel(false);
-      focusEl($('join-code'));
+      focusEl(state.needsTailscale ? $('join-code') : $('files-download'));
       return;
     }
     $('start-press').querySelector('span').textContent = 'Signing in…';
@@ -377,8 +380,9 @@ function applyCapabilities() {
   }
   // Converting places is for hosts (the server's /manage page converts uploads).
   $('convert-panel').classList.add('hidden');
-  // Players join their host's network with a join code.
-  $('join-panel').classList.remove('hidden');
+  // Players join their host's network with a join code (only a server on a
+  // Tailscale address needs one; one reached over the internet does not).
+  if (state.needsTailscale) $('join-panel').classList.remove('hidden');
 }
 
 function showView(name, focusContent) {
@@ -438,6 +442,7 @@ function focusEl(node) {
 
 // What the arrows and the stick move between on the current screen.
 function navPool() {
+  if (!$('tailscale-overlay').classList.contains('hidden')) return focusables('#tailscale-overlay');
   if (!$('news-overlay').classList.contains('hidden')) return focusables('#news-overlay');
   if (!$('profile-overlay').classList.contains('hidden')) return focusables('#profile-overlay');
   if (!$('overlay').classList.contains('hidden')) return focusables('#overlay');
@@ -489,6 +494,7 @@ document.addEventListener('click', (event) => {
 
 function goBack() {
   if (loading) return;
+  if (!$('tailscale-overlay').classList.contains('hidden')) { closeTailscalePrompt(); return; }
   if (!$('news-overlay').classList.contains('hidden')) { closeWhatsNew(); return; }
   if (!$('profile-overlay').classList.contains('hidden')) { closeProfile(); return; }
   if (!$('overlay').classList.contains('hidden')) { closeDetail(); return; }
@@ -2196,6 +2202,55 @@ async function whatsNewAfterUpdate() {
   await showWhatsNew(state.version);
 }
 
+// --- Tailscale removal: once the server answers without it ---------------------------------
+
+let tailscaleOffered = false;
+async function offerTailscaleRemoval() {
+  if (tailscaleOffered || screen !== 'shell') return;
+  // After the update log, if that is open.
+  if (!$('news-overlay').classList.contains('hidden') || !$('overlay').classList.contains('hidden')) {
+    setTimeout(offerTailscaleRemoval, 5000);
+    return;
+  }
+  const result = await api.tailscaleOffer().catch(() => ({ offer: false }));
+  if (!result.offer || tailscaleOffered) return;
+  tailscaleOffered = true;
+  setStatus('ts-status', '');
+  sfx.play('overlay');
+  $('tailscale-overlay').classList.remove('hidden');
+  focusEl($('ts-remove'));
+}
+
+function closeTailscalePrompt() {
+  $('tailscale-overlay').classList.add('hidden');
+  const first = firstFocusable(`#view-${view}`);
+  if (first) focusEl(first);
+}
+
+$('ts-keep').addEventListener('click', async () => {
+  await api.tailscaleKeep().catch(() => {});
+  closeTailscalePrompt();
+});
+$('ts-remove').addEventListener('click', async () => {
+  $('ts-remove').disabled = true;
+  $('ts-keep').disabled = true;
+  setStatus('ts-status', 'Follow the Windows prompts to finish.');
+  try {
+    const result = await api.tailscaleUninstall();
+    if (result.removed) {
+      setStatus('ts-status', 'Tailscale removed.', 'good');
+      setTimeout(closeTailscalePrompt, 1500);
+    } else {
+      setStatus('ts-status', 'Tailscale is still installed. Remove it in Windows Settings > Apps.', 'error');
+    }
+  } catch (error) {
+    setStatus('ts-status', message(error), 'error');
+  } finally {
+    $('ts-remove').disabled = false;
+    $('ts-keep').disabled = false;
+  }
+});
+
 $('about-changelog').addEventListener('click', () => showWhatsNew(null));
 $('whats-new-close').addEventListener('click', closeWhatsNew);
 $('news-overlay').addEventListener('click', (event) => { if (event.target === $('news-overlay')) closeWhatsNew(); });
@@ -2377,7 +2432,9 @@ api.onServerMoved(async (info) => {
   $('play-server').value = info.to;
   showToast(`Your server moved to ${info.to}. The launcher switched to it; you're still signed in.`, 12000);
   await refreshState();
+  if (state && !state.needsTailscale) $('join-panel').classList.add('hidden');
   findGames(true);
+  setTimeout(offerTailscaleRemoval, 4000);
 });
 
 // --- start ----------------------------------------------------------------------------------

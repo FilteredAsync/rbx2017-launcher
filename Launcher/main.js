@@ -347,6 +347,19 @@ async function followMovedServer() {
   return true;
 }
 
+// --- Tailscale --------------------------------------------------------------------------
+// Servers on a Tailscale address (100.64.0.0/10) need Tailscale and a join
+// code; one reached through the VPS relay (an https name) needs neither.
+function tailscaleAddress(url) {
+  const match = /^https?:\/\/100\.(\d{1,3})\.\d{1,3}\.\d{1,3}(?::\d+)?\/?$/i.exec(String(url || ''));
+  return Boolean(match && Number(match[1]) >= 64 && Number(match[1]) <= 127);
+}
+
+function serverNeedsTailscale() {
+  const current = lib('proxy').normalizeCentralUrl((lib('joining').loadConfig() || {}).centralUrl || '') || fixedServer();
+  return current ? tailscaleAddress(current) : true;
+}
+
 // --- the built-in server address ---------------------------------------------------------
 // Release builds play on one server: Launcher/default-server.txt, packed into
 // the build on the PC that makes it and kept out of the public repository.
@@ -722,7 +735,7 @@ async function checks() {
   const { canPlay, canHost } = capabilities();
 
   if (!canHost) {
-    // Player install: the game files and Tailscale are all it needs.
+    // Player install: the game files (and Tailscale, for a server on a Tailscale address).
     const installed = installedFiles();
     add('files', 'Game files', canPlay,
       canPlay ? `Installed in: ${ROOT}${installed ? ` (version ${installed.version})` : ''}` : 'Not downloaded yet: they come from your server.',
@@ -731,11 +744,13 @@ async function checks() {
       const update = await filesUpdate((lib('joining').loadConfig() || {}).centralUrl);
       if (update) add('files-update', 'Game files update', false, `Version ${update.available} is on the server (you have ${update.installed}, ${Math.round(update.size / 1e6)} MB).`, 'download-files');
     }
-    const tailscaleIp = core.tailscaleIPv4();
-    const tailscaleInstalled = fs.existsSync('C:\\Program Files\\Tailscale\\tailscale.exe');
-    add('tailscale', 'Tailscale connected', Boolean(tailscaleIp),
-      tailscaleIp ? `This PC's Tailscale address: ${tailscaleIp}` : (tailscaleInstalled ? 'Tailscale is installed but not connected: sign in from its tray icon.' : 'Install Tailscale and sign in to reach your friends\' server.'),
-      tailscaleIp ? null : 'tailscale-download');
+    if (serverNeedsTailscale()) {
+      const tailscaleIp = core.tailscaleIPv4();
+      const tailscaleInstalled = fs.existsSync('C:\\Program Files\\Tailscale\\tailscale.exe');
+      add('tailscale', 'Tailscale connected', Boolean(tailscaleIp),
+        tailscaleIp ? `This PC's Tailscale address: ${tailscaleIp}` : (tailscaleInstalled ? 'Tailscale is installed but not connected: sign in from its tray icon.' : 'Install Tailscale and sign in to reach your friends\' server.'),
+        tailscaleIp ? null : 'tailscale-download');
+    }
     return result;
   }
 
@@ -920,7 +935,38 @@ function registerIpc() {
       needsFiles: !capabilities().canPlay && !capabilities().canHost,
       update: updateStatus,
       filesVersion: (installedFiles() || {}).version || null,
+      // Join codes (Tailscale) only for a server on a Tailscale address, or none set yet.
+      needsTailscale: serverNeedsTailscale(),
     };
+  });
+
+  // Tailscale is no longer needed once the server answers on a public
+  // address (the VPS relay): offer to remove it, once, on player installs.
+  ipcMain.handle('tailscale:offer', async () => {
+    const tailscale = require('./tailscale');
+    if (!tailscale.installed() || capabilities().canHost) return { offer: false };
+    const config = lib('joining').loadConfig() || {};
+    if (config.keepTailscale) return { offer: false };
+    const url = lib('proxy').normalizeCentralUrl(config.centralUrl || '');
+    if (!url || tailscaleAddress(url)) return { offer: false };
+    try {
+      const response = await fetch(`${url}/api/games`, { signal: AbortSignal.timeout(8000) });
+      if (!response.ok) return { offer: false };
+    } catch (error) {
+      return { offer: false };
+    }
+    return { offer: true };
+  });
+  ipcMain.handle('tailscale:keep', () => {
+    const joining = lib('joining');
+    joining.saveConfig(Object.assign({}, joining.loadConfig() || {}, { keepTailscale: true }));
+    return true;
+  });
+  ipcMain.handle('tailscale:uninstall', async () => {
+    logger('launcher')('Removing Tailscale (the server no longer needs it).');
+    const result = await require('./tailscale').uninstall();
+    logger('launcher')(result.removed ? 'Tailscale removed.' : `Tailscale is still installed (uninstaller exit code ${result.code}).`);
+    return result;
   });
 
   // The games on the server, each with its servers (lib/launcherapi.js).

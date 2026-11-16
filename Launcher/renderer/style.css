@@ -552,6 +552,9 @@ body.in-game .settings-hint { display: none !important; }
 .whats-new { width: min(760px, 86vw); max-height: 80vh; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 20px 60px rgba(0, 0, 0, .5); }
 .whats-new-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 22px; border-bottom: 1px solid var(--line); }
 .whats-new-title { font-size: 30px; font-weight: 300; }
+.tailscale-prompt { width: min(560px, 86vw); }
+.tailscale-prompt-body { padding: 18px 22px 22px; display: grid; gap: 16px; }
+.tailscale-prompt-actions { display: flex; gap: 10px; }
 .changelog { overflow-y: auto; padding: 6px 22px 22px; }
 .changelog-entry { padding: 16px 0; border-bottom: 1px solid var(--line); }
 .changelog-entry:last-child { border-bottom: 0; }

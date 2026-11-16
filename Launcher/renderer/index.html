@@ -523,6 +523,23 @@
     </div>
   </div>
 
+  <!-- The server no longer needs Tailscale: offer to remove it (once) -->
+  <div class="overlay hidden" id="tailscale-overlay">
+    <div class="whats-new tailscale-prompt">
+      <div class="whats-new-head">
+        <span class="whats-new-title">Tailscale isn't needed anymore</span>
+      </div>
+      <div class="tailscale-prompt-body">
+        <p class="lead">The server works without it now. Remove it from this PC?</p>
+        <div class="tailscale-prompt-actions">
+          <button class="primary" id="ts-remove">Uninstall Tailscale</button>
+          <button class="ghost" id="ts-keep">Keep it</button>
+        </div>
+        <span class="status" id="ts-status"></span>
+      </div>
+    </div>
+  </div>
+
   <!-- Game details -->
   <div class="overlay hidden" id="overlay">
     <div class="detail">
