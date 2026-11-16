@@ -1260,11 +1260,13 @@ function convertSource(source, options = {}) {
     const tokens = tokenize(text);
     // An end marker, so the patterns see the last tokens of the script too.
     tokens.push({ type: 'eof', value: '', start: text.length, end: text.length });
-    // A script converted before: its helper table is left as it is.
+    // A script converted before: its helper table and library stand-ins are
+    // left as they are (every rule below leaves code it rewrote unmatched,
+    // so the rest of such a script gets the rules it is missing).
     let helpersEnd = 0;
-    if (marked && tokens[0] && tokens[0].value === 'local' && tokens[1] && tokens[1].value === '__rbx2017' && isSymbol(tokens[2], '=') && isSymbol(tokens[3], '{')) {
-      const close = matchForward(tokens, 3);
-      if (close >= 0) helpersEnd = tokens[close].end;
+    if (marked) {
+      const end = preludeEnd(tokens);
+      helpersEnd = end > 0 ? tokens[end - 1].end : 0;
     }
     let done = true;
     for (let i = 1; i + 2 < tokens.length; i++) {
@@ -1511,7 +1513,6 @@ function convertSource(source, options = {}) {
           break;
         }
       }
-      if (marked) continue;
       // button.Activated:Connect(...) -> __rbx2017.Activated(button):Connect(...)
       // (GuiButton.Activated came later; Tool.Activated is kept as it is).
       if (tokens[i].type === 'symbol' && tokens[i].value === '.' && tokens[i + 1].type === 'name' && tokens[i + 1].value === 'Activated'
