@@ -1850,6 +1850,50 @@ function managePage(ctx, match) {
   return sendFile(ctx, path.join(__dirname, '..', 'manage', entry[0]), { 'Content-Type': entry[1], 'Cache-Control': 'no-cache' });
 }
 
+// /play/<placeId>[?server=<job ID>]: a game's share link. Chat apps make
+// https links clickable (not rbx2017:// ones) and show the game's name and
+// picture; the page then hands the game to the launcher through its
+// rbx2017:// link (Launcher/main.js), which joins it, or that server.
+const LAUNCHER_DOWNLOAD = 'https://github.com/FilteredAsync/rbx2017-launcher/releases/latest';
+function sharePage(ctx, match) {
+  const esc = (text) => String(text).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const place = places.exists() ? places.get(match[1]) : null;
+  const html = (status, body) => sendUtf8(ctx, status, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }, body);
+  const host = ctx.publicHost || String(ctx.req.headers.host || '').replace(/[^A-Za-z0-9.:[\]-]/g, '');
+  const base = `${ctx.publicHost || ctx.req.socket.encrypted ? 'https' : 'http'}://${host}`;
+  const server = /^[0-9a-f]{8,64}$/i.test(ctx.queryLower.server || '') ? ctx.queryLower.server : '';
+  if (!place) return html(404, `<!doctype html><meta charset="utf-8"><title>Game not found</title><body style="font:16px Segoe UI,sans-serif;background:#0d1b26;color:#ddd;padding:40px">There is no game with that link on this server.`);
+  const link = `rbx2017://play/${place.placeId}?host=${encodeURIComponent(host)}${server ? `&server=${server}` : ''}`;
+  const thumb = gamethumbs.get(place.placeId) ? `${base}/api/thumbnails/${place.placeId}` : '';
+  const title = server ? `Join ${place.name} (a friend's server)` : `Play ${place.name}`;
+  const about = (place.description || 'A game on this RobloxClient server.').slice(0, 300);
+  return html(200, `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(title)}</title>
+<meta property="og:title" content="${esc(title)}">
+<meta property="og:description" content="${esc(about)}">
+${thumb ? `<meta property="og:image" content="${esc(thumb)}"><meta name="twitter:card" content="summary_large_image">` : ''}
+<meta name="theme-color" content="#00a2ff">
+<style>
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0d1b26;color:#e8eef3;font:16px "Segoe UI",system-ui,sans-serif}
+main{width:min(460px,90vw);text-align:center}
+img{width:100%;aspect-ratio:1;object-fit:cover;box-shadow:0 18px 50px rgba(0,0,0,.45)}
+h1{font-weight:300;font-size:34px;margin:22px 0 6px}
+p{color:#9fb1bf;margin:6px 0}
+a.play{display:inline-block;margin-top:22px;padding:14px 40px;background:#00a2ff;color:#fff;text-decoration:none;font-size:18px;font-weight:600}
+a.get{color:#9fd8ff}
+</style></head>
+<body><main>
+${thumb ? `<img src="${esc(thumb)}" alt="">` : ''}
+<h1>${esc(place.name)}</h1>
+<p>${server ? 'A friend shared the server they are in.' : 'Shared from the RobloxClient Launcher.'}</p>
+<a class="play" href="${esc(link)}">Open in the launcher</a>
+<p style="margin-top:18px">No launcher yet? <a class="get" href="${LAUNCHER_DOWNLOAD}">Get it</a>, then open this link again.</p>
+</main>
+<script>setTimeout(function () { location.href = ${JSON.stringify(link).replace(/</g, '\\u003c')}; }, 400);</script>
+</body></html>`);
+}
+
 // Custom game thumbnails (lib/gamethumbs.js): anyone may look, hosts may change.
 async function thumbnailsApi(ctx, match) {
   const placeId = match[1];
@@ -1902,6 +1946,7 @@ const ROUTES = [
   ...launcher.routes,
   [/^api\/games(?:\/([a-z0-9]+)(?:\/([a-z]+))?)?\/?$/i, gamesApi],
   [/^api\/thumbnails\/(\d{1,15})\/?$/i, thumbnailsApi],
+  [/^play\/(\d{1,15})\/?$/i, sharePage],
   [/^api\/places\/(\d{1,15})\/versions(?:\/(\d{1,15}-\d{8}T\d{6}\.rbxlx?)\/restore)?\/?$/i, placeVersionsApi],
   [/^api\/places(?:\/(\d{1,15})(?:\/([a-z-]+))?)?\/?$/i, placesApi],
   [/^api\/places\/(\d{1,15})\/servers\/([0-9a-f]{16,32})\/(restart|stop)\/?$/i, placeServerApi],

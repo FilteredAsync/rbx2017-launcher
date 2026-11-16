@@ -563,7 +563,8 @@ pcall(function() history:SetEnabled(true) end)
   // api.roblox.com/universes/get-info and friends: what Studio's Game
   // Explorer shows for the universe (here: one place, no aliases or products).
   function universeInfo(ctx) {
-    const place = places.get(ctx.queryLower.universeid);
+    // Studio asks by universeId, and sometimes by placeId (the same number here).
+    const place = places.get(ctx.queryLower.universeid || ctx.queryLower.placeid);
     if (!place) return sendJson(ctx, 404, { errors: [{ code: 1, message: 'Invalid universe' }] });
     const account = currentAccount(ctx);
     sendJson(ctx, 200, {

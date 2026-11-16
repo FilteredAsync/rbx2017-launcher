@@ -222,6 +222,7 @@ function enterShell() {
   if (view === 'home') renderHome();
   findGames(true);
   focusEl(firstFocusable('#view-home') || document.querySelector('.tab-link.active'));
+  takeLink();
 }
 
 // --- sign in -----------------------------------------------------------------------------
@@ -785,6 +786,8 @@ function openDetail(game) {
   renderServerList(servers, playable && !busy);
   closePrivateForms();
   loadPrivate(detailGame);
+  resetGamePage();
+  loadGamePage(detailGame);
   // Starts a server now if none runs, so it's ready (or nearly) by Play.
   if (playable && !busy && detailGame.placeId) api.warmGame(detailGame.placeId);
   $('overlay').classList.remove('hidden');
@@ -801,6 +804,167 @@ function renderDetailMeta(game, listed) {
   const count = listed ? playersIn(game) : 0;
   if (count > 0) meta.append(el('span', 'detail-live', `${count} playing`));
 }
+
+// --- votes, badges and game passes (the server's game/<placeId>) ---
+
+let pageVotes = null; // { up, down, mine } of the open game
+let pageCanVote = false;
+
+function resetGamePage() {
+  pageVotes = null;
+  pageCanVote = false;
+  renderVotes();
+  for (const kind of ['badges', 'passes']) {
+    $(`detail-${kind}-box`).classList.add('hidden');
+    $(`detail-${kind}`).textContent = '';
+    $(`detail-${kind}-info`).textContent = '';
+  }
+}
+
+async function loadGamePage(game, attempt = 0) {
+  if (!game || !game.placeId) return;
+  let page;
+  try {
+    page = await api.gamePage(game.placeId);
+  } catch (error) {
+    return; // an older server has no game pages: the votes stay empty
+  }
+  if (!shownGame(game)) return;
+  pageVotes = page.votes || null;
+  pageCanVote = Boolean(page.canVote);
+  renderVotes();
+  if (Array.isArray(page.badges)) renderItems('badges', page.badges);
+  if (Array.isArray(page.passes)) renderItems('passes', page.passes);
+  // The server is still looking these up on Roblox: ask again shortly.
+  if ((page.badges === null || page.passes === null) && attempt < 3) setTimeout(() => { if (shownGame(game)) loadGamePage(game, attempt + 1); }, 2500);
+}
+
+function renderVotes() {
+  const votes = pageVotes || { up: 0, down: 0, mine: 0 };
+  const total = votes.up + votes.down;
+  $('vote-up-count').textContent = shortCount(votes.up);
+  $('vote-down-count').textContent = shortCount(votes.down);
+  $('vote-up').classList.toggle('mine', votes.mine === 1);
+  $('vote-down').classList.toggle('mine', votes.mine === -1);
+  $('vote-up').setAttribute('aria-pressed', String(votes.mine === 1));
+  $('vote-down').setAttribute('aria-pressed', String(votes.mine === -1));
+  $('vote-fill').parentElement.classList.toggle('rated', total > 0);
+  $('vote-fill').style.width = total > 0 ? `${Math.round((votes.up / total) * 100)}%` : '0';
+  $('vote-note').textContent = !pageVotes ? '' : total > 0 ? `${Math.round((votes.up / total) * 100)}% liked it` : 'No votes yet';
+}
+
+function shortCount(n) {
+  if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(n >= 1e4 ? 0 : 1)}K`;
+  return String(n);
+}
+
+async function castVote(value) {
+  const game = detailGame;
+  if (!game || !pageVotes) return;
+  if (!pageCanVote) { showToast('Sign in to vote on games.', 5000); return; }
+  const vote = pageVotes.mine === value ? 0 : value;
+  const before = pageVotes;
+  // At once on screen; the server's count follows.
+  pageVotes = Object.assign({}, before, {
+    up: before.up - (before.mine === 1 ? 1 : 0) + (vote === 1 ? 1 : 0),
+    down: before.down - (before.mine === -1 ? 1 : 0) + (vote === -1 ? 1 : 0),
+    mine: vote,
+  });
+  renderVotes();
+  try {
+    const result = await api.vote(game.placeId, vote);
+    if (shownGame(game) && result && result.votes) { pageVotes = result.votes; renderVotes(); }
+  } catch (error) {
+    if (shownGame(game)) { pageVotes = before; renderVotes(); showToast(message(error), 6000); }
+  }
+}
+$('vote-up').addEventListener('click', () => castVote(1));
+$('vote-down').addEventListener('click', () => castVote(-1));
+
+// Badges (lit when earned) or game passes, with the focused one described below.
+function renderItems(kind, items) {
+  const row = $(`detail-${kind}`);
+  const info = $(`detail-${kind}-info`);
+  row.textContent = '';
+  info.textContent = '';
+  $(`detail-${kind}-box`).classList.toggle('hidden', items.length === 0);
+  const owned = items.filter((item) => item.owned).length;
+  $(`detail-${kind}-count`).textContent = kind === 'badges'
+    ? (me ? `${owned} of ${items.length} earned` : `${items.length}`)
+    : (owned ? `${owned} of ${items.length} owned` : `${items.length}`);
+  for (const item of items) {
+    const tile = el('button', `item-tile ${kind === 'badges' ? 'badge' : 'pass'}${item.owned ? ' owned' : ''}`);
+    tile.type = 'button';
+    const icon = el('img', 'item-icon');
+    icon.alt = '';
+    icon.loading = 'lazy';
+    if (item.icon) icon.src = `launcher-net://server/asset/?id=${encodeURIComponent(String(item.icon))}`;
+    icon.addEventListener('error', () => { icon.removeAttribute('src'); });
+    tile.append(icon, el('span', 'item-name', item.name));
+    tile.append(el('span', 'item-tag', kind === 'badges' ? (item.owned ? 'Earned' : 'Not earned') : (item.owned ? 'Owned' : 'Free in game')));
+    const describe = () => { info.textContent = item.description ? `${item.name}: ${item.description}` : item.name; };
+    tile.addEventListener('mouseenter', describe);
+    tile.addEventListener('focus', describe);
+    row.append(tile);
+  }
+}
+
+// --- share links ---
+// https links (chat apps make them clickable) to the server's /play page,
+// which opens the launcher through rbx2017:// (main.js) to join the game.
+
+function shareLink(game, serverId) {
+  const base = serverAddress().replace(/\/+$/, '');
+  return `${base}/play/${encodeURIComponent(String(game.placeId))}${serverId ? `?server=${encodeURIComponent(serverId)}` : ''}`;
+}
+
+async function copyShareLink(game, serverId) {
+  if (!game || !game.placeId || !serverAddress()) return;
+  try {
+    await api.copy(shareLink(game, serverId));
+    sfx.play('success');
+    showToast(serverId ? 'Link copied. Friends who open it join this server.' : `Link copied. Friends who open it play ${game.name}.`, 5000);
+  } catch (error) {
+    showToast(message(error), 6000);
+  }
+}
+$('detail-share').addEventListener('click', () => copyShareLink(detailGame));
+
+// A share link the launcher was opened with (or sent while open).
+async function openLink(link) {
+  if (!link || !link.placeId) return;
+  let current = '';
+  try { current = new URL(serverAddress()).host.toLowerCase(); } catch (error) { current = ''; }
+  if (!current) { showToast('Set your server first (Settings), then open the link again.', 9000); return; }
+  if (link.host && link.host !== current) {
+    showToast(`That link is for another server (${link.host}). This launcher uses ${current}.`, 10000);
+    return;
+  }
+  closeProfile();
+  showView('games');
+  if (!lastGames.some((game) => String(game.placeId) === link.placeId)) await findGames(true);
+  const game = lastGames.find((entry) => String(entry.placeId) === link.placeId);
+  if (!game) { showToast('That game is not on this server right now.', 8000); return; }
+  openDetail(game);
+  if (!isPlayable(game)) return; // the page says it is offline
+  if (state && state.play.active) { showToast('Roblox is already open. Leave your game first, then open the link again.', 9000); return; }
+  if (link.server) {
+    const server = (game.servers || []).find((entry) => String(entry.id).toLowerCase() === link.server);
+    if (server) return startPlay(game, { gameId: server.id, address: server.address });
+    showToast('That server has closed. Joining another one.', 6000);
+  }
+  if (!game.legacy) return startPlay(game, { placeId: game.placeId });
+  const first = (game.servers || [])[0];
+  if (first) startPlay(game, { gameId: first.id, address: first.address });
+}
+
+async function takeLink() {
+  if (screen !== 'shell') return; // taken on entering (enterShell)
+  const link = await api.takeLink();
+  if (link) openLink(link);
+}
+api.onOpenLink(() => takeLink());
 
 $('detail-more').addEventListener('click', () => {
   const open = $('detail-desc').classList.toggle('open');
@@ -822,7 +986,10 @@ function renderServerList(servers, canJoin) {
     const join = el('button', 'ghost', full ? 'Full' : 'Join');
     join.disabled = full || !canJoin;
     join.addEventListener('click', () => startPlay(detailGame, { gameId: server.id, address: server.address }));
-    row.append(text, join);
+    const share = el('button', 'ghost', 'Share');
+    share.title = 'Copy a link that joins this server';
+    share.addEventListener('click', () => copyShareLink(detailGame, server.id));
+    row.append(text, share, join);
     list.append(row);
   });
 }

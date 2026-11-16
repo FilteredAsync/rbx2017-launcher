@@ -1081,6 +1081,10 @@ function registerIpc() {
   ipcMain.handle('storage:scan', () => cleaner().scan());
   ipcMain.handle('storage:clean', (event, kind) => cleanStorage(String(kind)));
   ipcMain.handle('clipboard:write', (event, text) => { clipboard.writeText(String(text)); return true; });
+  // A share link waiting for the window (deliverLink), taken once.
+  ipcMain.handle('link:take', () => { const link = pendingLink; pendingLink = null; return link; });
+  ipcMain.handle('game:page', (event, placeId) => account.gamePage(account.serverUrl(), placeId));
+  ipcMain.handle('game:vote', (event, placeId, vote) => account.vote(account.serverUrl(), placeId, vote));
 
   // Accounts, avatars and the catalog (account.js; all on the server in the
   // launcher's settings).
@@ -1270,15 +1274,62 @@ function createWindow() {
   });
 }
 
+// --- share links ------------------------------------------------------------------
+// rbx2017://play/<placeId>?host=<server>&server=<job ID>, from a game's share
+// page (the server's /play/<placeId>): the window joins that game, or that
+// server of it. A link arrives as an argument, at start or in a second start.
+const LINK_SCHEME = 'rbx2017';
+let pendingLink = null;
+
+function parseLink(text) {
+  try {
+    const url = new URL(String(text));
+    if (url.protocol !== `${LINK_SCHEME}:` || url.hostname !== 'play') return null;
+    const placeId = url.pathname.replace(/^\/+|\/+$/g, '');
+    if (!/^\d{1,15}$/.test(placeId)) return null;
+    const server = url.searchParams.get('server') || '';
+    const host = url.searchParams.get('host') || '';
+    return {
+      placeId,
+      server: /^[0-9a-f]{8,64}$/i.test(server) ? server.toLowerCase() : '',
+      host: /^[A-Za-z0-9.:[\]-]{1,255}$/.test(host) ? host.toLowerCase() : '',
+    };
+  } catch (error) {
+    return null;
+  }
+}
+
+function linkIn(argv) {
+  const arg = (argv || []).find((item) => String(item).toLowerCase().startsWith(`${LINK_SCHEME}://`));
+  return arg ? parseLink(arg) : null;
+}
+
+// Installed (packaged) launchers only: one run from source would otherwise
+// take the links from the installed one.
+function registerLinkScheme() {
+  if (!app.isPackaged) return;
+  if (!app.setAsDefaultProtocolClient(LINK_SCHEME)) logger('launcher')('Could not register rbx2017:// links (share links will not open the launcher).');
+}
+
+// The window takes the link when it is ready for it (link:take), or at once
+// when it already runs.
+function deliverLink(link) {
+  if (!link) return;
+  pendingLink = link;
+  if (win && !win.isDestroyed() && !win.webContents.isLoading()) send('open-link', link);
+}
+
 // One launcher at a time (two could both try to host); a second start
 // brings the open window forward instead.
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
+  pendingLink = linkIn(process.argv);
+  app.on('second-instance', (event, argv) => {
     if (!win) return;
     if (win.isMinimized()) win.restore();
     win.focus();
+    deliverLink(linkIn(argv));
   });
 }
 
@@ -1300,6 +1351,7 @@ app.whenReady().then(() => {
     return new Response(fs.readFileSync(music), { headers: { 'Content-Type': 'audio/mpeg' } });
   });
   applyFixedServer();
+  registerLinkScheme();
   registerIpc();
   createWindow();
   startPresence();

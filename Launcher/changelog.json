@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.12.0",
+    "date": "2026-11-16",
+    "title": "Game pages and share links",
+    "items": [
+      "Game pages show likes and dislikes, badges (lit once you earn them) and game passes.",
+      "Share a game, or one of its servers. The link opens the launcher and joins it.",
+      "The Network tab is gone. The server is on the internet now, so there is nothing to set up."
+    ]
+  },
+  {
     "version": "1.11.0",
     "date": "2026-11-16",
     "title": "No more Tailscale",

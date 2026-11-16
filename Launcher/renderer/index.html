@@ -525,7 +525,15 @@
   <!-- Game details -->
   <div class="overlay hidden" id="overlay">
     <div class="detail">
-      <div class="detail-cover" id="detail-cover"></div>
+      <div class="detail-side">
+        <div class="detail-cover" id="detail-cover"></div>
+        <div class="votes" id="detail-votes">
+          <button class="vote up" id="vote-up" title="Like" aria-label="Like"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10v11H3V10z"/><path d="M7 10l4-8c1.7 0 3 1.3 3 3v3h5.2c1.3 0 2.2 1.2 1.9 2.4l-2 8.5c-.2.9-1 1.6-1.9 1.6H7"/></svg><span id="vote-up-count">0</span></button>
+          <div class="vote-bar" aria-hidden="true"><div class="vote-fill" id="vote-fill"></div></div>
+          <button class="vote down" id="vote-down" title="Dislike" aria-label="Dislike"><span id="vote-down-count">0</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 14V3h4v11z"/><path d="M17 14l-4 8c-1.7 0-3-1.3-3-3v-3H4.8c-1.3 0-2.2-1.2-1.9-2.4l2-8.5C5.1 4.2 5.9 3.5 6.8 3.5H17"/></svg></button>
+        </div>
+        <div class="vote-note" id="vote-note"></div>
+      </div>
       <div class="detail-info">
         <div class="detail-name" id="detail-name"></div>
         <div class="detail-meta" id="detail-meta"></div>
@@ -533,10 +541,21 @@
         <button class="detail-more hidden" id="detail-more">More</button>
         <div class="detail-actions">
           <button class="play-button" id="detail-play">Play</button>
+          <button class="ghost with-icon" id="detail-share" title="Copy a link that opens this game in the launcher"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>Share</button>
           <button class="ghost" id="detail-back">Back</button>
         </div>
         <div class="detail-note" id="detail-note"></div>
         <div class="detail-as" id="detail-as"></div>
+        <div class="detail-section hidden" id="detail-badges-box">
+          <div class="detail-head"><span>Badges</span><span class="detail-count" id="detail-badges-count"></span></div>
+          <div class="item-row" id="detail-badges"></div>
+          <div class="item-info" id="detail-badges-info"></div>
+        </div>
+        <div class="detail-section hidden" id="detail-passes-box">
+          <div class="detail-head"><span>Game passes</span><span class="detail-count" id="detail-passes-count"></span></div>
+          <div class="item-row" id="detail-passes"></div>
+          <div class="item-info" id="detail-passes-info"></div>
+        </div>
         <div class="detail-section hidden" id="detail-servers-box">
           <div class="detail-head"><span>Servers</span></div>
           <div class="server-list" id="detail-servers"></div>

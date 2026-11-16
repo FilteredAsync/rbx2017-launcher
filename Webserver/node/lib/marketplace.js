@@ -44,6 +44,8 @@ const LOOKUP_URLS = {
   product: (id) => `https://apis.roblox.com/developer-products/v1/developer-products/${id}/details`,
   // A universe's game passes (the first 100).
   passes: (id) => `https://apis.roblox.com/game-passes/v1/universes/${id}/game-passes?passView=Full&pageSize=100`,
+  // A universe's badges (the first 100; the launcher's game page).
+  badges: (id) => `https://badges.roblox.com/v1/universes/${id}/badges?limit=100&sortOrder=Asc`,
 };
 const GAME_PASS_TYPE = 34; // the prompt says "Game Pass"
 
@@ -111,6 +113,14 @@ function trimPasses(data) {
   });
 }
 
+function trimBadges(data) {
+  return data.data.filter((badge) => badge && Number(badge.id) > 0).map((badge) => ({
+    id: Number(badge.id), name: String(badge.displayName || badge.name || ''), description: String(badge.displayDescription || badge.description || ''),
+    icon: Number(badge.displayIconImageId || badge.iconImageId) || 0, enabled: badge.enabled !== false,
+    awarded: Number(badge.statistics && badge.statistics.awardedCount) || 0,
+  }));
+}
+
 // A few lookups at a time, so a game asking about hundreds of items at once
 // does not run into Roblox's rate limits.
 function queuedLookup(kind, id) {
@@ -145,11 +155,13 @@ function lookUp(kind, id) {
   if (!pending) {
     pending = queuedLookup(kind, id).then((data) => {
       inFlight.delete(key);
-      if (!data || (kind === 'passes' ? !Array.isArray(data.gamePasses) : typeof data.Name !== 'string')) {
+      const valid = kind === 'passes' ? Array.isArray(data && data.gamePasses)
+        : kind === 'badges' ? Array.isArray(data && data.data) : Boolean(data) && typeof data.Name === 'string';
+      if (!valid) {
         failedAt.set(key, Date.now());
         return fallback;
       }
-      const info = kind === 'passes' ? trimPasses(data) : trimInfo(data);
+      const info = kind === 'passes' ? trimPasses(data) : kind === 'badges' ? trimBadges(data) : trimInfo(data);
       loadCache()[key] = { at: Date.now(), info };
       failedAt.delete(key);
       saveSoon();
@@ -340,4 +352,13 @@ function completePurchase(body) {
   return { success: Boolean(entry) };
 }
 
-module.exports = { assetInfo, passIcon, productInfo, submitPurchase, purchaseAsset, validatePurchase, pendingPurchases, completePurchase };
+// A universe's game passes and badges as Roblox lists them (cached): [] for
+// no universe, null while the first lookup is still running.
+async function universePasses(universeId) {
+  return Number(universeId) > 0 ? lookUp('passes', Number(universeId)) : [];
+}
+async function universeBadges(universeId) {
+  return Number(universeId) > 0 ? lookUp('badges', Number(universeId)) : [];
+}
+
+module.exports = { universePasses, universeBadges, assetInfo, passIcon, productInfo, submitPurchase, purchaseAsset, validatePurchase, pendingPurchases, completePurchase };

@@ -327,6 +327,9 @@ module.exports = function accountModule({ ROOT, lib }) {
     },
     presence: (centralUrl, body) => authed(centralUrl, 'POST', 'presence', { body, timeoutMs: 8000 }),
     warm: (centralUrl, placeId) => open(centralUrl, 'POST', 'warm', { body: { placeId: String(placeId || '') }, timeoutMs: 8000 }),
+    // A game's page: votes, badges and game passes (badges/passes null while the server first looks them up).
+    gamePage: (centralUrl, placeId) => maybeAuthed(centralUrl, 'GET', `game/${encodeURIComponent(String(placeId))}`, { timeoutMs: 12000 }),
+    vote: (centralUrl, placeId, vote) => authed(centralUrl, 'POST', `game/${encodeURIComponent(String(placeId))}/vote`, { body: { vote: Number(vote) } }),
     block: (centralUrl, userId, on) => authed(centralUrl, 'POST', on ? 'block' : 'unblock', { body: { userId: String(userId) } }),
     following: (centralUrl) => authed(centralUrl, 'GET', 'following', { timeoutMs: 8000 }),
     follow: (centralUrl, userId, on) => authed(centralUrl, 'POST', on ? 'follow' : 'unfollow', { body: { userId: String(userId) } }),

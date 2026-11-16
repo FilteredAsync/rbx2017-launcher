@@ -1,7 +1,7 @@
 {
   "name": "robloxclient-launcher",
   "productName": "RobloxClient Launcher",
-  "version": "1.11.0",
+  "version": "1.12.0",
   "description": "Play, host and run the web server for the RobloxClient 2017 bundle.",
   "author": "rbx2017-launcher",
   "main": "main.js",
@@ -83,6 +83,14 @@
         "owner": "FilteredAsync",
         "repo": "rbx2017-launcher",
         "releaseType": "release"
+      }
+    ],
+    "protocols": [
+      {
+        "name": "RobloxClient Launcher game link",
+        "schemes": [
+          "rbx2017"
+        ]
       }
     ]
   },

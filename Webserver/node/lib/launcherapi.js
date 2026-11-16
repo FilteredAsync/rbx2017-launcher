@@ -40,6 +40,9 @@
 //   POST outfits          (session) {name, image: PNG as base64} saves what you wear
 //   POST outfits/<id>/wear | rename {name} | delete   (session)
 //   GET  outfit-image/<userId>/<id>   an outfit's picture
+//   GET  game/<placeId>   a game's page: votes, badges (earned or not) and game passes
+//                         (owned or not); badges/passes null while first looked up
+//   POST game/<placeId>/vote   (session) {vote: 1 | -1 | 0} -> {votes}
 //
 // The session is the token from login, sent as "Authorization: Bearer ...",
 // the same accounts and sessions Studio uses (lib/accounts.js).
@@ -70,6 +73,10 @@ const creators = require('./creators');
 const outfits = require('./outfits');
 const announcements = require('./announcements');
 const wearables = require('./wearables');
+const marketplace = require('./marketplace');
+const badges = require('./badges');
+const ownership = require('./ownership');
+const votes = require('./votes');
 
 const TICKET_MS = 5 * 60 * 1000;
 const tickets = new Map();
@@ -1158,9 +1165,46 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
       if (result.error) return sendJson(ctx, result.status || 502, { error: result.error });
       return sendJson(ctx, 200, result);
     }
+    const gamePage = await gameRoute(ctx, action, method);
+    if (gamePage !== false) return gamePage;
     const people = await peopleRoute(ctx, action, method);
     if (people !== false) return people;
     return sendJson(ctx, 404, { error: 'unknown launcher request' });
+  }
+
+  // --- a game's page: votes, badges, game passes ----------------------------------------------
+
+  // Answers game/<placeId>[/vote]; false when the action is not one.
+  async function gameRoute(ctx, action, method) {
+    const match = /^game\/(\d{1,15})(?:\/(vote))?$/.exec(action);
+    if (!match) return false;
+    const place = places.exists() ? places.get(match[1]) : null;
+    if (!place) return sendJson(ctx, 404, { error: 'There is no game with that place ID.' });
+    if (match[2] === 'vote') {
+      if (method !== 'POST') return sendJson(ctx, 405, { error: 'use POST' });
+      const who = needAccount(ctx);
+      if (!who) return undefined;
+      const body = await jsonBody(ctx);
+      const vote = Number(body.vote);
+      if (![1, -1, 0].includes(vote)) return sendJson(ctx, 400, { error: 'Vote 1, -1 or 0.' });
+      return sendJson(ctx, 200, { votes: votes.cast(place.placeId, who.userId, vote) });
+    }
+    if (method !== 'GET') return sendJson(ctx, 405, { error: 'use GET' });
+    const viewer = account(ctx);
+    const userId = viewer ? viewer.userId : 0;
+    // The game's Roblox universe (from its upload) has its badges and passes.
+    const [passList, badgeList] = await Promise.all([marketplace.universePasses(place.universeId), marketplace.universeBadges(place.universeId)]);
+    return sendJson(ctx, 200, {
+      placeId: place.placeId,
+      votes: votes.of(place.placeId, userId),
+      canVote: Boolean(viewer),
+      badges: badgeList && badgeList.filter((badge) => badge.enabled).map((badge) => ({
+        id: badge.id, name: badge.name, description: badge.description, icon: badge.icon, owned: Boolean(userId && badges.has(userId, badge.id)),
+      })),
+      passes: passList && passList.map((pass) => ({
+        id: pass.id, name: pass.name, description: pass.description, price: pass.price, icon: pass.icon, owned: Boolean(userId && ownership.owns(userId, pass.id)),
+      })),
+    });
   }
 
   // --- people, profiles and outfits ----------------------------------------------------------

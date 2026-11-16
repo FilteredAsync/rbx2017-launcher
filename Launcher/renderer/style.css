@@ -329,7 +329,36 @@ code { background: rgba(0,0,0,.35); padding: 5px 9px; font-family: Consolas, mon
 .overlay { position: fixed; inset: 0; background: rgba(5, 12, 18, .8); display: grid; place-items: center; z-index: 10; animation: fade .18s ease-out; backdrop-filter: blur(4px); }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 .detail { display: flex; gap: 40px; width: min(1100px, 86vw); max-height: 88vh; align-items: flex-start; }
-.detail-cover { position: relative; width: 40%; aspect-ratio: 1 / 1; flex: none; overflow: hidden; box-shadow: 0 18px 50px rgba(0, 0, 0, .45); }
+.detail-side { width: 40%; flex: none; }
+.detail-cover { position: relative; width: 100%; aspect-ratio: 1 / 1; overflow: hidden; box-shadow: 0 18px 50px rgba(0, 0, 0, .45); }
+/* Likes and dislikes under the cover, as on the Xbox app: thumbs and a bar. */
+.votes { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+.vote { display: inline-flex; align-items: center; gap: 7px; background: none; border: 2px solid transparent; color: var(--muted); padding: 6px 8px; cursor: pointer; font-size: 16px; font-weight: 600; }
+.vote svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; }
+.vote:hover { color: #fff; }
+.vote:focus-visible { outline: none; border-color: #fff; }
+.vote.up.mine { color: var(--good); }
+.vote.down.mine { color: var(--bad); }
+.vote.mine svg { fill: currentColor; fill-opacity: .25; }
+.vote-bar { flex: 1; height: 6px; background: rgba(255, 255, 255, .14); overflow: hidden; }
+.vote-bar.rated { background: var(--bad); }
+.vote-fill { height: 100%; width: 0; background: var(--good); }
+.vote-note { color: var(--muted); font-size: 14px; margin-top: 6px; text-align: center; }
+.vote-note:empty { display: none; }
+/* Badges and game passes: a row of icons; the one in focus is described below. */
+.detail-head span.detail-count { color: var(--muted); font-size: 15px; font-weight: 400; margin-right: 0; }
+.detail-head span.detail-count:empty { display: none; }
+.item-row { display: flex; gap: 12px; overflow-x: auto; padding: 4px 2px 8px; scrollbar-width: thin; }
+.item-tile { flex: none; width: 104px; display: flex; flex-direction: column; align-items: center; gap: 7px; background: none; border: 2px solid transparent; padding: 6px 4px; cursor: default; color: var(--text); }
+.item-tile:hover, .item-tile:focus-visible { background: rgba(255, 255, 255, .08); outline: none; }
+.item-tile:focus-visible { border-color: #fff; }
+.item-icon { width: 76px; height: 76px; object-fit: cover; background: rgba(255, 255, 255, .06); }
+.item-tile.badge .item-icon { border-radius: 50%; }
+.item-tile.badge:not(.owned) .item-icon { filter: grayscale(1) brightness(.55); }
+.item-name { font-size: 13px; line-height: 1.25; text-align: center; max-height: 2.5em; overflow: hidden; overflow-wrap: anywhere; }
+.item-tag { font-size: 12px; font-weight: 600; color: var(--muted); }
+.item-tile.owned .item-tag { color: var(--good); }
+.item-info { color: var(--muted); font-size: 14px; line-height: 1.4; min-height: 1.4em; margin-top: 4px; overflow-wrap: anywhere; }
 .detail-cover .cover-title { font-size: 46px; }
 .detail-info { flex: 1; min-width: 0; display: flex; flex-direction: column; align-self: stretch; justify-content: safe center; overflow-y: auto; max-height: 88vh; padding-right: 8px; }
 .detail-info > * { flex-shrink: 0; }
