@@ -937,6 +937,12 @@ async function openLink(link) {
   let current = '';
   try { current = new URL(serverAddress()).host.toLowerCase(); } catch (error) { current = ''; }
   if (!current) { showToast('Set your server first (Settings), then open the link again.', 9000); return; }
+  // A server that moved to a new address hands out links for it: switch
+  // first (the launcher only checks a while after starting).
+  if (link.host && link.host !== current && await api.checkServerMoved().catch(() => false)) {
+    await refreshState();
+    try { current = new URL(serverAddress()).host.toLowerCase(); } catch (error) { current = ''; }
+  }
   if (link.host && link.host !== current) {
     showToast(`That link is for another server (${link.host}). This launcher uses ${current}.`, 10000);
     return;

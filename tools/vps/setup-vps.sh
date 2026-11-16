@@ -8,10 +8,14 @@
 #
 # On a fresh Ubuntu 22.04/24.04 or Debian 12 VPS, as root:
 #   bash setup-vps.sh                    set up (or update; keys are kept)
-#   bash setup-vps.sh --domain NAME      use your own domain (its A record -> this VPS)
+#   bash setup-vps.sh --domain NAME      use your own domain (its A record -> this VPS;
+#                                        on Cloudflare, "DNS only", or UDP and the
+#                                        certificate fail)
 #   bash setup-vps.sh --check            is the server PC connected and answering?
 # Without --domain the address is <ip-with-dashes>.sslip.io (a free DNS name
-# that points at this IP), so no domain is needed.
+# that points at this IP), so no domain is needed. With one, that sslip.io
+# name keeps working too: launchers not yet moved (POST /api/server/moved)
+# and links already shared still reach the server.
 #
 # Then, on the server PC: install WireGuard for Windows, import the tunnel
 # file this prints (/root/rbx-relay/server-pc.conf), activate it, run
@@ -44,9 +48,14 @@ case "$PUBIP" in
 esac
 [ -n "$PUBIP" ] || { echo "Could not find this VPS's public IPv4 address."; exit 1; }
 
+SSLIP="$(echo "$PUBIP" | tr . -).sslip.io"
 if [ -f "$DIR/domain" ] && [ -z "$DOMAIN" ]; then DOMAIN=$(cat "$DIR/domain"); fi
-[ -n "$DOMAIN" ] || DOMAIN="$(echo "$PUBIP" | tr . -).sslip.io"
-case "$DOMAIN" in *[!A-Za-z0-9.-]*) echo "Not a domain name: $DOMAIN"; exit 1 ;; esac
+[ -n "$DOMAIN" ] || DOMAIN="$SSLIP"
+DOMAIN=$(echo "$DOMAIN" | tr 'A-Z' 'a-z')
+case "$DOMAIN" in *[!a-z0-9.-]*|"") echo "Not a domain name: $DOMAIN"; exit 1 ;; esac
+# Caddy serves (and gets certificates for) both names.
+SITES="$DOMAIN"
+[ "$DOMAIN" = "$SSLIP" ] || SITES="$DOMAIN, $SSLIP"
 
 if [ "$CHECK" = 1 ]; then
   echo "Address for players: https://$DOMAIN"
@@ -121,11 +130,11 @@ else
   echo "ufw is not on. If your provider has a cloud firewall, open TCP 80, 443 and UDP 51820, $GAME_PORTS there."
 fi
 
-echo "== Caddy (HTTPS for $DOMAIN)"
+echo "== Caddy (HTTPS for $SITES)"
 [ -f /etc/caddy/Caddyfile ] && [ ! -f /etc/caddy/Caddyfile.before-rbx ] && cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.before-rbx
 cat > /etc/caddy/Caddyfile <<CADDY
 # The VPS relay for the always-on server (setup-vps.sh).
-$DOMAIN {
+$SITES {
 	request_body {
 		max_size 1GB
 	}

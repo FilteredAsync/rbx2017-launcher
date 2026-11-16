@@ -1859,8 +1859,16 @@ function sharePage(ctx, match) {
   const esc = (text) => String(text).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
   const place = places.exists() ? places.get(match[1]) : null;
   const html = (status, body) => sendUtf8(ctx, status, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }, body);
-  const host = ctx.publicHost || String(ctx.req.headers.host || '').replace(/[^A-Za-z0-9.:[\]-]/g, '');
-  const base = `${ctx.publicHost || ctx.req.socket.encrypted ? 'https' : 'http'}://${host}`;
+  let host = ctx.publicHost || String(ctx.req.headers.host || '').replace(/[^A-Za-z0-9.:[\]-]/g, '');
+  let base = `${ctx.publicHost || ctx.req.socket.encrypted ? 'https' : 'http'}://${host}`;
+  // Launchers take a link only for the server they use, and moved ones use
+  // the address in config/moved.json: links shared under an older name
+  // (the sslip.io one, say) hand them that address.
+  const moved = core.readJsonFile(core.rootPath('config', 'moved.json'));
+  if (moved && typeof moved.to === 'string' && /^https?:\/\/[A-Za-z0-9.-]+(?::\d{1,5})?$/.test(moved.to)) {
+    base = moved.to;
+    host = new URL(moved.to).host;
+  }
   const server = /^[0-9a-f]{8,64}$/i.test(ctx.queryLower.server || '') ? ctx.queryLower.server : '';
   if (!place) return html(404, `<!doctype html><meta charset="utf-8"><title>Game not found</title><body style="font:16px Segoe UI,sans-serif;background:#0d1b26;color:#ddd;padding:40px">There is no game with that link on this server.`);
   const link = `rbx2017://play/${place.placeId}?host=${encodeURIComponent(host)}${server ? `&server=${server}` : ''}`;

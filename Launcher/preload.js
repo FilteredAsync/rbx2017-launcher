@@ -49,6 +49,7 @@ contextBridge.exposeInMainWorld('launcher', {
   onlinePlayers: () => ipcRenderer.invoke('players:list'),
   friends: () => ipcRenderer.invoke('friends:list'),
   onServerMoved: (callback) => ipcRenderer.on('server-moved', (event, info) => callback(info)),
+  checkServerMoved: () => ipcRenderer.invoke('server:moved-check'),
   announcements: () => ipcRenderer.invoke('announcements:list'),
   friendAction: (verb, body) => ipcRenderer.invoke('friends:action', { verb, body }),
   people: (search) => ipcRenderer.invoke('people:search', search),
