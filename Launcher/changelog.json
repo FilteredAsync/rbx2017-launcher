@@ -1,5 +1,14 @@
 [
   {
+    "version": "1.11.0",
+    "date": "2026-11-16",
+    "title": "No more Tailscale",
+    "items": [
+      "The server is on the internet now: no Tailscale and no join code. New players install the launcher and play.",
+      "Still have Tailscale? The launcher offers to remove it, once. You can keep it."
+    ]
+  },
+  {
     "version": "1.10.1",
     "date": "2026-11-15",
     "title": "The game keeps its input",
