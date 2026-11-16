@@ -12,8 +12,13 @@ apart by the launcher's private profile folder, lib/joining.js isolatedEnv).
   - Studio's Qt organization name: its 9 uses (setOrganizationName and the
     QSettings("Roblox", ...) calls) are pointed at a new "ROBLOX2017 Revival"
     string written into unused space at the end of .rdata. The "Roblox"
-    string itself stays, because Studio also uses it for its AppData folder
-    name (AppData\\Local\\Roblox).
+    string itself stays, because Studio also uses it elsewhere.
+  - Studio's own folder, QDir::homePath() + "/AppData/Local/Roblox" (the
+    default Plugins folder, InstalledPlugins, CoreScriptOverrides and
+    ScriptAutosaves): homePath() ignores the launcher's USERPROFILE, so 2017
+    Studio loaded the real Studio's plugins (modern Luau, which fails to
+    compile). Its one use is pointed at "/AppData/Local/ROBLOX2017 Revival",
+    a second new string in the same free space.
 
     python tools/patch-2017-isolation.py                 (Client/ and Studio/ exes)
     python tools/patch-2017-isolation.py <exe> [<exe>...]
@@ -45,6 +50,15 @@ QT_ORG_OLD = b'Roblox\0'
 QT_ORG_NEW = NEW_VENDOR + b'\0'
 # Where the new string goes: this many bytes before the end of .rdata's raw data.
 QT_ORG_SLOT_FROM_END = 32
+
+# Studio: the push of "/AppData/Local/Roblox" after QDir::homePath() in the
+# AppSettings setup (0x6a62c0 calls homePath, 0x6a62d4 joins the two).
+STUDIO_APPDATA_PUSH = 0x6a62c6
+APPDATA_OLD = b'/AppData/Local/Roblox\0'
+APPDATA_NEW = b'/AppData/Local/' + NEW_VENDOR + b'\0'
+# Its new string sits just before the Qt organization one.
+APPDATA_SLOT_FROM_END = QT_ORG_SLOT_FROM_END + 40
+assert APPDATA_SLOT_FROM_END - QT_ORG_SLOT_FROM_END >= len(APPDATA_NEW)
 
 EXPECTED_REG_PATHS = {'client': 5, 'studio': 3}
 
@@ -144,6 +158,38 @@ def patch_studio_qt_org(data, notes):
     return len(sites)
 
 
+def patch_studio_appdata(data, notes):
+    pe = PE(bytes(data[:4096]))
+    rdata = pe.section('.rdata')
+    slot = rdata['raw'] + rdata['rsize'] - APPDATA_SLOT_FROM_END
+    slot_va = pe.offset_to_va(slot)
+    qt_slot = rdata['raw'] + rdata['rsize'] - QT_ORG_SLOT_FROM_END
+    off = pe.va_to_offset(STUDIO_APPDATA_PUSH)
+    if off is None or data[off] != 0x68:
+        raise ValueError(f'no push at {STUDIO_APPDATA_PUSH:#x}: not the expected Studio build')
+    target = struct.unpack_from('<I', data, off + 1)[0]
+    if target == slot_va:
+        if bytes(data[slot:slot + len(APPDATA_NEW)]) != APPDATA_NEW:
+            raise ValueError('Studio folder already repointed, but the new string is missing')
+        notes.append(f'Studio folder: already AppData\\Local\\{NEW_VENDOR.decode()}')
+        return 0
+    old_off = pe.va_to_offset(target)
+    if old_off is None or bytes(data[old_off:old_off + len(APPDATA_OLD)]) != APPDATA_OLD:
+        raise ValueError('the Studio folder push does not point at "/AppData/Local/Roblox": not the expected Studio build')
+    # The space must be unused: past the section's data, or (once the Qt
+    # organization patch stretched the section over its string) still zero.
+    end_of_data = rdata['raw'] + rdata['vsize']
+    stretched = end_of_data == qt_slot + len(QT_ORG_NEW)
+    if (end_of_data > slot and not stretched) or any(data[slot:qt_slot]):
+        raise ValueError('no free space for the Studio folder string')
+    data[slot:slot + len(APPDATA_NEW)] = APPDATA_NEW
+    new_vsize = max(rdata['vsize'], slot + len(APPDATA_NEW) - rdata['raw'])
+    struct.pack_into('<I', data, rdata['header'] + 8, new_vsize)
+    struct.pack_into('<I', data, off + 1, slot_va)
+    notes.append(f'Studio folder: AppData\\Local\\Roblox changed to AppData\\Local\\{NEW_VENDOR.decode()} (string at {slot_va:#x})')
+    return 1
+
+
 def process(path, check_only, backup_dir):
     with open(path, 'rb') as f:
         original = f.read()
@@ -153,6 +199,7 @@ def process(path, check_only, backup_dir):
     changed = patch_registry_paths(data, kind, notes)
     if kind == 'studio':
         changed += patch_studio_qt_org(data, notes)
+        changed += patch_studio_appdata(data, notes)
     assert len(data) == len(original)
     if changed and not check_only:
         if backup_dir:

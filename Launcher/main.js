@@ -562,6 +562,11 @@ async function openStudio(centralUrl) {
     }
   }
   await holdProxyForStudio(url, log);
+  try {
+    if (joining.moveStudioPluginsSetting()) log('Studio plugins now load from AppData\\Local\\ROBLOX2017 Revival\\Plugins.');
+  } catch (error) {
+    log(`Could not update Studio's plugins folder setting: ${error.message}`);
+  }
   // Its own profile folder, like the client's (lib/joining.js isolatedEnv).
   const child = spawn(STUDIO_EXE(), [], { cwd: path.dirname(STUDIO_EXE()), detached: true, stdio: 'ignore', env: lib('joining').isolatedEnv() });
   child.on('error', (error) => log(`Could not start Studio: ${error.message}`));

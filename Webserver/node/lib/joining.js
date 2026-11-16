@@ -71,6 +71,25 @@ function isolatedEnv() {
   return Object.assign({}, process.env, { USERPROFILE: PROFILE });
 }
 
+// Studio's plugins folder is AppData\Local\ROBLOX2017 Revival\Plugins under
+// the real home folder (its Qt side ignores USERPROFILE). Before Studio files
+// had tools/patch-2017-isolation.py's folder patch it was AppData\Local\Roblox\
+// Plugins, the current Roblox Studio's, whose plugins don't compile in 2017.
+// Settings Studio saved then keep that path; this moves it. True when changed.
+function moveStudioPluginsSetting(home = require('os').homedir()) {
+  const file = path.join(PROFILE_LOCAL_APPDATA, 'Roblox', 'GlobalSettings_13.xml');
+  let text;
+  try { text = fs.readFileSync(file, 'utf8'); } catch (error) { return false; }
+  const base = home.replace(/\\/g, '/').replace(/\/+$/, '');
+  const old = `${base}/AppData/Local/Roblox/Plugins`.toLowerCase();
+  const pattern = /(<QDir name="PluginsDir">)([^<]*)(<\/QDir>)/;
+  const match = text.match(pattern);
+  if (!match || match[2].replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase() !== old) return false;
+  const moved = text.replace(pattern, (all, open, value, close) => `${open}${base}/AppData/Local/ROBLOX2017 Revival/Plugins${close}`);
+  fs.writeFileSync(file, moved);
+  return true;
+}
+
 // The last lines of the 2017 client's own log written since startedAt
 // (<profile>\AppData\Local\Roblox\logs\log_<hex>_<n>.txt; before 1.9.0 in
 // %LOCALAPPDATA%\Roblox\logs), or [].
@@ -251,4 +270,5 @@ async function joinGame({ centralUrl, username, ticket = null, name = null, game
 module.exports = {
   joinGame, joinTicket, fetchGames, validUsername, loadConfig, saveConfig, CONFIG, CLIENT_EXE,
   earlyExitProblem, startProblem, exitCodeText, clientLogTail, EARLY_EXIT_SECONDS, isolatedEnv, PROFILE, PROFILE_LOCAL_APPDATA,
+  moveStudioPluginsSetting,
 };
