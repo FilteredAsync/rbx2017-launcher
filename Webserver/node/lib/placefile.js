@@ -459,6 +459,19 @@ function partClassesOf2017() {
 // find by name (Defenders Legacy's zone workers).
 const CLASS_STANDINS = new Map([['Actor', 'Model'], ['WorldModel', 'Model']]);
 
+// Wrapping lists: 2017's UIListLayout has no Wraps, so its items ran on in
+// one line. They become UIGridLayouts whose cells take the size of the first
+// shown item (set by this script, as games add and show items while playing;
+// hidden templates are left out, as layouts leave them out).
+function wrapScriptItem(n) {
+  const source = 'local layout = script.Parent local frame = layout.Parent '
+    + 'local function fit() for _, c in ipairs(frame:GetChildren()) do if c:IsA("GuiObject") and c.Visible then if layout.CellSize ~= c.Size then layout.CellSize = c.Size end return end end end '
+    + 'local function watch(c) if c:IsA("GuiObject") then c.Changed:connect(function(p) if p == "Visible" or p == "Size" then fit() end end) end fit() end '
+    + 'frame.ChildAdded:connect(watch) frame.ChildRemoved:connect(fit) for _, c in ipairs(frame:GetChildren()) do watch(c) end';
+  return `<Item class="LocalScript" referent="RBX2017WRAP${n}"><Properties><bool name="Disabled">false</bool><string name="Name">__2017Wrap</string>`
+    + `<ProtectedString name="Source"><![CDATA[${source}]]></ProtectedString></Properties></Item>`;
+}
+
 function misplaced(className, parentClass) {
   if (className === 'Attachment') return !partClassesOf2017().has(parentClass);
   if (className === 'Team') return parentClass !== 'Teams';
@@ -683,7 +696,7 @@ function convertPlace(input, options) {
   }
   const counts = {
     robloxLinks: 0, thumbnails: 0, gameAssets: 0, contentIds: 0, fonts: 0, droppedProperties: 0, intValues: 0,
-    attributes: 0, attributeSets: 0, attributeValues: 0, attributesInUse: false, sharedStrings: 0, newCsg: 0, compoundAssignments: 0, materials: 0, unionCollision: 0, unionShapes: 0, filteringEnabled: 0, pgsSolver: 0, streaming: 0, gamePatches: new Set(),
+    attributes: 0, attributeSets: 0, attributeValues: 0, attributesInUse: false, wrappingLists: 0, sharedStrings: 0, newCsg: 0, compoundAssignments: 0, materials: 0, unionCollision: 0, unionShapes: 0, filteringEnabled: 0, pgsSolver: 0, streaming: 0, gamePatches: new Set(),
     compatScripts: 0, compatChanges: new Map(), madeFolders: new Map(), standIns: new Map(), chatSetAside: 0, coreGuiSetAside: 0, localizationTables: 0, playerModule: false,
     gameAssetNames: new Set(), unsupportedThumbnails: new Set(), luauScripts: [], unknownClasses: new Map(),
   };
@@ -755,6 +768,15 @@ function convertPlace(input, options) {
         }
       }
       let converted = convertProperties(className, props, options, counts);
+      // A UIListLayout that wraps (Wraps, 2023) -> a UIGridLayout of the same name.
+      if (className === 'UIListLayout' && /<bool\s+name="Wraps">\s*true\s*<\/bool>/.test(props) && !attributeItems) {
+        const pad = /<UDim\s+name="Padding">\s*<S>([^<]*)<\/S>\s*<O>([^<]*)<\/O>\s*<\/UDim>/.exec(props);
+        const [s, o] = pad ? [pad[1], pad[2]] : ['0', '0'];
+        counts.wrappingLists++;
+        return open.replace(/class="UIListLayout"/, 'class="UIGridLayout"') + converted
+          + `<UDim2 name="CellPadding"><XS>${s}</XS><XO>${o}</XO><YS>${s}</YS><YO>${o}</YO></UDim2><UDim2 name="CellSize"><XS>0</XS><XO>100</XO><YS>0</YS><YO>100</YO></UDim2>`
+          + close + wrapScriptItem(counts.wrappingLists);
+      }
       if (attributeItems) return open + converted + close + attributeItems;
       const referent = setAsideRefs.size > 0 || coreGuiRefs.size > 0 ? /referent="([^"]+)"/.exec(open) : null;
       if (referent && setAsideRefs.has(referent[1])) {
@@ -891,6 +913,7 @@ function summarize(counts, options) {
   if (counts.coreGuiSetAside > 0) lines.push('  a copy of Roblox\'s own UI scripts saved into StarterGui (RobloxGui) set aside; players get the 2017 topbar, backpack and player list');
   if (counts.playerModule) lines.push('  a stand-in PlayerModule (move input) added to StarterPlayerScripts, which the game\'s scripts look for');
   if (counts.localizationTables > 0) lines.push(`  ${counts.localizationTables} localization table${counts.localizationTables === 1 ? '' : 's'} given to clients as ModuleScripts (ReplicatedStorage.${LOCALIZATION_FOLDER}) for the GetTranslator stand-in`);
+  changed(counts.wrappingLists, 'wrapping lists (UIListLayout.Wraps) -> grids of the same name');
   if (counts.standIns.size > 0) lines.push(`  newer classes as the nearest 2017 one: ${[...counts.standIns].map(([from, to]) => `${from} -> ${to}`).join(", ")}`);
   if (counts.madeFolders.size > 0) {
     lines.push(`  ${[...counts.madeFolders].map(([name, n]) => `${n} ${name}${n === 1 ? '' : 's'}`).join(', ')} where the 2017 engine does not allow them (it would refuse the whole place) -> folders of the same name`);

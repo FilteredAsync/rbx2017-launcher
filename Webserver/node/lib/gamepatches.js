@@ -11,13 +11,31 @@
 const count = (text, part) => text.split(part).length - 1;
 const lines = (...parts) => parts.join('\n');
 
-function edits(name, pairs, { unless } = {}) {
+// { all: true }: every copy of each line is replaced (the same line in several places).
+function edits(name, pairs, { unless, all } = {}) {
   return {
     name,
-    applies: (source) => !(unless && source.includes(unless)) && pairs.every(([find, replace]) => count(source, find) === 1 && !source.includes(replace)),
-    fix: (source) => pairs.reduce((text, [find, replace]) => text.replace(find, () => replace), source),
+    applies: (source) => !(unless && source.includes(unless)) && pairs.every(([find, replace]) => (all ? count(source, find) >= 1 : count(source, find) === 1) && !source.includes(replace)),
+    fix: (source) => pairs.reduce((text, [find, replace]) => (all ? text.split(find).join(replace) : text.replace(find, () => replace)), source),
   };
 }
+
+// Scripts from the decompiler that starts them with "-- params : ..." (the
+// Welcome to Bloxburg copy's) lost the parentheses of (a - b).magnitude:
+// a - b.magnitude takes a number from a Vector3 and errors, so floors, roofs,
+// wall windows, fences and counters could not be built. __dmag(a, b, k) gives
+// (a - b)[k] when a is a vector and a - b[k] otherwise (where that is meant).
+// Only where nothing that binds tighter than '-' is on either side.
+const DMAG_OPERAND = String.raw`[A-Za-z_]\w*(?:\.[A-Za-z_]\w*|:[A-Za-z_]\w*\([^()]*\)|\([^()]*\))*`;
+const DMAG_RE = new RegExp(String.raw`(^|[=(,{[<>]|\.\.|\b(?:return|and|or|then|do|if|while|until)\b)(\s*)(${DMAG_OPERAND})\s*-\s*(${DMAG_OPERAND})\.([mM]agnitude)\b(?!\s*[*/%^.:[(])`, 'gm');
+const DMAG_HEADER = '-- params : ...\n';
+const DECOMPILED_MAGNITUDE = {
+  name: 'decompiled (a - b).magnitude',
+  applies: (source) => source.slice(0, 400).includes(DMAG_HEADER) && !source.includes('local __dmag = ') && source.search(DMAG_RE) >= 0,
+  // The helper goes at the start of the line after the header (line numbers stay).
+  fix: (source) => source.replace(DMAG_RE, (m, before, space, a, b, key) => `${before}${space}__dmag(${a}, ${b}, "${key}")`)
+    .replace(DMAG_HEADER, `${DMAG_HEADER}local __dmag = function(a, b, k) if type(a) == "userdata" then return (a - b)[k] end return a - b[k] end `),
+};
 
 const PATCHES = [
   // The ban list's DataStore key does not exist here, so GetAsync gives nil
@@ -468,8 +486,101 @@ const PATCHES = [
   edits('Bloxburg copy: Ferris wheel angle', [
     ['tonumber(dataManager:InvokeServer({Type = "FerrisWheelAngle"})) or 0', 'tonumber((dataManager:InvokeServer({Type = "FerrisWheelAngle"}))) or 0'],
   ]),
+  // The custom topbar's chat scripts drive the newer chat window (PlayerGui.
+  // Chat.Frame...), which 2017's chat does not have; 2017's own topbar has
+  // the chat button, so they stop at once (also in copies converted with the
+  // earlier WaitForChild patch).
   edits('Bloxburg copy: topbar chat button', [
-    ['local ChatText = game.Players.LocalPlayer.PlayerGui.Chat.Frame.ChatBarParentFrame', 'local ChatText = game.Players.LocalPlayer.PlayerGui:WaitForChild("Chat"):WaitForChild("Frame").ChatBarParentFrame'],
+    ['local ChatText = game.Players.LocalPlayer.PlayerGui.Chat.Frame.ChatBarParentFrame',
+      'do return end -- (2017\'s own topbar has the chat button; 2017 converter)\nlocal ChatText = game.Players.LocalPlayer.PlayerGui.Chat.Frame.ChatBarParentFrame'],
+  ]),
+  edits('Bloxburg copy: topbar chat button (converted before)', [
+    ['local ChatText = game.Players.LocalPlayer.PlayerGui:WaitForChild("Chat"):WaitForChild("Frame").ChatBarParentFrame',
+      'do return end -- (2017\'s own topbar has the chat button; 2017 converter)\nlocal ChatText = game.Players.LocalPlayer.PlayerGui:WaitForChild("Chat"):WaitForChild("Frame").ChatBarParentFrame'],
+  ]),
+  edits('Bloxburg copy: chat key (converted before)', [
+    ['local Chat = game.Players.LocalPlayer.PlayerGui:WaitForChild("Chat"):WaitForChild("Frame")',
+      'do return end -- (2017\'s own chat handles its key; 2017 converter)\nlocal Chat = game.Players.LocalPlayer.PlayerGui:WaitForChild("Chat"):WaitForChild("Frame")'],
+  ]),
+  // JobManager looks for its helpers in Modules.Utilities; this copy has them in Modules.
+  edits('Bloxburg copy: job helpers', [
+    ['local utils = repModules:WaitForChild("Utilities")', 'local utils = repModules:FindFirstChild("Utilities") or repModules -- (this copy keeps them in Modules; 2017 converter)'],
+  ]),
+  // DataServer's PlayerAdded replaced the joining player with
+  // Players.LocalPlayer (nil on a server) and required the client's
+  // ClientStats there, which errored: the mood decay and the save when a
+  // player leaves were never set up. The player stays, and the mood values
+  // come from the stats the server made for them.
+  edits('Bloxburg copy: player stats on the server', [
+    ['\tlocal player = Players.LocalPlayer\n', '\t-- (the joining player stays; 2017 converter)\n'],
+    ['\tlocal clientStats = require(game:GetService("StarterGui"):WaitForChild("Modules"):WaitForChild("ClientStats"))',
+      '\tlocal clientStats = {Get = function(_, group, name) local g = playerStats:FindFirstChild(group) return nil, g and g:FindFirstChild(name) end} -- (server stand-in for the client\'s ClientStats; 2017 converter)'],
+  ]),
+  // The copy's server makes each skill a Folder; its client reads the skill
+  // as a number (the level, .Value) holding Progress. Now an IntValue (level
+  // 0). Its client also decayed moods itself on a data table
+  // (mooddata:FindFirstChild); the server does that.
+  edits('Bloxburg copy: skills as levels', [
+    ['\t\tlocal skillFolder = Instance.new("Folder")\n\t\tskillFolder.Name = skill', '\t\tlocal skillFolder = Instance.new("IntValue") -- (the level; 2017 converter)\n\t\tskillFolder.Name = skill'],
+  ]),
+  // The copy has no VehicleController module at all, and StartUp waited for
+  // it forever (stuck on the loading screen); it is not used after loading.
+  edits('Bloxburg copy: no VehicleController', [
+    ['local vehicleController = require(modules:WaitForChild("VehicleController"))',
+      'local vehicleController = modules:FindFirstChild("VehicleController") and require(modules.VehicleController) -- (missing from this copy; 2017 converter)'],
+  ]),
+  // This copy's jobs are unfinished (its frames are in MainGUI["Focus on
+  // later"]; the decompiled JobManager waits for a MainGUI.Scripts that is
+  // gone, then calls handlers the decompiler lost). StartUp waited for it
+  // forever and never got to LOD, ResetPlayerGuiOnSpawn or the seat jump.
+  edits('Bloxburg copy: unfinished jobs', [
+    ['local jobManager = require(modules:WaitForChild("JobManager"))',
+      'local jobManager = nil -- (this copy\'s JobManager is unfinished and never loaded; 2017 converter)'],
+  ]),
+  // The decompiled light code indexed every ColorGroup1 child as a part (one
+  // is the NoMaterial BoolValue) and set Material to true. Rebuilt: Neon
+  // glow parts show only while on, the other parts turn Neon while on.
+  edits('Bloxburg copy: lights', [
+    ['          local part = value.Value\n          if part.Material.Name ~= "Neon" then\n            do\n              lightParts[part] = {IsGlowing = not part or not value:IsA("ObjectValue"), Transparency = part.Transparency}',
+      '          local part = value:IsA("ObjectValue") and value.Value -- (the decompiled light code, rebuilt; 2017 converter)\n          if part and part:IsA("BasePart") then\n            do\n'
+      + '              lightParts[part] = {IsGlowing = part.Material.Name == "Neon", Transparency = part.Transparency, Material = part.Material, Keep = value.Parent:FindFirstChild("NoMaterial") and value.Parent.NoMaterial.Value}'],
+    ['      if not isOn.Value or not data.Transparency then\n        part.Transparency = part.Name ~= "GlowPart" or 1\n        part.Material = not data.IsGlowing or (isOn.Value and "Neon") or "Metal"',
+      '      if true then -- (2017 converter)\n        part.Transparency = (isOn.Value or not data.IsGlowing) and data.Transparency or 1\n'
+      + '        if not data.IsGlowing and not data.Keep then part.Material = isOn.Value and Enum.Material.Neon or data.Material end'],
+  ]),
+  edits('Bloxburg copy: sand castle', [
+    ['local curOffset = pos:inverse() * object.CFrame.y', 'local curOffset = (pos:inverse() * object.CFrame).y'],
+  ]),
+  // Wall poles and wall corners: lines the decompiler garbled past the
+  // (a - b).magnitude rule below.
+  // (cf * CFrame.new(...)).Y etc., where the decompiler dropped the parentheses
+  // (a CFrame times a number errors; times a vector gives a point, not a direction).
+  edits('Bloxburg copy: roof sides', [
+    ['(pos * CFrame.new(1, 0, 0).Y < pos.Y and -1 or 1)', '((pos * CFrame.new(1, 0, 0)).Y < pos.Y and -1 or 1)'],
+  ], { all: true }),
+  edits('Bloxburg copy: car flip check', [
+    ['local flipped = base.CFrame * CFrame.new(0, 1, 0).Y < base.CFrame.Y + 0.6', 'local flipped = (base.CFrame * CFrame.new(0, 1, 0)).Y < base.CFrame.Y + 0.6'],
+  ]),
+  edits('Bloxburg copy: part push', [
+    ['part.Velocity = part.CFrame * CFrame.Angles(0, math.pi / 2, 0).lookVector * 20', 'part.Velocity = (part.CFrame * CFrame.Angles(0, math.pi / 2, 0)).lookVector * 20'],
+  ]),
+  // LODHandler is missing from this copy too (StartUp waited for it).
+  edits('Bloxburg copy: no LODHandler', [
+    ['local LODHandler = require(modules:WaitForChild("LODHandler"))',
+      'local LODHandler = modules:FindFirstChild("LODHandler") and require(modules.LODHandler) -- (missing from this copy; 2017 converter)'],
+  ]),
+  edits('Bloxburg copy: wall poles', [
+    ['if (pole:IsA("BasePart") and pos - pole.Position) or pos - pole.Value.magnitude < poleCheckRadius then',
+      'if (pos - (pole:IsA("BasePart") and pole.Position or pole.Value)).magnitude < poleCheckRadius then'],
+  ]),
+  edits('Bloxburg copy: wall corners', [
+    ['local wall1Dir = wall1.SizeBox.CFrame * CFrame.new(0, 0, 0.1) - polePos.magnitude < wallParts[1].SizeBox[2]',
+      'local wall1Dir = ((wall1.SizeBox.CFrame * CFrame.new(0, 0, 0.1)).p - polePos).magnitude < wallParts[1].SizeBox[2]'],
+    ['local wall2Dir = wall2.SizeBox.CFrame * CFrame.new(0, 0, 0.1) - polePos.magnitude < wallParts[2].SizeBox[2]',
+      'local wall2Dir = ((wall2.SizeBox.CFrame * CFrame.new(0, 0, 0.1)).p - polePos).magnitude < wallParts[2].SizeBox[2]'],
+  ]),
+  edits('Bloxburg copy: moods decay on the server', [
+    ['\t\t\tlocal stat = mooddata:FindFirstChild(moodName)', '\t\t\tlocal stat = nil -- (the server decays moods; 2017 converter)'],
   ]),
   // Its console handler got the whole request ({Type, Command}) and called
   // :lower() on it.
@@ -478,7 +589,8 @@ const PATCHES = [
       'DataManager:HookFunction("RunCommand", function(player, command) if type(command) == "table" then command = command.Command end if type(command) ~= "string" then return end'],
   ]),
   edits('Bloxburg copy: chat key', [
-    ['local Chat = game.Players.LocalPlayer.PlayerGui.Chat.Frame', 'local Chat = game.Players.LocalPlayer.PlayerGui:WaitForChild("Chat"):WaitForChild("Frame")'],
+    ['local Chat = game.Players.LocalPlayer.PlayerGui.Chat.Frame',
+      'do return end -- (2017\'s own chat handles its key; 2017 converter)\nlocal Chat = game.Players.LocalPlayer.PlayerGui.Chat.Frame'],
   ]),
   // The shop sends every previewed attachment slot, "" for one toggled off;
   // the server looked each up as attachments[Type][Name] and errored, so no
@@ -488,6 +600,7 @@ const PATCHES = [
       'local own = gundata.attachments[Type] and gundata.attachments[Type][Name] if Name == "" or not (own or infodata[Name]) then elseif own and own.unlockkills then'],
     ['unlockkills = unlockkills + infodata[Name].unlockkills', 'unlockkills = unlockkills + (infodata[Name] and infodata[Name].unlockkills or 0)'],
   ]),
+  DECOMPILED_MAGNITUDE,
 ];
 
 // source -> source with the patches that fit applied; their names are added

@@ -84,6 +84,21 @@ const ENUM_NEAREST = new Map([
 
 // Classes the 2017 engine has (for GetService of newer services).
 let classes2017 = null;
+// Members of PlayerGui (and Instance) in 2017: x.PlayerGui.<anything else> is
+// a child, which the converter waits for (see the step-1 loop).
+let playerGuiMembers = null;
+function playerGuiMember(name) {
+  if (playerGuiMembers === null) {
+    playerGuiMembers = new Set();
+    try {
+      for (const m of fs.readFileSync(API_DUMP, 'latin1').matchAll(/^\t(?:Property|Function|YieldFunction|Event|Callback) .*?\b(?:Instance|BasePlayerGui|PlayerGui)[.:](\w+)/gm)) playerGuiMembers.add(m[1]);
+    } catch (error) {
+      return true; // without the dump, change nothing
+    }
+  }
+  return playerGuiMembers.has(name);
+}
+
 function classKnownTo2017(name) {
   if (classes2017 === null) {
     try {
@@ -300,6 +315,16 @@ function argumentCount(tokens, openParen, closeParen) {
   for (let i = openParen + 1; i < closeParen; i++) {
     const t = tokens[i];
     if (t.type === 'symbol' && CLOSE[t.value]) { i = matchForward(tokens, i); if (i < 0) return -1; continue; }
+    // A function argument: the commas in its body are not argument separators.
+    if (t.type === 'keyword' && t.value === 'function') {
+      for (let depth = 0; i < closeParen; i++) {
+        const k = tokens[i];
+        if (k.type !== 'keyword') continue;
+        if (k.value === 'function' || k.value === 'do' || k.value === 'if' || k.value === 'repeat') depth++;
+        else if ((k.value === 'end' || k.value === 'until') && --depth === 0) break;
+      }
+      continue;
+    }
     if (t.type === 'symbol' && t.value === ',') count++;
   }
   return count;
@@ -325,6 +350,8 @@ const METHODS = {
   ToHSV: [0], GetBoundingBox: [0], GetMarkerReachedSignal: [1],
   // Chat:RegisterChatCallback (2018): 2017's chat has no callbacks.
   RegisterChatCallback: [2],
+  // RunService:BindToRenderStep: 2017 calls the function without the frame time.
+  BindToRenderStep: [3],
   BindToMessage: [2], BindToMessageParallel: [2], SendMessage: [1, 2, 3, 4, 5, 6, 7, 8],
 };
 
@@ -380,6 +407,19 @@ function cframeCall(tokens, close) {
   const open = matchBackward(tokens, close);
   const callee = open > 0 ? tokens[open - 1] : null;
   return Boolean(callee && callee.type === 'name' && (/cframe$|cf$|pivot$/i.test(callee.value) || /^(?:ToWorldSpace|ToObjectSpace|toWorldSpace|toObjectSpace|Lerp|lerp|inverse|Inverse|lookAt|fromMatrix|Angles|fromEulerAnglesXYZ|fromEulerAnglesYXZ|fromOrientation|fromAxisAngle)$/.test(callee.value)));
+}
+
+// Is the parenthesized expression ending at `close` (not call arguments) one
+// that gives a CFrame, as in (cf * CFrame.new(0, 1, 0)).Position: does it
+// have CFrame or a value named or used like one in it?
+function cframeGroup(tokens, close, names) {
+  const open = matchBackward(tokens, close);
+  if (open < 0 || endsPrefix(tokens[open - 1])) return false;
+  for (let k = open + 1; k < close; k++) {
+    const t = tokens[k];
+    if (t.type === 'name' && (t.value === 'CFrame' || CFRAME_NAME.test(t.value) || names.has(t.value))) return true;
+  }
+  return false;
 }
 
 // CollectionService:Name(...) with this many arguments -> __rbx2017.CSName(service, ...).
@@ -595,8 +635,11 @@ const HELPERS = {
   // Buffers are byte arrays (the buffer stand-in) and come through remotes as plain ones.
   IsBuffer: 'function(x) if type(x) ~= "table" then return false end local n = #x for i = 1, n do local v = x[i] '
     + 'if type(v) ~= "number" or v < 0 or v > 255 or v % 1 ~= 0 then return false end end return next(x, n > 0 and n or nil) == nil end',
+  // spawn(f, a, ...) / delay(t, f, a, ...): 2017's drop a, ... and pass f the elapsed time.
+  Spawn: 'function(f, ...) local n, a = select("#", ...), {...} spawn(function() f(unpack(a, 1, n)) end) end',
+  Delay: 'function(t, f, ...) local n, a = select("#", ...), {...} delay(t, function() f(unpack(a, 1, n)) end) end',
   // Instance.new of a class 2017 lacks.
-  New: 'function(c, p) local ok, o = pcall(Instance.new, c) if not ok then o = nil local m = ({UnreliableRemoteEvent = "RemoteEvent", WorldModel = "Model", Actor = "Model"})[c] if m then o = Instance.new(m) end end '
+  New:'function(c, p) local ok, o = pcall(Instance.new, c) if not ok then o = nil local m = ({UnreliableRemoteEvent = "RemoteEvent", WorldModel = "Model", Actor = "Model"})[c] if m then o = Instance.new(m) end end '
     + 'if not o then local fields = {ClassName = c, Name = c} o = setmetatable({}, {__index = function(_, k) local v = fields[k] if v ~= nil then return v end '
     + 'if k == "IsA" then return function(_, x) return x == c or x == "Instance" end end return function() end end, '
     + '__newindex = function(_, k, v) fields[k] = v end, __tostring = function() return tostring(fields.Name) end}) end if p then o.Parent = p end return o end',
@@ -621,6 +664,8 @@ const HELPERS = {
     + 'for _, e in ipairs(parts) do pcall(function() local p, rel = e[1], e[2] p.Size = p.Size * k p.CFrame = pivot * CFrame.new(rel.p * k) * (rel - rel.p) end) end end',
   ToHSV: `function(o) ${own('ToHSV', '')} return Color3.toHSV(o) end`,
   RegisterChatCallback: `function(o, t, f) ${own('RegisterChatCallback', 't, f')} pcall(function() o:RegisterChatCallback(t, f) end) end`,
+  BindToRenderStep: `function(o, name, p, f) ${own('BindToRenderStep', 'name, p, f')} local last = tick() `
+    + 'return o:BindToRenderStep(name, p, function(dt) local now = tick() if type(dt) ~= "number" then dt = now - last end last = now return f(dt) end) end',
   GetBoundingBox: `function(o) ${own('GetBoundingBox', '')} return o:GetModelCFrame(), o:GetExtentsSize() end`,
   // Keyframe markers (2018) are named keyframes to 2017's KeyframeReached.
   GetMarkerReachedSignal: `function(o, n) ${own('GetMarkerReachedSignal', 'n')} local s = {} `
@@ -1127,6 +1172,13 @@ function convertSource(source, options = {}) {
   // the extra helper reference could push a big function past Lua 5.1's 60
   // upvalues (Phantom Forces' Framework).
   const usesTransform = /\.Transform\b/.test(source);
+  // Plain variables the script uses as CFrames (x.CFrame = pos, local pos =
+  // CFrame.new(...) / part.CFrame / model:GetPivot()): pos.Position then goes
+  // through the CFrame stand-in too (Bloxburg's build teleport).
+  const cframeNames = new Set();
+  for (const m of source.matchAll(/\.CFrame\s*=\s*([A-Za-z_]\w*)\s*(?:$|[\r\n;]|--)/gm)) cframeNames.add(m[1]);
+  for (const m of source.matchAll(/\blocal\s+([A-Za-z_]\w*)\s*=\s*(?:CFrame\.\w+\s*\(|[\w.:[\]"]*(?:\.CFrame|:GetPivot\(\)|:GetModelCFrame\(\)|:GetPrimaryPartCFrame\(\))\s*(?:$|[\r\n;*]|--))/gm)) cframeNames.add(m[1]);
+  for (const name of ['self', 'script', 'game', 'workspace', 'Workspace']) cframeNames.delete(name);
   let text = source;
   const changes = new Set();
   const helpers = new Set();
@@ -1217,6 +1269,21 @@ function convertSource(source, options = {}) {
     let done = true;
     for (let i = 1; i + 2 < tokens.length; i++) {
       if (tokens[i].start < helpersEnd) continue;
+      // spawn(f, a, ...) / delay(t, f, a, ...) -> __rbx2017.Spawn / __rbx2017.Delay
+      // (2017's give f the elapsed time instead of a, ...).
+      if (tokens[i].type === 'name' && (tokens[i].value === 'spawn' || tokens[i].value === 'delay') && isSymbol(tokens[i + 1], '(')
+        && !isSymbol(tokens[i - 1], '.') && !isSymbol(tokens[i - 1], ':') && !(tokens[i - 1].type === 'keyword' && tokens[i - 1].value === 'function')
+        && !new RegExp(`\\b(local|function)\\s+(function\\s+)?${tokens[i].value}\\b`).test(text)) {
+        const close = matchForward(tokens, i + 1);
+        if (close >= 0 && argumentCount(tokens, i + 1, close) >= (tokens[i].value === 'spawn' ? 2 : 3)) {
+          const name = tokens[i].value === 'spawn' ? 'Spawn' : 'Delay';
+          text = `${text.slice(0, tokens[i].start)}__rbx2017.${name}${text.slice(tokens[i].end)}`;
+          helpers.add(name);
+          changes.add(`${tokens[i].value}(f, ...)`);
+          done = false;
+          break;
+        }
+      }
       // CollectionService:HasTag(o, t) etc. -> __rbx2017.CSHasTag(service, o, t): tags on 2017 clients.
       if (isSymbol(tokens[i], ':') && tokens[i + 1].type === 'name' && CS_METHODS[tokens[i + 1].value] !== undefined && isSymbol(tokens[i + 2], '(')) {
         const close = matchForward(tokens, i + 2);
@@ -1368,7 +1435,12 @@ function convertSource(source, options = {}) {
       if (isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && !isSymbol(tokens[i + 2], '=') && !isSymbol(tokens[i + 2], '(')
         && (CFRAME_MEMBERS.has(tokens[i + 1].value) || (CFRAME_NAMED_MEMBERS.has(tokens[i + 1].value) && tokens[i - 1] && tokens[i - 1].type === 'name' && CFRAME_NAME.test(tokens[i - 1].value))
           // x:GetPivot().Position, resolveLinkCFrame().Position: calls that give a CFrame
-          || (CFRAME_NAMED_MEMBERS.has(tokens[i + 1].value) && isSymbol(tokens[i - 1], ')') && cframeCall(tokens, i - 1)))) {
+          || (CFRAME_NAMED_MEMBERS.has(tokens[i + 1].value) && isSymbol(tokens[i - 1], ')') && cframeCall(tokens, i - 1))
+          // (cf * CFrame.new(0, 1, 0)).Position
+          || (CFRAME_NAMED_MEMBERS.has(tokens[i + 1].value) && isSymbol(tokens[i - 1], ')') && cframeGroup(tokens, i - 1, cframeNames))
+          // pos.Position where pos is a plain variable the script uses as a CFrame
+          || (CFRAME_NAMED_MEMBERS.has(tokens[i + 1].value) && tokens[i - 1] && tokens[i - 1].type === 'name' && cframeNames.has(tokens[i - 1].value)
+            && !isSymbol(tokens[i - 2], '.') && !isSymbol(tokens[i - 2], ':')))) {
         const start = prefixStart(tokens, i);
         if (start >= 0 && text.slice(tokens[start].start, tokens[i].start) !== '__rbx2017') {
           const object = text.slice(tokens[start].start, tokens[i].start);
@@ -1450,6 +1522,18 @@ function convertSource(source, options = {}) {
         text = `${text.slice(0, tokens[start].start)}__rbx2017.Activated(${object})${text.slice(tokens[i + 1].end)}`;
         helpers.add('Activated');
         changes.add('.Activated');
+        done = false;
+        break;
+      }
+      // player.PlayerGui.Child -> player.PlayerGui:WaitForChild("Child"): the 2017
+      // client copies StarterGui into PlayerGui later than newer Roblox, so
+      // scripts that read it at once failed (Bloxburg: "Modules is not a
+      // valid member of PlayerGui", and every module that required them).
+      if (isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && tokens[i + 1].value === 'PlayerGui' && isSymbol(tokens[i + 2], '.')
+        && tokens[i + 3] && tokens[i + 3].type === 'name' && !playerGuiMember(tokens[i + 3].value)
+        && !isSymbol(tokens[i + 4], '=') && !isSymbol(tokens[i + 4], '(')) {
+        text = `${text.slice(0, tokens[i + 2].start)}:WaitForChild("${tokens[i + 3].value}")${text.slice(tokens[i + 3].end)}`;
+        changes.add('PlayerGui children waited for');
         done = false;
         break;
       }
