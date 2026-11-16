@@ -348,16 +348,11 @@ async function followMovedServer() {
 }
 
 // --- Tailscale --------------------------------------------------------------------------
-// Servers on a Tailscale address (100.64.0.0/10) need Tailscale and a join
-// code; one reached through the VPS relay (an https name) needs neither.
+// Players reach the server through the VPS relay; Tailscale is only for a
+// server still on a Tailscale address (100.64.0.0/10).
 function tailscaleAddress(url) {
   const match = /^https?:\/\/100\.(\d{1,3})\.\d{1,3}\.\d{1,3}(?::\d+)?\/?$/i.exec(String(url || ''));
   return Boolean(match && Number(match[1]) >= 64 && Number(match[1]) <= 127);
-}
-
-function serverNeedsTailscale() {
-  const current = lib('proxy').normalizeCentralUrl((lib('joining').loadConfig() || {}).centralUrl || '') || fixedServer();
-  return current ? tailscaleAddress(current) : true;
 }
 
 // --- the built-in server address ---------------------------------------------------------
@@ -668,7 +663,6 @@ function gameClosed() {
 // Settings > Storage, and a tidy-up at each start (cleanup.js): the 2017
 // programs' logs and crash reports older than a week, the installer of a
 // launcher update that is now installed, and unfinished downloads.
-let joiningNetwork = false; // a join code is setting up Tailscale (downloads\tailscale)
 
 // electron-updater's download folder (%LOCALAPPDATA%\<name>-updater, named
 // in app-update.yml); null for copies that do not update themselves.
@@ -695,7 +689,7 @@ function cleaner() {
       // Only Studio this launcher downloaded: on a host's PC, Studio\ is the
       // copy its server hands out.
       studioDownloaded: () => !capabilities().canHost && fs.existsSync(path.join(ROOT, 'Studio')) && fs.existsSync(path.join(ROOT, 'config', 'studio-files.json')),
-      busy: () => gameFiles().isBusy() || studioFiles().isBusy() || joiningNetwork,
+      busy: () => gameFiles().isBusy() || studioFiles().isBusy(),
     });
   }
   return cleanerModule;
@@ -735,7 +729,7 @@ async function checks() {
   const { canPlay, canHost } = capabilities();
 
   if (!canHost) {
-    // Player install: the game files (and Tailscale, for a server on a Tailscale address).
+    // Player install: the game files are all it needs.
     const installed = installedFiles();
     add('files', 'Game files', canPlay,
       canPlay ? `Installed in: ${ROOT}${installed ? ` (version ${installed.version})` : ''}` : 'Not downloaded yet: they come from your server.',
@@ -743,13 +737,6 @@ async function checks() {
     if (canPlay) {
       const update = await filesUpdate((lib('joining').loadConfig() || {}).centralUrl);
       if (update) add('files-update', 'Game files update', false, `Version ${update.available} is on the server (you have ${update.installed}, ${Math.round(update.size / 1e6)} MB).`, 'download-files');
-    }
-    if (serverNeedsTailscale()) {
-      const tailscaleIp = core.tailscaleIPv4();
-      const tailscaleInstalled = fs.existsSync('C:\\Program Files\\Tailscale\\tailscale.exe');
-      add('tailscale', 'Tailscale connected', Boolean(tailscaleIp),
-        tailscaleIp ? `This PC's Tailscale address: ${tailscaleIp}` : (tailscaleInstalled ? 'Tailscale is installed but not connected: sign in from its tray icon.' : 'Install Tailscale and sign in to reach your friends\' server.'),
-        tailscaleIp ? null : 'tailscale-download');
     }
     return result;
   }
@@ -879,28 +866,6 @@ async function hostThumbnail({ action, centralUrl, placeId, hostKey }) {
 function registerIpc() {
   ipcMain.handle('files:download', (event, centralUrl) => downloadGameFiles(centralUrl));
   ipcMain.handle('studio:open', (event, centralUrl) => openStudio(centralUrl));
-  // Join codes (tailscale.js): set up Tailscale with the host's key, remember the server.
-  ipcMain.handle('join:code', async (event, options) => {
-    if (joiningNetwork) throw new Error('Already joining. Wait for it to finish.');
-    joiningNetwork = true;
-    let result;
-    try {
-      result = await require('./tailscale').join({
-        code: options && options.code,
-        username: options && options.username,
-        workDir: path.join(ROOT, 'downloads'),
-        onProgress: (info) => send('join-progress', info),
-      });
-    } finally {
-      joiningNetwork = false;
-    }
-    const joining = lib('joining');
-    // A build with a built-in server keeps it; the code then only brings Tailscale.
-    const server = fixedServer() || result.server;
-    joining.saveConfig(Object.assign({}, joining.loadConfig() || {}, { centralUrl: server }));
-    syncMenuMusic(server);
-    return Object.assign({}, result, { server });
-  });
   ipcMain.handle('games:thumbnail', (event, options) => gameThumbnail(options && options.centralUrl, options && options.placeId, options && options.version));
   // Opens <web server>/manage in the default browser (only that page).
   // Opens the server's /manage page already unlocked: on the server PC with
@@ -935,8 +900,6 @@ function registerIpc() {
       needsFiles: !capabilities().canPlay && !capabilities().canHost,
       update: updateStatus,
       filesVersion: (installedFiles() || {}).version || null,
-      // Join codes (Tailscale) only for a server on a Tailscale address, or none set yet.
-      needsTailscale: serverNeedsTailscale(),
     };
   });
 

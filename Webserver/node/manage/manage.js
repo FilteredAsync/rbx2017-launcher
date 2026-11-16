@@ -5,8 +5,7 @@
 // manage token: the launcher's Manage games button opens /manage#token=...
 
 const $ = (id) => document.getElementById(id);
-const JOIN_CODE_NAME = 'Server management'; // the "n" of join codes, unchanged from the old page
-const VIEWS = ['games', 'reports', 'announcements', 'accounts', 'assets', 'server', 'join'];
+const VIEWS = ['games', 'reports', 'announcements', 'accounts', 'assets', 'server'];
 
 let places = [];
 let runner = { running: false };
@@ -618,7 +617,6 @@ async function refresh() {
     const data = await response.json();
     places = data.places || [];
     runner = data.runner || { running: false };
-    if (!$('join-server').value && data.server && data.server.tailscaleUrl) $('join-server').value = data.server.tailscaleUrl;
     renderGames();
     if (openId !== null) renderDrawer(false);
     renderServerDot();
@@ -996,30 +994,6 @@ for (const button of document.querySelectorAll('#log-tabs button')) {
   button.addEventListener('click', () => { logName = button.dataset.log; loadLog(); });
 }
 $('log-reload').addEventListener('click', loadLog);
-
-// --- join codes ---------------------------------------------------------------------------------
-// "RBX1-" + base64url of {s: server address, k: Tailscale auth key, n: name},
-// made here in the browser and never sent to the server.
-
-$('join-form').addEventListener('submit', (event) => {
-  event.preventDefault();
-  const server = $('join-server').value.trim().replace(/\/$/, '');
-  const key = $('join-key').value.trim();
-  if (!/^https?:\/\/[A-Za-z0-9.[\]:-]+$/.test(server)) { toast('The server address looks like http://100.x.y.z', 'error'); return; }
-  if (!/^tskey-[A-Za-z0-9-]{10,200}$/.test(key)) { toast('A Tailscale auth key starts with tskey-', 'error'); return; }
-  const json = JSON.stringify({ s: server, k: key, n: JOIN_CODE_NAME });
-  const base64url = btoa(unescape(encodeURIComponent(json))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  $('join-output').textContent = `RBX1-${base64url}`;
-  $('join-result').hidden = false;
-});
-$('join-copy').addEventListener('click', async () => {
-  try {
-    await navigator.clipboard.writeText($('join-output').textContent);
-    toast('Copied', 'good');
-  } catch (error) {
-    toast('Select the code and copy it.', 'error');
-  }
-});
 
 // --- lock ---------------------------------------------------------------------------------------
 

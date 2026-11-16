@@ -1190,7 +1190,7 @@ function placesWithStatus(isAdmin) {
       cloudEdit: up && runner.cloudEdit ? runner.cloudEdit[place.placeId] || null : null,
     })),
     runner: runner ? { running: !runner.stale, updatedAt: runner.updatedAt, maxGames: runner.maxGames, idleStopMinutes: runner.idleStopMinutes, problems: runner.problems || [] } : { running: false },
-    // For the join code players paste into their launcher.
+    // This PC's Tailscale address (players now come through the VPS relay instead).
     server: { tailscaleUrl: core.tailscaleIPv4() ? `http://${core.tailscaleIPv4()}` : null },
   };
 }
