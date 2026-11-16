@@ -9,11 +9,15 @@
 //     through PHP either).
 // Paths match case-insensitively, like Apache on Windows, so the same tree
 // also works on Linux. Dot-folders (.test, .127.0.0.1), private keys and
-// folder listings are not served.
+// folder listings are not served, and place files (the original bundle's
+// LT2.rbxl) only to this PC and the host key. These rules go by the name on
+// disk: Windows also opens a file by its short name, like "LT2~1.RBX".
 
 const fs = require('fs');
 const path = require('path');
 const core = require('./core');
+const admin = require('./admin');
+const publicnet = require('./publicnet');
 
 const STATIC_TYPES = {
   html: 'text/html', htm: 'text/html', txt: 'text/plain', xml: 'text/xml', json: 'application/json',
@@ -23,6 +27,21 @@ const STATIC_TYPES = {
   rbxlx: 'application/octet-stream', rbxm: 'application/octet-stream', rbxmx: 'application/octet-stream',
 };
 const BLOCKED = new Set(['.pem', '.key', '.crt', '.cert', '.htaccess', '.htpasswd']);
+const PLACE_FILES = new Set(['.rbxl', '.rbxlx']);
+
+// The file's real path (long name, as stored), or null.
+function realPath(file) {
+  try { return fs.realpathSync.native(file); } catch (error) { return null; }
+}
+
+let realRoot = null;
+// In a dot-folder of the web root? (Not checked past a junction out of it.)
+function inDotFolder(real) {
+  if (realRoot === null) realRoot = realPath(core.WWW) || core.WWW;
+  const relative = path.relative(realRoot, real);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) return false;
+  return relative.split(path.sep).some((segment) => segment.startsWith('.'));
+}
 
 function resolve(relative) {
   let current = core.WWW;
@@ -142,12 +161,17 @@ function serve(ctx, send, sendFile, log) {
     file = directoryIndex(file);
     if (file === null) return false;
   }
-  if (!core.isFile(file) || BLOCKED.has(path.extname(file).toLowerCase())) return false;
+  if (!core.isFile(file)) return false;
+  file = realPath(file);
+  if (file === null || inDotFolder(file)) return false;
+  const type = path.extname(file).toLowerCase();
+  if (BLOCKED.has(type)) return false;
+  if (PLACE_FILES.has(type) && !publicnet.fromLoopback(ctx) && !admin.allowed(ctx)) return false;
 
-  if (path.extname(file).toLowerCase() === '.php') {
+  if (type === '.php') {
     const literal = literalPhpFile(file);
     if (literal === null) {
-      const relative = path.relative(core.WWW, file);
+      const relative = path.relative(realRoot, file);
       if (!notPortedLogged.has(relative)) {
         notPortedLogged.add(relative);
         log(`not ported (needs PHP): ${relative}`);

@@ -334,9 +334,11 @@ async function assetEndpoint(ctx) {
   }
 
   // The hosted place (1818, or the place ID of any listed game) is the local
-  // place file, never the unrelated Roblox asset with that number.
+  // place file, never the unrelated Roblox asset with that number. Only for
+  // this PC, the host key and the place's editors (studio.mayHavePlaceFile).
   const libraryPlace = assetId !== null ? places.load().places[assetId] : null;
   if (assetId !== null && (libraryPlace || assetId === '1818' || games.list().some((game) => String(game.placeId) === String(assetId)))) {
+    if (!studio.mayHavePlaceFile(ctx, assetId)) return fail(ctx, 403, 'Only the game\'s editors can download its place file.');
     const placeFile = libraryPlace ? places.filePath(libraryPlace) : core.rootPath('Server', 'content', 'place.rbxlx');
     if (!core.isFile(placeFile)) return fail(ctx, 500, 'Local place file is missing');
     return sendFile(ctx, placeFile, { 'Content-Type': 'application/octet-stream', 'Cache-Control': 'no-store', 'X-Legacy-Asset-Cache': 'LOCAL' });

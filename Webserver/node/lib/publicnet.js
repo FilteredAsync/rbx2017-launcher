@@ -13,6 +13,8 @@
 //   requestInfo(req) -> { remote, publicHost }   (publicHost null: not relayed)
 //   rewriteAddresses(ctx, value) -> value with own game addresses made public
 //   tunnelAddress() -> this PC's WireGuard address, or null
+//   fromLoopback(ctx) -> a program on this PC (RCC, the always-on server),
+//                    by the connection itself, so never a relayed request
 
 const net = require('net');
 const os = require('os');
@@ -77,4 +79,9 @@ function rewriteAddresses(ctx, value, depth = 0) {
   return out;
 }
 
-module.exports = { requestInfo, rewriteAddresses, publicAddress, tunnelAddress, fromRelay };
+function fromLoopback(ctx) {
+  const peer = plain(ctx && ctx.req && ctx.req.socket ? ctx.req.socket.remoteAddress : '');
+  return peer === '::1' || /^127\.\d+\.\d+\.\d+$/.test(peer);
+}
+
+module.exports = { requestInfo, rewriteAddresses, publicAddress, tunnelAddress, fromRelay, fromLoopback };

@@ -27,6 +27,7 @@ const accounts = require('./accounts');
 const admin = require('./admin');
 const games = require('./games');
 const places = require('./places');
+const publicnet = require('./publicnet');
 
 const PAGES = path.join(__dirname, '..', 'studio');
 const PAGE_FILES = {
@@ -796,6 +797,18 @@ pcall(function() history:SetEnabled(true) end)
     return true;
   }
 
+  // Who may have a place file from /asset/?id=<place> (the server is public
+  // through the VPS relay): programs on this PC (RCC loads places from disk,
+  // but tools may ask), the host key or an admin's manage token, and Studio
+  // accounts that may edit the place (edit token t=, or the session cookie).
+  // A place ID outside the library (the default place file): admins only.
+  function mayHavePlaceFile(ctx, placeId) {
+    if (publicnet.fromLoopback(ctx) || admin.allowed(ctx)) return true;
+    if (places.get(placeId)) return !authorize(ctx, placeId).error;
+    const account = currentAccount(ctx);
+    return Boolean(account && account.admin);
+  }
+
   const routes = [
     [/^my\/places\.aspx/i, page('start.html')],
     [/^ide\/(?:publishas|publishgameas|upload\.aspx)\/?$/i, page('publish.html')],
@@ -846,5 +859,5 @@ pcall(function() history:SetEnabled(true) end)
     [/^(?:game\/report-stats|analytics\/measurement\.ashx|game\/report-event)\/?$/i, (ctx) => send(ctx, 200, { 'Content-Type': 'text/plain' }, '')],
   ];
 
-  return { routes, placeAsset, cloudEditLaunch };
+  return { routes, placeAsset, mayHavePlaceFile, cloudEditLaunch };
 };
