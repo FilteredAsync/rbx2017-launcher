@@ -115,6 +115,25 @@ then reach this server only. Set it up once in the Tailscale admin console
 Players' PCs show up in Machines as rbx-<username>; remove any you do not
 recognize. Tagged players do not count as Tailscale users.
 
+
+Players over the internet (VPS relay, no Tailscale)
+---------------------------------------------------
+A small cloud server (VPS) can take players' traffic and pass it to this PC
+over WireGuard, so players need no Tailscale and no join code. Only this PC
+and the VPS run WireGuard; this PC's address stays private.
+
+1. On the VPS (Ubuntu or Debian, as root): run tools/vps/setup-vps.sh from
+   the GitHub repository. It prints the players' address (https://...) and
+   a tunnel file for this PC.
+2. On this PC: install WireGuard (wireguard.com/install), "Import tunnel(s)
+   from file" with that tunnel file, and Activate it.
+3. Run wireguardFirewall.bat (asks for administrator), then restartServer.bat.
+4. On the VPS: bash setup-vps.sh --check  shows whether it all answers.
+
+Launchers on the Tailscale address move to the new address by themselves once
+config\moved.json says {"to": "https://..."} (or POST /api/server/moved with
+the host key). Games hosted from players' own PCs still need Tailscale.
+
 Accounts, guests and avatars
 ----------------------------
 Players sign in to this server from the launcher (1.4.0 and newer) with a

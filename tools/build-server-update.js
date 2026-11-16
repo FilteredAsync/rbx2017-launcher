@@ -35,7 +35,7 @@ const KEY_FILE = path.join(ROOT, 'config', 'update-signing-key.pem');
 const SHARE = path.join(ROOT, 'share');
 // The scripts in the server folder's root (the same list as build-server-package.py).
 const ROOT_SCRIPTS = ['patch-rcc-place-auth.ps1', 'patch-rcc-http-urls.ps1', 'add-hosts-entries.ps1', 'addHostsEntries.bat',
-  'tailscale-firewall.ps1', 'tailscaleFirewall.bat', 'startServer.bat', 'restartServer.bat', 'restart-server.ps1',
+  'tailscale-firewall.ps1', 'tailscaleFirewall.bat', 'wireguard-firewall.ps1', 'wireguardFirewall.bat', 'startServer.bat', 'restartServer.bat', 'restart-server.ps1',
   'autostart.ps1', 'autostartServer.bat', 'convertPlace.bat', 'Launcher.bat'];
 // Repository file -> where it goes in the server folder.
 const RENAMED = {

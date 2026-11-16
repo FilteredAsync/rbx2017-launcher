@@ -18,6 +18,7 @@ const path = require('path');
 const core = require('./lib/core');
 const datastore = require('./lib/datastore');
 const games = require('./lib/games');
+const publicnet = require('./lib/publicnet');
 const routes = require('./lib/routes');
 const www = require('./lib/www');
 
@@ -90,6 +91,8 @@ async function handle(req, res) {
     decodedPath = rawPath;
   }
   const query = core.parseQuery(queryAt < 0 ? '' : url.slice(queryAt + 1));
+  // Through the VPS relay: the player's own address and the public name (lib/publicnet.js).
+  const via = publicnet.requestInfo(req);
   const ctx = {
     req,
     res,
@@ -99,7 +102,8 @@ async function handle(req, res) {
     query,
     queryLower: core.lowerKeys(query),
     body: readBody(req),
-    remote: req.socket.remoteAddress || '-',
+    remote: via.remote,
+    publicHost: via.publicHost,
   };
 
   res.on('finish', () => accessLog(ctx, res.statusCode, ctx.method === 'HEAD' ? 0 : (ctx.bytes || 0), started));
@@ -159,6 +163,9 @@ function resolveHosts(hosts) {
     if (address) resolved.push(address);
     else log('tailscale: not connected, so not listening on it (connect Tailscale, then restart the web server)');
   }
+  // The VPS relay's WireGuard tunnel (tools/vps), when this PC has one.
+  const tunnel = publicnet.tunnelAddress();
+  if (tunnel) resolved.push(tunnel);
   return [...new Set(resolved)];
 }
 

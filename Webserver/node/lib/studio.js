@@ -659,7 +659,8 @@ pcall(function() history:SetEnabled(true) end)
     }
     // Studio on this PC reaches it on loopback; others on the server's address.
     const loopback = /^(?:127\.|::1$|::ffff:127\.)/.test(String(ctx.remote));
-    const host = loopback ? '127.0.0.1' : (core.tailscaleIPv4() || String(server.address || '').split(':')[0] || '127.0.0.1');
+    // Through the VPS relay (lib/publicnet.js): its name, which forwards the game ports.
+    const host = loopback ? '127.0.0.1' : (ctx.publicHost || core.tailscaleIPv4() || String(server.address || '').split(':')[0] || '127.0.0.1');
     const base = baseUrl(ctx);
     const joinScriptUrl = `${base}/game/join.php?placeid=${place.placeId}&ip=${encodeURIComponent(host)}&port=${server.gamePort}`
       + `&id=${account.userId}&user=${encodeURIComponent(account.name)}`;

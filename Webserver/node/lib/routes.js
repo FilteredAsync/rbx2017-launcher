@@ -33,6 +33,7 @@ const places = require('./places');
 const privateservers = require('./privateservers');
 const rbxm = require('./rbxm');
 const reports = require('./reports');
+const publicnet = require('./publicnet');
 const restorevalues = require('./restorevalues');
 const social = require('./social');
 const thumbs = require('./thumbs');
@@ -1083,6 +1084,8 @@ async function gameStartInfo(ctx) {
 // The key may also be sent as an X-Host-Key header.
 
 function sendJson(ctx, status, value) {
+  // Players coming through the VPS relay get its name in game addresses (lib/publicnet.js).
+  if (ctx.publicHost) value = publicnet.rewriteAddresses(ctx, value);
   sendUtf8(ctx, status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }, JSON.stringify(value));
 }
 
@@ -1581,6 +1584,8 @@ async function reportsApi(ctx, match) {
 //   POST /api/server/update/discard?build=   drop a waiting (or failed) update
 //   POST /api/server/restart                 restart the whole server (players saved first)
 //   GET  /api/server/logs?name=&lines=       the end of a log: server, web, studio, update
+//   GET  /api/server/moved                   where launchers are sent (config/moved.json)
+//   POST /api/server/moved                   {to: "https://..."} sends them there; {to: null} stops
 // All but status need the host key (X-Host-Key).
 const SERVER_LOGS = {
   server: ['Webserver', 'node', 'logs', 'dedicated.log'],
@@ -1627,6 +1632,25 @@ async function serverApi(ctx, match) {
     const lines = Math.min(3000, Math.max(10, Number(ctx.queryLower.lines) || 300));
     const text = tailFile(core.rootPath(...parts), lines);
     return send(ctx, 200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }, text === null ? '(this log is empty or does not exist yet)' : text);
+  }
+  // Launchers ask /api/launcher/moved and switch to this address once it
+  // answers (the VPS relay, tools/vps): accounts and sessions carry over.
+  if (action === 'moved') {
+    const file = core.rootPath('config', 'moved.json');
+    if (ctx.method === 'GET') {
+      const moved = core.readJsonFile(file);
+      return sendJson(ctx, 200, { to: moved && typeof moved.to === 'string' ? moved.to : null });
+    }
+    if (ctx.method !== 'POST') return sendJson(ctx, 405, { error: 'use GET or POST' });
+    const body = await jsonBody(ctx);
+    if (body.to === null) {
+      try { fs.unlinkSync(file); } catch (error) { /* not set */ }
+      return sendJson(ctx, 200, { to: null });
+    }
+    const to = typeof body.to === 'string' ? body.to.trim().replace(/\/+$/, '') : '';
+    if (!/^https?:\/\/[A-Za-z0-9.-]+(?::\d{1,5})?$/.test(to)) return sendJson(ctx, 400, { error: 'to must be an address like https://play.example.com' });
+    if (!core.writeFileAtomic(file, Buffer.from(JSON.stringify({ to }, null, 2)))) return sendJson(ctx, 500, { error: 'could not save config/moved.json' });
+    return sendJson(ctx, 200, { to });
   }
   if (ctx.method !== 'POST') return sendJson(ctx, 405, { error: 'use POST' });
   if (action === 'update/check') {
@@ -1733,7 +1757,7 @@ const ROUTES = [
   [/^api\/reports(?:\/([0-9a-f]{12})(?:\/(resolve))?)?\/?$/i, reportsApi],
   [/^abusereport\/ingamechathandler\.ashx\/?$/i, abuseReport],
   [/^api\/manage\/(token|whoami)\/?$/i, (ctx, match) => admin.route(ctx, match, sendJson)],
-  [/^api\/server\/(status|update\/check|update\/install|update\/upload|update\/discard|restart|logs)\/?$/i, serverApi],
+  [/^api\/server\/(status|update\/check|update\/install|update\/upload|update\/discard|restart|logs|moved)\/?$/i, serverApi],
   [new RegExp(`^asset(?:/index\\.php)?/?$`, 'i'), assetEndpoint],
   [/^asset\/bodycolors\.(?:ashx|php)$/i, bodyColors],
   [new RegExp(`^v1\\.1/avatar-fetch${opt}$`, 'i'), avatarFetch],
