@@ -127,6 +127,12 @@ const MAX_ACCESSORIES = 10;
 // Items Roblox released up to the end of 2017 have IDs below this; the
 // featured lists keep to them.
 const CLASSIC_MAX_ID = 1300000000;
+// Request bodies (ctx.body(limit), server.js): the 2017 friend and follow
+// calls send a few form fields; pictures are PNGs (lib/avatarstore.js and
+// lib/outfits.js check their own sizes), an outfit's as base64 in JSON.
+const FORM_LIMIT = 64 * 1024;
+const AVATAR_IMAGE_LIMIT = 2 * 1024 * 1024;
+const OUTFIT_JSON_LIMIT = 3 * 1024 * 1024;
 
 module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) {
   function account(ctx) {
@@ -828,8 +834,7 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
   async function friendParams(ctx) {
     const q = Object.assign({}, ctx.queryLower);
     if (ctx.method !== 'POST') return q;
-    let text = '';
-    try { text = (await ctx.body()).toString('utf8').trim(); } catch (error) { return q; }
+    const text = (await ctx.body(FORM_LIMIT)).toString('utf8').trim();
     if (!text) return q;
     if (text[0] === '{') {
       try {
@@ -926,10 +931,12 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
 
   function socialRoute(kind) {
     return async (ctx) => {
+      if ((kind === 'block' || kind === 'unblock') && !fromGameServer(ctx.remote)) {
+        return sendJson(ctx, 403, { success: false, message: 'Only game servers can do that.' });
+      }
       const q = await friendParams(ctx);
       const reply = (value) => sendJson(ctx, 200, value);
       if (kind === 'block' || kind === 'unblock') {
-        if (!fromGameServer(ctx.remote)) return sendJson(ctx, 403, { success: false, message: 'Only game servers can do that.' });
         const blocker = Number(q.blockerid);
         const blockee = Number(q.blockeeid);
         if (!accounts.byUserId(blocker) || !accounts.byUserId(blockee)) return reply({ success: false, message: 'Guests cannot block or be blocked.' });
@@ -1119,10 +1126,10 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
       const who = guest ? null : needAccount(ctx);
       if (!guest && !who) return;
       const declared = Number(ctx.req.headers['content-length']);
-      if (Number.isFinite(declared) && declared > 2 * 1024 * 1024) return sendJson(ctx, 413, { error: 'the picture is too big' });
+      if (Number.isFinite(declared) && declared > AVATAR_IMAGE_LIMIT) return sendJson(ctx, 413, { error: 'the picture is too big' });
       // Anyone may draw the shared guest picture, but only once it is missing.
       if (guest && avatarStore.imageFor('-1')) return sendJson(ctx, 200, { ok: true, kept: true });
-      const result = avatarStore.saveImage(guest ? 'guest' : who.userId, await ctx.body());
+      const result = avatarStore.saveImage(guest ? 'guest' : who.userId, await ctx.body(AVATAR_IMAGE_LIMIT));
       return sendJson(ctx, result.error ? 400 : 200, result);
     }
     if (action === 'guest-avatar' && method === 'GET') {
@@ -1227,7 +1234,7 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
     if (action === 'outfits' && method === 'POST') {
       const who = needAccount(ctx);
       if (!who) return undefined;
-      const body = await jsonBody(ctx);
+      const body = await jsonBody(ctx, OUTFIT_JSON_LIMIT);
       const wearing = await describeAvatar(who);
       let picture = null;
       if (typeof body.image === 'string' && body.image) {

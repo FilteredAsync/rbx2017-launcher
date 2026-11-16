@@ -24,7 +24,11 @@ const www = require('./lib/www');
 
 const LOG_DIR = path.join(__dirname, 'logs');
 const PID_FILE = path.join(__dirname, 'server.pid');
-const MAX_BODY = 1024 * 1024 * 1024; // place uploads can be large (up to 1 GB)
+// ctx.body(limit): each route passes its own; only place uploads take up to 1 GB.
+const DEFAULT_BODY_LIMIT = 1024 * 1024;
+// After a 413, what is still coming is read and dropped, up to these.
+const DRAIN_BYTES = 32 * 1024 * 1024;
+const DRAIN_MS = 10 * 1000;
 
 const SERVER_DEFAULTS = {
   hosts: ['127.0.0.1', '::1'],
@@ -60,23 +64,84 @@ function accessLog(ctx, status, bytes, started) {
   core.appendLog(path.join(LOG_DIR, 'access.log'), `${core.gmdate()}  ${line}`, 5 * 1024 * 1024);
 }
 
+function sizeText(bytes) {
+  return bytes >= 1024 * 1024 ? `${Math.round(bytes / (1024 * 1024))} MB` : `${Math.round(bytes / 1024)} KB`;
+}
+
+function bodyError(status, message) {
+  const error = new Error(message);
+  error.status = status;
+  error.requestBody = true;
+  return error;
+}
+
+// ctx.body(limit): the request body, read once. Past `limit` bytes (by
+// Content-Length or as it arrives) it rejects with 413, which handle()
+// answers. A body cut off midway rejects too.
 function readBody(req) {
   let promise = null;
-  return () => {
+  return (limit = DEFAULT_BODY_LIMIT) => {
     if (promise === null) {
-      promise = new Promise((resolve) => {
+      promise = new Promise((resolve, reject) => {
+        const tooLarge = () => bodyError(413, `That is too large to send here (the limit is ${sizeText(limit)}).`);
+        if (Number(req.headers['content-length']) > limit) {
+          reject(tooLarge());
+          return;
+        }
         const chunks = [];
         let size = 0;
+        let settled = false;
+        const finish = (error, value) => {
+          if (settled) return;
+          settled = true;
+          if (error) reject(error);
+          else resolve(value);
+        };
         req.on('data', (chunk) => {
+          if (settled) return;
           size += chunk.length;
-          if (size <= MAX_BODY) chunks.push(chunk);
+          if (size > limit) {
+            chunks.length = 0;
+            finish(tooLarge());
+          } else chunks.push(chunk);
         });
-        req.on('end', () => resolve(Buffer.concat(chunks)));
-        req.on('error', () => resolve(Buffer.concat(chunks)));
+        req.on('end', () => finish(null, Buffer.concat(chunks)));
+        req.on('error', () => finish(bodyError(400, 'The request was cut off.')));
+        req.on('close', () => finish(bodyError(400, 'The request was cut off.')));
       });
     }
     return promise;
   };
+}
+
+// A body over its limit: answered at once (JSON for /api). A client still
+// sending only sees that answer if the connection is not reset under it, so
+// the rest is read and dropped, up to DRAIN_BYTES for DRAIN_MS; past that the
+// connection closes. A body cut off midway: the connection is gone already.
+function bodyFailed(ctx, error) {
+  const { req, res } = ctx;
+  if (error.status !== 413 || res.headersSent || res.destroyed || !req.socket || req.socket.destroyed) {
+    res.destroy();
+    return;
+  }
+  let dropped = 0;
+  const timer = setTimeout(() => req.destroy(), DRAIN_MS);
+  const stop = () => clearTimeout(timer);
+  req.on('data', (chunk) => {
+    dropped += chunk.length;
+    if (dropped > DRAIN_BYTES) {
+      stop();
+      req.destroy();
+    }
+  });
+  req.on('end', stop);
+  req.on('close', stop);
+  req.resume();
+  const json = /^api\//i.test(ctx.path);
+  routes.send(ctx, 413, {
+    'Content-Type': json ? 'application/json; charset=utf-8' : 'text/plain; charset=utf-8',
+    'Cache-Control': 'no-store',
+  }, json ? JSON.stringify({ error: error.message }) : error.message);
 }
 
 async function handle(req, res) {
@@ -120,6 +185,10 @@ async function handle(req, res) {
       routes.send(ctx, 404, { 'Content-Type': 'text/plain; charset=utf-8' }, 'Not Found');
     }
   } catch (error) {
+    if (error && error.requestBody) {
+      bodyFailed(ctx, error);
+      return;
+    }
     log(`error handling ${ctx.method} ${url}: ${error && error.stack ? error.stack : error}`);
     if (!res.headersSent) routes.send(ctx, 500, { 'Content-Type': 'text/plain; charset=utf-8' }, 'Internal Server Error');
     else res.destroy();

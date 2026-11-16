@@ -218,4 +218,4 @@ function removeReplacement(id) {
   return true;
 }
 
-module.exports = { list, lookUpNames, saveReplacement, removeReplacement, noteUse };
+module.exports = { list, lookUpNames, saveReplacement, removeReplacement, noteUse, MAX_BYTES };

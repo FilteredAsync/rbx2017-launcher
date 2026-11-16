@@ -11,7 +11,8 @@
 // also works on Linux. Dot-folders (.test, .127.0.0.1), private keys and
 // folder listings are not served, and place files (the original bundle's
 // LT2.rbxl) only to this PC and the host key. Error/captures (where crash
-// uploads used to go) is not served. These rules go by the name on disk:
+// uploads used to go) and device/initialize/post.txt (where that page saved
+// what was posted to it) are not served. These rules go by the name on disk:
 // Windows also opens a file by its short name, like "LT2~1.RBX".
 
 const fs = require('fs');
@@ -36,14 +37,15 @@ function realPath(file) {
 }
 
 let realRoot = null;
-// In a dot-folder of the web root, or in Error/captures? (Not checked past a
-// junction out of it.)
+// In a dot-folder of the web root, in Error/captures, or device/initialize's
+// post.txt? (Not checked past a junction out of it.)
 function hidden(real) {
   if (realRoot === null) realRoot = realPath(core.WWW) || core.WWW;
   const relative = path.relative(realRoot, real);
   if (relative.startsWith('..') || path.isAbsolute(relative)) return false;
   const segments = relative.split(path.sep);
   if (segments.length > 2 && segments[0].toLowerCase() === 'error' && segments[1].toLowerCase() === 'captures') return true;
+  if (segments.join('/').toLowerCase() === 'device/initialize/post.txt') return true;
   return segments.some((segment) => segment.startsWith('.'));
 }
 

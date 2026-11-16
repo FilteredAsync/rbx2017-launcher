@@ -477,7 +477,7 @@ pcall(function() history:SetEnabled(true) end)
     const placeId = ctx.queryLower.assetid;
     const allowed = authorize(ctx, placeId);
     if (allowed.error) return send(ctx, allowed.status, headers, allowed.error);
-    let bytes = await ctx.body();
+    let bytes = await ctx.body(MAX_PLACE_BYTES);
     const declared = Number(ctx.req.headers['content-length']);
     if (Number.isFinite(declared) && declared !== bytes.length) return send(ctx, 413, headers, 'The upload was cut short.');
     if (bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) {
@@ -710,7 +710,7 @@ pcall(function() history:SetEnabled(true) end)
       logStudio(`refused a Team Create save for place ${place.placeId} (bad or missing token)`);
       return send(ctx, 403, headers, 'not allowed');
     }
-    let bytes = await ctx.body();
+    let bytes = await ctx.body(MAX_PLACE_BYTES);
     if (bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) {
       try { bytes = zlib.gunzipSync(bytes, { maxOutputLength: MAX_PLACE_BYTES }); } catch (error) { return send(ctx, 400, headers, 'could not unpack'); }
     }

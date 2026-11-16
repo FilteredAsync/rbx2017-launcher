@@ -740,6 +740,19 @@ function unsignedStartScript(ctx, match) {
   send(ctx, 200, { 'Content-Type': 'text/plain' }, `--rbxsig%%${data}`);
 }
 
+// --- Request body limits -----------------------------------------------------------------
+// Each route reads with its own (ctx.body(limit), server.js); past it the
+// answer is 413. Only place uploads take 1 GB.
+const KB = 1024;
+const MB = 1024 * KB;
+const FORM_LIMIT = 64 * KB; // purchases, device/initialize: a few form fields
+const JSON_LIMIT = 256 * KB; // jsonBody's default
+const FILTER_TEXT_LIMIT = 256 * KB;
+const DATASTORE_LIMIT = 32 * MB; // a 4 MB value, form-encoded, with room
+const ABUSE_REPORT_LIMIT = 16 * reports.MAX_BODY; // as much as a gzipped one may unpack to
+const PLACE_UPLOAD_LIMIT = 1024 * MB;
+const UPDATE_UPLOAD_LIMIT = 600 * MB; // as lib/updates.js downloads one
+
 // --- Small endpoints ---------------------------------------------------------------------
 
 // Crash uploads. The client and Studio post their dumps and logs to
@@ -889,7 +902,7 @@ async function persistence(ctx, match) {
     return;
   }
   const action = match[1];
-  const raw = (await ctx.body()).toString('utf8');
+  const raw = (await ctx.body(DATASTORE_LIMIT)).toString('utf8');
   const form = core.parseQuery(raw.replace(/^&+/, ''));
   const query = Object.assign({}, ctx.query);
   const result = datastore.handle(action, query, form);
@@ -909,7 +922,7 @@ async function persistence(ctx, match) {
 
 // www/moderation/v2/filtertext/index.php: echo the text back unfiltered.
 async function filterText(ctx) {
-  const raw = (await ctx.body()).toString('utf8');
+  const raw = (await ctx.body(FILTER_TEXT_LIMIT)).toString('utf8');
   let text = '';
   try {
     const request = JSON.parse(raw);
@@ -979,7 +992,7 @@ async function productInfo(ctx) {
 // reports it granted.
 async function submitPurchase(ctx) {
   if (ctx.method !== 'POST') return sendJson(ctx, 405, { error: 'use POST' });
-  sendJson(ctx, 200, marketplace.submitPurchase(launcher.playerAt(ctx.remote), await ctx.body()));
+  sendJson(ctx, 200, marketplace.submitPurchase(launcher.playerAt(ctx.remote), await ctx.body(FORM_LIMIT)));
 }
 
 // Asset and game pass purchases (lib/marketplace.js): the buyer owns the
@@ -989,7 +1002,7 @@ async function submitPurchase(ctx) {
 // GamePassService:PlayerHasPass asks GamePassHandler.ashx?Action=HasPass&UserID=&PassID=.
 async function purchaseAsset(ctx) {
   if (ctx.method !== 'POST') return sendJson(ctx, 405, { error: 'use POST' });
-  sendJson(ctx, 200, marketplace.purchaseAsset(launcher.playerAt(ctx.remote), await ctx.body()));
+  sendJson(ctx, 200, marketplace.purchaseAsset(launcher.playerAt(ctx.remote), await ctx.body(FORM_LIMIT)));
 }
 
 function hasAsset(ctx) {
@@ -1011,7 +1024,7 @@ function pendingPurchases(ctx) {
 }
 
 async function completePurchase(ctx) {
-  sendJson(ctx, 200, marketplace.completePurchase(await ctx.body()));
+  sendJson(ctx, 200, marketplace.completePurchase(await ctx.body(FORM_LIMIT)));
 }
 
 // www/game/LuaWebService/HandleSocialRequest.php (the .ashx URL maps here).
@@ -1156,10 +1169,12 @@ function rccSettings(ctx) {
   send(ctx, 200, jsonNoStore, core.phpJson(settings));
 }
 
-// www/device/initialize/index.php: store the posted body, answer the literal.
+// www/device/initialize/index.php: answer its literal. Studio 2017 posts
+// here for a browser tracker ID (mobileDeviceId=...). The PHP page saved the
+// body into the web root as post.txt; nothing read it, so it is not kept.
 async function deviceInitialize(ctx) {
   const directory = path.join(core.WWW, 'device', 'initialize');
-  try { fs.writeFileSync(path.join(directory, 'post.txt'), await ctx.body()); } catch (error) { /* as PHP: ignore */ }
+  await ctx.body(FORM_LIMIT);
   const segments = www.phpSegments(fs.readFileSync(path.join(directory, 'index.php')).toString('latin1'));
   const literal = segments.filter((segment) => segment.literal).map((segment) => segment.text).join('');
   send(ctx, 200, { 'Content-Type': 'text/html' }, literal);
@@ -1185,9 +1200,10 @@ function sendJson(ctx, status, value) {
   sendUtf8(ctx, status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }, JSON.stringify(value));
 }
 
-async function jsonBody(ctx) {
+async function jsonBody(ctx, limit = JSON_LIMIT) {
+  const text = (await ctx.body(limit)).toString('utf8');
   try {
-    const value = JSON.parse((await ctx.body()).toString('utf8') || '{}');
+    const value = JSON.parse(text || '{}');
     return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {};
   } catch (error) {
     return {};
@@ -1220,9 +1236,12 @@ async function gamesApi(ctx, match) {
     return sendJson(ctx, 200, { games: list });
   }
   if (ctx.method !== 'POST') return sendJson(ctx, 405, { error: 'use POST' });
+  const wrongKey = () => sendJson(ctx, 403, { error: 'wrong or missing host key (config/host-key.txt on the web server)' });
+  const headerKey = ctx.req.headers['x-host-key'];
+  if (headerKey !== undefined && !games.checkHostKey(String(headerKey))) return wrongKey();
   const body = await jsonBody(ctx);
-  const key = ctx.req.headers['x-host-key'] !== undefined ? String(ctx.req.headers['x-host-key']) : body.key;
-  if (!games.checkHostKey(key)) return sendJson(ctx, 403, { error: 'wrong or missing host key (config/host-key.txt on the web server)' });
+  const key = headerKey !== undefined ? String(headerKey) : body.key;
+  if (!games.checkHostKey(key)) return wrongKey();
 
   if (id === 'register' && action === null) {
     const result = games.register(body, ctx.remote);
@@ -1294,9 +1313,9 @@ function placesWithStatus(isAdmin) {
 // An uploaded place file -> { bytes } or { error }.
 async function placeUpload(ctx) {
   const declared = Number(ctx.req.headers['content-length']);
-  const bytes = await ctx.body();
+  const bytes = await ctx.body(PLACE_UPLOAD_LIMIT);
   if (bytes.length === 0) return { error: 'no place file was sent' };
-  if (Number.isFinite(declared) && declared !== bytes.length) return { error: 'the upload was cut short (too large? the limit is 1 GB)' };
+  if (Number.isFinite(declared) && declared !== bytes.length) return { error: 'the upload was cut short' };
   return { bytes };
 }
 
@@ -1472,7 +1491,7 @@ async function assetsApi(ctx, match) {
   const id = match[1];
   if (ctx.method === 'DELETE') return sendJson(ctx, 200, { ok: missingassets.removeReplacement(id) });
   const declared = Number(ctx.req.headers['content-length']);
-  const bytes = await ctx.body();
+  const bytes = await ctx.body(missingassets.MAX_BYTES);
   if (Number.isFinite(declared) && declared !== bytes.length) return sendJson(ctx, 400, { error: 'the upload was cut short' });
   const result = missingassets.saveReplacement(id, bytes);
   return result.error ? sendJson(ctx, 400, result) : sendJson(ctx, 200, Object.assign({ ok: true }, result));
@@ -1632,7 +1651,7 @@ async function abuseReport(ctx) {
   const textHeaders = { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' };
   if (ctx.method !== 'POST') return send(ctx, 405, textHeaders, 'use POST');
   if (!fromGameServer(ctx.remote)) return send(ctx, 403, textHeaders, 'Only game servers can send reports here.');
-  let body = await ctx.body();
+  let body = await ctx.body(ABUSE_REPORT_LIMIT);
   if (body[0] === 0x1f && body[1] === 0x8b) {
     try { body = zlib.gunzipSync(body, { maxOutputLength: 16 * reports.MAX_BODY }); } catch (error) { body = body.subarray(0, 0); }
   }
@@ -1768,9 +1787,9 @@ async function serverApi(ctx, match) {
   }
   if (action === 'update/upload') {
     const declared = Number(ctx.req.headers['content-length']);
-    const bytes = await ctx.body();
+    const bytes = await ctx.body(UPDATE_UPLOAD_LIMIT);
     if (bytes.length === 0) return sendJson(ctx, 400, { error: 'no update file was sent' });
-    if (Number.isFinite(declared) && declared !== bytes.length) return sendJson(ctx, 400, { error: 'the upload was cut short (too large? the limit is 1 GB)' });
+    if (Number.isFinite(declared) && declared !== bytes.length) return sendJson(ctx, 400, { error: 'the upload was cut short' });
     try {
       const { dir, ...staged } = updates.stage(bytes, 'uploaded on /manage');
       return sendJson(ctx, 200, { staged });
@@ -1803,7 +1822,7 @@ async function thumbnailsApi(ctx, match) {
     gamethumbs.remove(placeId);
     return sendJson(ctx, 200, { ok: true, thumbnail: null });
   }
-  const result = gamethumbs.save(placeId, await ctx.body());
+  const result = gamethumbs.save(placeId, await ctx.body(gamethumbs.MAX_BYTES));
   if (result.error) return sendJson(ctx, 400, { error: result.error });
   return sendJson(ctx, 200, { ok: true, thumbnail: result.version });
 }
