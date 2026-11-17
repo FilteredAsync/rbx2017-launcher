@@ -43,6 +43,9 @@
 //   GET  game/<placeId>   a game's page: votes, badges (earned or not) and game passes
 //                         (owned or not); badges/passes null while first looked up
 //   POST game/<placeId>/vote   (session) {vote: 1 | -1 | 0} -> {votes}
+//   GET  robux            (session) your Robux: {balance, earn, history}
+//                         (lib/robux.js); also gives the daily bonus
+//   GET  picture/<userId> an account's saved avatar picture (PNG), for the website
 //
 // The session is the token from login, sent as "Authorization: Bearer ...",
 // the same accounts and sessions Studio uses (lib/accounts.js).
@@ -77,6 +80,7 @@ const marketplace = require('./marketplace');
 const badges = require('./badges');
 const ownership = require('./ownership');
 const votes = require('./votes');
+const robux = require('./robux');
 
 const TICKET_MS = 5 * 60 * 1000;
 const tickets = new Map();
@@ -277,6 +281,17 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
     }
     return result.sort((a, b) => a.name.localeCompare(b.name));
   }
+
+  // The play clock: every minute, each account in a game server (by the
+  // servers' own player lists) gets a minute towards its Robux for playing
+  // (lib/robux.js), and developer products a game never granted are refunded.
+  const playClock = setInterval(() => {
+    try {
+      robux.playMinute(onlinePlayers().filter((player) => !player.guest && player.userId > 0).map((player) => player.userId));
+    } catch (error) { /* tried again next minute */ }
+    try { marketplace.expireReceipts(); } catch (error) { /* next minute */ }
+  }, 60 * 1000);
+  if (playClock.unref) playClock.unref();
 
   // What presence needs, worked out once per request: who is in which game,
   // and who is editing in Team Create.
@@ -1057,7 +1072,22 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
       if (!who) return;
       const body = await jsonBody(ctx);
       presence.report(who.userId, String(body.state || ''), body.placeId);
+      try { robux.checkIn(who.userId); } catch (error) { /* the next beat */ }
       return sendJson(ctx, 200, { ok: true, everySeconds: 30 });
+    }
+    // An account's saved avatar picture, for the website (only saved ones:
+    // a made-up ID costs a file lookup, never a Roblox one).
+    const picture = /^picture\/(\d{1,15})$/.exec(action);
+    if (picture && method === 'GET') {
+      const image = accounts.byUserId(picture[1]) ? avatarStore.imageFor(picture[1]) : null;
+      if (!image) return sendJson(ctx, 404, { error: 'No picture saved for this player yet.' });
+      return send(ctx, 200, { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=300' }, image);
+    }
+    if (action === 'robux' && method === 'GET') {
+      const who = needAccount(ctx);
+      if (!who) return;
+      robux.checkIn(who.userId);
+      return sendJson(ctx, 200, robux.summary(who.userId));
     }
     if (action === 'following' && method === 'GET') {
       const who = needAccount(ctx);

@@ -16,6 +16,10 @@ browsers that open `https://rbx2017.com/` to `www`.
   location asks the game server about once per cache period, however many
   people visit. While the game server is down, the site shows the last game
   list it got.
+- `lib/account.js`: logging in and signing up (the launcher's accounts, on
+  the game server), and the signed-in pages: `/home` with your friends and
+  R$, and R$ with your name in the header. The session is an HttpOnly
+  cookie. These answers are each visitor's own, so they aren't cached.
 
 ## Try it locally
 
@@ -48,10 +52,37 @@ is no edge cache locally.
    Running `tools/vps/setup-vps.sh` again later needs
    `--site https://www.rbx2017.com` to keep the redirect.
 
-Every push to `main` that changes `site/` redeploys the site.
+The live site deploys from the `site-live` branch (Settings, Builds, Branch
+control: production branch `site-live`, preview deployments None), so
+pushes to `main` don't change it. It goes out with a release:
+
+```
+git push origin main:site-live
+```
+
+## Set up signing in (once)
+
+1. The website key: on the game server's /manage page, open Server, then
+   Website key, Show, Copy.
+2. In the Cloudflare Pages project, open Settings, Variables and Secrets,
+   and add `SITE_KEY` (type Secret) with that key. Without it, logins still
+   work, but the game server's wrong-password limit counts everyone on the
+   website as one visitor.
+3. The human check on Sign Up (recommended): in the Cloudflare dashboard,
+   open Turnstile, Add widget, hostname `www.rbx2017.com`, mode Managed.
+   Add its Site Key as `TURNSTILE_SITE_KEY` (type Text) and its Secret Key
+   as `TURNSTILE_SECRET` (type Secret). Without both, sign-ups skip it.
+4. Variables apply to new deployments: open Deployments and retry the
+   latest one.
+
+Locally: `SITE_KEY=... GAME_SERVER=http://127.0.0.1:<port> node
+site/dev-server.mjs`, with `DEV_CLIENT_IP=<a public IP>` to stand in for
+the visitor address Cloudflare adds.
 
 ## Limits
 
 The free plan allows 100,000 function requests a day. A first visit to the
 home page uses about 30 (the list, votes and the game thumbnails), and
-browsers keep thumbnails for a week. Static pages don't count.
+browsers keep thumbnails for a week. Static pages don't count. Every page
+also asks `/api/me` (kept for 30 seconds in the tab); for signed-in
+visitors that asks the game server twice, and `/home` adds their friends.

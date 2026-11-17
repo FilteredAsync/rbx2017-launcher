@@ -47,6 +47,18 @@
       <img class="logo logo-img" src="roblox-logo.png" alt="ROBLOX" draggable="false">
       <div class="top-right">
         <button class="update-pill hidden" id="update-pill" title="A new launcher version"></button>
+        <div class="robux-wrap hidden" id="robux-wrap">
+          <button class="robux-chip" id="robux-chip" title="Your Robux" aria-expanded="false" aria-controls="robux-pop">
+            <span class="rbx-badge" aria-hidden="true">R$</span><span class="robux-count" id="robux-count"></span>
+          </button>
+          <div class="robux-pop hidden" id="robux-pop" role="dialog" aria-label="Your Robux">
+            <div class="robux-pop-balance"><span class="rbx-badge big" aria-hidden="true">R$</span><span id="robux-pop-count"></span></div>
+            <div class="robux-pop-head">Earn more</div>
+            <ul class="robux-list" id="robux-earn"></ul>
+            <div class="robux-pop-head" id="robux-history-head">Recent</div>
+            <ul class="robux-list" id="robux-history"></ul>
+          </div>
+        </div>
         <button class="user-chip" id="user-chip" title="Account">
           <span class="chip-pic"><img id="chip-img" class="hidden" alt=""></span>
           <span class="chip-text"><span class="chip-name" id="chip-name">Guest</span><span class="chip-sub" id="chip-sub"></span></span>

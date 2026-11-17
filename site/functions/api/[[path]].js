@@ -8,7 +8,9 @@
 //   /api/release            the newest launcher release
 // Game, thumbnail and icon IDs are checked against the cached game list and
 // game page first, so made-up IDs never reach the game server.
+// Signing in and the signed-in pages' data: lib/account.js.
 import { cached, gameServer, json, gameList, allVotes, gamePage, image, release } from '../../lib/edge.js';
+import { accountRoute } from '../../lib/account.js';
 
 const WEEK = 7 * 24 * 3600;
 
@@ -32,9 +34,11 @@ function gamePageCached(context, server, placeId) {
 
 export async function onRequest(context) {
   const { request, env } = context;
+  const route = [].concat(context.params.path || []).join('/');
+  const account = await accountRoute(context, route);
+  if (account) return account;
   if (request.method !== 'GET' && request.method !== 'HEAD') return json({ error: 'Use GET.' }, 405);
   const server = gameServer(env);
-  const route = [].concat(context.params.path || []).join('/');
   let match;
   if (route === 'games') return cached(context, '/games', () => gameList(server));
   if (route === 'votes') return cached(context, '/votes', () => allVotes(server));

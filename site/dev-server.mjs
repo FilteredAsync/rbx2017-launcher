@@ -3,6 +3,9 @@
 // file, 404.html for missing pages, and the functions/ routes run in Node.
 // The functions talk to the live game server unless GAME_SERVER says
 // otherwise. There is no edge cache here, so every /api call goes through.
+// SITE_KEY, TURNSTILE_SITE_KEY and TURNSTILE_SECRET pass through like
+// Cloudflare's environment variables; DEV_CLIENT_IP stands in for the
+// visitor address Cloudflare adds (CF-Connecting-IP).
 //
 //   node site/dev-server.mjs [port]        (default 8788)
 import http from 'node:http';
@@ -75,7 +78,10 @@ async function handle(request) {
       params: { path: match[1] ? match[1].split('/') : [] },
       env: {
         GAME_SERVER: process.env.GAME_SERVER,
-        ASSETS: { fetch: (target) => serveStatic(new Request(new URL(String(target.url || target), url))) },
+        SITE_KEY: process.env.SITE_KEY,
+        TURNSTILE_SITE_KEY: process.env.TURNSTILE_SITE_KEY,
+        TURNSTILE_SECRET: process.env.TURNSTILE_SECRET,
+        ASSETS:{ fetch: (target) => serveStatic(new Request(new URL(String(target.url || target), url))) },
       },
       waitUntil() {},
       next: () => serveStatic(request),
@@ -88,10 +94,18 @@ async function handle(request) {
 http.createServer(async (req, res) => {
   const started = Date.now();
   try {
-    const request = new Request(`http://localhost:${PORT}${req.url}`, { method: req.method, headers: req.headers });
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const headers = new Headers(req.headers);
+    if (process.env.DEV_CLIENT_IP) headers.set('CF-Connecting-IP', process.env.DEV_CLIENT_IP);
+    const hasBody = !['GET', 'HEAD'].includes(req.method);
+    const request = new Request(`http://localhost:${PORT}${req.url}`, { method: req.method, headers, body: hasBody ? Buffer.concat(chunks) : undefined });
     const response = await handle(request);
     const body = req.method === 'HEAD' ? null : Buffer.from(await response.arrayBuffer());
-    res.writeHead(response.status, Object.fromEntries(response.headers));
+    const out = Object.fromEntries(response.headers);
+    const cookies = response.headers.getSetCookie ? response.headers.getSetCookie() : [];
+    if (cookies.length) out['set-cookie'] = cookies;
+    res.writeHead(response.status, out);
     res.end(body);
     console.log(`${req.method} ${req.url} ${response.status} ${Date.now() - started}ms`);
   } catch (error) {

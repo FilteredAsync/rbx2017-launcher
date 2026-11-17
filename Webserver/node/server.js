@@ -19,6 +19,7 @@ const core = require('./lib/core');
 const datastore = require('./lib/datastore');
 const games = require('./lib/games');
 const publicnet = require('./lib/publicnet');
+const sitekey = require('./lib/sitekey');
 const routes = require('./lib/routes');
 const www = require('./lib/www');
 
@@ -167,7 +168,8 @@ async function handle(req, res) {
     query,
     queryLower: core.lowerKeys(query),
     body: readBody(req),
-    remote: via.remote,
+    // The website's requests stand for its visitor (lib/sitekey.js).
+    remote: sitekey.clientAddress(req, via.remote),
     publicHost: via.publicHost,
   };
 

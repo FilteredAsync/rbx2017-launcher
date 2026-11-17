@@ -122,7 +122,7 @@
         </header>
         <div class="table-wrap">
           <table class="table">
-            <thead><tr><th>Name</th><th class="num hide-sm">User ID</th><th>Last login</th><th>Admin</th><th></th></tr></thead>
+            <thead><tr><th>Name</th><th class="num hide-sm">User ID</th><th>Last login</th><th class="num">R$</th><th>Admin</th><th></th></tr></thead>
             <tbody id="account-rows"></tbody>
           </table>
         </div>
@@ -170,6 +170,17 @@
             <progress id="srv-progress" max="100" value="0" hidden></progress>
             <button class="btn" type="button" id="srv-upload-button">Upload update file</button>
             <button class="btn primary" type="button" id="srv-install" hidden>Install now</button>
+          </div>
+        </div>
+        <div class="card update-card">
+          <div class="update-text">
+            <b>Website key</b>
+            <small>Lets the website sign players in. Paste it into the Cloudflare project as SITE_KEY.</small>
+            <code class="site-key" id="site-key" hidden></code>
+          </div>
+          <div class="update-actions">
+            <button class="btn" type="button" id="site-key-show">Show</button>
+            <button class="btn" type="button" id="site-key-copy" hidden>Copy</button>
           </div>
         </div>
         <div class="card logs">
@@ -258,6 +269,25 @@
         <span class="grow"></span>
         <button class="btn" value="cancel">Cancel</button>
         <button class="btn primary" value="ok" id="ask-ok">OK</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- Give or take Robux -->
+  <dialog class="modal small" id="robux-dialog">
+    <form method="dialog" id="robux-form">
+      <div class="modal-body">
+        <h2 id="robux-title"></h2>
+        <p class="sub" id="robux-now"></p>
+        <label class="field">
+          <span>Amount <em>negative takes it away</em></span>
+          <input id="robux-amount" inputmode="numeric" maxlength="11" placeholder="100 or -50" required>
+        </label>
+      </div>
+      <footer class="modal-foot">
+        <span class="grow"></span>
+        <button class="btn" value="cancel" formnovalidate>Cancel</button>
+        <button class="btn primary" value="ok">Save</button>
       </footer>
     </form>
   </dialog>

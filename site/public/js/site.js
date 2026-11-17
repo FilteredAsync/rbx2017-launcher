@@ -320,6 +320,14 @@
 
   // ---- pages ----
   function homePage() {
+    // Signed in: your home page. Signed out: the sign-up box.
+    loadMe().then(function (me) {
+      if (me.account) { location.replace('/home'); return; }
+      var box = $('hero-signup');
+      if (!box || me.offline) return;
+      authForm($('auth-form'), 'signup', me);
+      box.classList.remove('hidden');
+    });
     var rows = $('home-rows');
     skeletonCards(rows.appendChild(el('div', 'game-row-track')), 6);
     loadGames().then(function (result) {
@@ -625,16 +633,14 @@
     var header = el('div', 'container-header');
     header.appendChild(el('h2', null, 'Passes for this game'));
     section.appendChild(header);
-    section.appendChild(el('p', 'text-secondary', 'Every pass is free in game.'));
+    section.appendChild(el('p', 'text-secondary', 'Buy passes in game with R$ you earn by playing.'));
     var grid = el('div', 'pass-grid');
     passes.forEach(function (pass) {
       var card = el('div', 'pass-card');
       card.appendChild(itemIcon(game, pass));
       card.appendChild(el('h4', null, pass.name));
       if (pass.description) card.title = pass.description;
-      var price = el('div', 'price', 'Free');
-      if (pass.price) price.appendChild(el('span', 'was', 'R$' + number(pass.price)));
-      card.appendChild(price);
+      card.appendChild(el('div', 'price', pass.price > 0 ? 'R$ ' + number(pass.price) : 'Free'));
       grid.appendChild(card);
     });
     section.appendChild(grid);
@@ -688,10 +694,373 @@
 
   function simplePage() { loadGames().then(showOnline); }
 
+  // ---- account (functions/api: lib/account.js) ----
+  // /api/me says who is signed in (the session is an HttpOnly cookie). The
+  // answer is kept in this tab for 30 seconds, so moving between pages
+  // doesn't ask the game server every time.
+  var ME_KEY = 'rbx2017.me';
+  var NAME_RULE = /^[A-Za-z0-9_]{3,20}$/;
+  var MIN_PASSWORD = 6;
+
+  function storedMe() {
+    try {
+      var item = JSON.parse(sessionStorage.getItem(ME_KEY) || 'null');
+      return item && Date.now() - item.at < 30000 ? item.data : null;
+    } catch (error) { return null; }
+  }
+  function storeMe(data) {
+    try {
+      if (data) sessionStorage.setItem(ME_KEY, JSON.stringify({ at: Date.now(), data: data }));
+      else sessionStorage.removeItem(ME_KEY);
+    } catch (error) { /* private window: ask each time */ }
+  }
+
+  var meLoading = null;
+  // -> { account|null, robux|null, turnstile|null, offline? }
+  function loadMe(fresh) {
+    if (meLoading && !fresh) return meLoading;
+    var kept = fresh ? null : storedMe();
+    meLoading = kept ? Promise.resolve(kept) : fetch('/api/me', { headers: { Accept: 'application/json' }, credentials: 'same-origin' }).then(function (response) {
+      return response.json().catch(function () { return null; }).then(function (data) {
+        if (!response.ok || !data) return { account: null, robux: null, turnstile: data && data.turnstile, offline: true };
+        storeMe(data);
+        return data;
+      });
+    }, function () { return { account: null, robux: null, offline: true }; });
+    return meLoading;
+  }
+
+  // A same-site path from ?next=, or null.
+  function safeNext() {
+    var next = new URLSearchParams(location.search).get('next') || '';
+    return /^\/(?![\/\\])[A-Za-z0-9\-_\/.?=&#%]*$/.test(next) ? next : null;
+  }
+
+  function rbxBadge(big) {
+    var badge = el('span', 'rbx-badge' + (big ? ' big' : ''), 'R$');
+    badge.setAttribute('aria-hidden', 'true');
+    return badge;
+  }
+
+  function post(path, body) {
+    return fetch('/api/' + path, {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(body || {}),
+    }).then(function (response) {
+      return response.json().catch(function () { return {}; }).then(function (data) { return { ok: response.ok, data: data || {} }; });
+    }, function () { return { ok: false, data: { error: "Couldn't reach the site. Check your connection." } }; });
+  }
+
+  function logOut() {
+    post('logout').then(function () {
+      storeMe(null);
+      location.href = '/';
+    });
+  }
+
+  var openMenu = null;
+  function closeMenu() {
+    if (!openMenu) return;
+    openMenu.list.classList.add('hidden');
+    openMenu.button.setAttribute('aria-expanded', 'false');
+    openMenu = null;
+  }
+  document.addEventListener('click', closeMenu);
+  document.addEventListener('keydown', function (event) { if (event.key === 'Escape') closeMenu(); });
+
+  function renderHeaderAccount(me) {
+    var box = $('header-account');
+    if (!box) return;
+    box.textContent = '';
+    if (!me || me.offline) return;
+    if (!me.account) {
+      var page = document.body.dataset.page;
+      if (page !== 'signup') {
+        var signup = el('a', 'btn btn-green btn-xs header-signup', 'Sign Up');
+        signup.href = '/signup';
+        box.appendChild(signup);
+      }
+      if (page !== 'login') {
+        var login = el('a', 'header-link', 'Log In');
+        login.href = page === 'home' || page === 'signup' ? '/login' : '/login?next=' + encodeURIComponent(location.pathname + location.search);
+        box.appendChild(login);
+      }
+      return;
+    }
+    if (me.robux) {
+      var robux = el('a', 'header-robux');
+      robux.href = '/home#robux-card';
+      robux.title = 'Your R$';
+      robux.appendChild(rbxBadge());
+      robux.appendChild(el('span', null, number(me.robux.balance)));
+      box.appendChild(robux);
+    }
+    var wrap = el('div', 'user-menu');
+    var button = el('button', 'user-menu-button');
+    button.type = 'button';
+    button.setAttribute('aria-haspopup', 'true');
+    button.setAttribute('aria-expanded', 'false');
+    button.appendChild(el('span', 'user-menu-name', me.account.name));
+    button.appendChild(icon('caret'));
+    var list = el('div', 'user-menu-list hidden');
+    var home = el('a', null, 'Home');
+    home.href = '/home';
+    var out = el('button', null, 'Log Out');
+    out.type = 'button';
+    out.addEventListener('click', logOut);
+    list.appendChild(home);
+    list.appendChild(out);
+    button.addEventListener('click', function (event) {
+      event.stopPropagation();
+      var opening = list.classList.contains('hidden');
+      closeMenu();
+      if (!opening) return;
+      list.classList.remove('hidden');
+      button.setAttribute('aria-expanded', 'true');
+      openMenu = { list: list, button: button };
+    });
+    wrap.appendChild(button);
+    wrap.appendChild(list);
+    box.appendChild(wrap);
+  }
+
+  // Cloudflare Turnstile, only when the site has keys for it.
+  var turnstileLoading = null;
+  function loadTurnstile() {
+    if (!turnstileLoading) {
+      turnstileLoading = new Promise(function (resolve, reject) {
+        var script = document.createElement('script');
+        script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+        script.async = true;
+        script.onload = function () { if (window.turnstile) resolve(window.turnstile); else reject(new Error('no turnstile')); };
+        script.onerror = function () { reject(new Error('no turnstile')); };
+        document.head.appendChild(script);
+      });
+    }
+    return turnstileLoading;
+  }
+
+  // The log in or sign up form, into container.
+  function authForm(container, mode, me) {
+    var signup = mode === 'signup';
+    var form = el('form', 'auth-form');
+    form.noValidate = true;
+    function field(label, type, autocomplete, maxLength) {
+      var wrap = el('label', 'field');
+      wrap.appendChild(el('span', null, label));
+      var input = el('input');
+      input.type = type;
+      input.autocomplete = autocomplete;
+      input.maxLength = maxLength;
+      input.required = true;
+      if (type === 'text') { input.spellcheck = false; input.autocapitalize = 'off'; }
+      wrap.appendChild(input);
+      form.appendChild(wrap);
+      return input;
+    }
+    var name = field('Username', 'text', 'username', 20);
+    var password = field(signup ? 'Password (at least ' + MIN_PASSWORD + ' characters)' : 'Password', 'password', signup ? 'new-password' : 'current-password', 200);
+    var again = signup ? field('Password again', 'password', 'new-password', 200) : null;
+    if (signup) form.appendChild(el('p', 'field-note', "Don't use your real name. This account is separate from Roblox."));
+
+    var check = null;
+    var checkId = null;
+    var checkToken = '';
+    if (signup && me && me.turnstile) {
+      check = el('div', 'turnstile');
+      form.appendChild(check);
+      loadTurnstile().then(function (turnstile) {
+        checkId = turnstile.render(check, {
+          sitekey: me.turnstile,
+          theme: 'light',
+          callback: function (token) { checkToken = token; },
+          'expired-callback': function () { checkToken = ''; },
+          'error-callback': function () { checkToken = ''; },
+        });
+      }, function () {
+        check.textContent = "The human check didn't load. Turn off blockers for this site and reload.";
+      });
+    }
+
+    var error = el('p', 'form-error hidden');
+    error.setAttribute('role', 'alert');
+    form.appendChild(error);
+    var submit = el('button', 'btn btn-green btn-lg btn-block', signup ? 'Sign Up' : 'Log In');
+    submit.type = 'submit';
+    form.appendChild(submit);
+    var other = el('p', 'auth-other');
+    other.appendChild(document.createTextNode(signup ? 'Have an account? ' : 'New here? '));
+    var link = el('a', null, signup ? 'Log in' : 'Sign up');
+    link.href = signup ? '/login' : '/signup';
+    other.appendChild(link);
+    form.appendChild(other);
+
+    function fail(text, input) {
+      error.textContent = text;
+      error.classList.remove('hidden');
+      if (input) input.focus();
+    }
+
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      error.classList.add('hidden');
+      var who = name.value.trim();
+      if (!NAME_RULE.test(who)) return fail('Usernames are 3 to 20 letters, digits or underscores.', name);
+      if (!password.value) return fail('Type your password.', password);
+      if (signup && password.value.length < MIN_PASSWORD) return fail('Pick a password of at least ' + MIN_PASSWORD + ' characters.', password);
+      if (signup && again.value !== password.value) return fail("The passwords don't match.", again);
+      if (check && !checkToken) return fail('Finish the human check first.');
+      submit.disabled = true;
+      submit.textContent = signup ? 'Signing up...' : 'Logging in...';
+      post(signup ? 'signup' : 'login', { name: who, password: password.value, turnstile: checkToken || undefined }).then(function (result) {
+        if (result.ok) {
+          storeMe(null);
+          location.href = safeNext() || '/home';
+          return;
+        }
+        submit.disabled = false;
+        submit.textContent = signup ? 'Sign Up' : 'Log In';
+        if (check && window.turnstile && checkId !== null) { window.turnstile.reset(checkId); checkToken = ''; }
+        fail(result.data.error || 'That did not work. Try again.');
+      });
+    });
+
+    container.textContent = '';
+    container.appendChild(form);
+    if (!('ontouchstart' in window) && container.closest('.auth-card')) name.focus();
+  }
+
+  function authPage(mode) {
+    return function () {
+      loadGames().then(showOnline);
+      loadMe(true).then(function (me) {
+        if (me.account) { location.replace(safeNext() || '/home'); return; }
+        authForm($('auth-form'), mode, me);
+      });
+    };
+  }
+
+  // ---- the signed-in home page ----
+  var PRESENCE_TEXT = { studio: 'In Studio', online: 'Online', offline: 'Offline' };
+
+  function avatarPicture(userId, name, className) {
+    var box = el('span', className);
+    box.appendChild(el('span', 'avatar-letter', String(name || '?').charAt(0).toUpperCase()));
+    var img = el('img');
+    img.alt = '';
+    img.decoding = 'async';
+    img.addEventListener('load', function () { box.classList.add('has-picture'); });
+    img.addEventListener('error', function () { img.remove(); });
+    img.src = '/api/avatar/' + userId;
+    box.appendChild(img);
+    return box;
+  }
+
+  function robuxRow(what, side, sideClass) {
+    var row = el('li');
+    row.appendChild(el('span', 'what', what));
+    row.appendChild(el('span', 'side' + (sideClass ? ' ' + sideClass : ''), side));
+    return row;
+  }
+
+  function robuxCard(robux) {
+    var card = $('robux-card');
+    if (!robux) { card.classList.add('hidden'); return; }
+    $('robux-balance').textContent = number(robux.balance);
+    var earn = robux.earn || {};
+    var list = $('robux-earn');
+    list.textContent = '';
+    if (earn.daily > 0) list.appendChild(robuxRow('Daily bonus: R$ ' + earn.daily, earn.dailyDone ? 'Got it today' : 'Not yet', earn.dailyDone ? 'done' : ''));
+    if (earn.playAmount > 0) list.appendChild(robuxRow('R$ ' + earn.playAmount + ' per ' + earn.playEvery + ' min played', number(earn.playToday) + ' / ' + number(earn.playMax) + ' today', earn.playToday >= earn.playMax ? 'done' : ''));
+    if (earn.badge > 0) list.appendChild(robuxRow('Each badge you earn', 'R$ ' + earn.badge));
+    var history = (robux.history || []).slice(0, 6);
+    $('robux-history-title').classList.toggle('hidden', !history.length);
+    var past = $('robux-history');
+    past.textContent = '';
+    history.forEach(function (entry) {
+      past.appendChild(robuxRow(entry.reason || (entry.amount > 0 ? 'Added' : 'Spent'), (entry.amount > 0 ? '+' : '−') + number(Math.abs(entry.amount)), entry.amount > 0 ? 'plus' : 'minus'));
+    });
+  }
+
+  function friendCard(friend) {
+    var playing = friend.presence === 'game' && friend.placeId;
+    var card = el(playing ? 'a' : 'div', 'friend p-' + friend.presence);
+    if (playing) {
+      card.href = gameUrl({ placeId: friend.placeId, name: friend.gameName || '' });
+      card.title = 'Playing ' + (friend.gameName || 'a game');
+    }
+    var picture = avatarPicture(friend.userId, friend.name, 'friend-picture');
+    picture.appendChild(el('span', 'presence-dot'));
+    card.appendChild(picture);
+    card.appendChild(el('span', 'friend-name', friend.name));
+    card.appendChild(el('span', 'friend-status', friend.presence === 'game' ? (friend.gameName ? friend.gameName : 'In a game') : PRESENCE_TEXT[friend.presence]));
+    if (playing && friend.gameId) {
+      var join = el('button', 'btn btn-green btn-xs friend-join', 'Join');
+      join.type = 'button';
+      join.addEventListener('click', function (event) {
+        event.preventDefault();
+        play({ placeId: friend.placeId, name: friend.gameName || 'the game' }, friend.gameId);
+      });
+      card.appendChild(join);
+    }
+    return card;
+  }
+
+  function friendsSection() {
+    var row = $('friends-row');
+    fetch('/api/friends', { headers: { Accept: 'application/json' }, credentials: 'same-origin' }).then(function (response) {
+      return response.json().catch(function () { return null; }).then(function (data) { return response.ok ? data : null; });
+    }, function () { return null; }).then(function (data) {
+      row.textContent = '';
+      if (!data) { row.appendChild(emptyState("Couldn't load your friends.")); return; }
+      var online = data.friends.filter(function (friend) { return friend.presence !== 'offline'; }).length;
+      $('friends-title').textContent = 'Friends (' + data.friends.length + ')';
+      if (online) $('hello-sub').textContent = plural(online, 'friend', 'friends') + ' online';
+      if (!data.friends.length) {
+        row.appendChild(emptyState("No friends yet. Add some in the launcher's People tab."));
+        return;
+      }
+      data.friends.slice(0, 30).forEach(function (friend) { row.appendChild(friendCard(friend)); });
+      if (data.requests > 0) $('friends-title').textContent += ' · ' + plural(data.requests, 'request', 'requests') + ' in the launcher';
+    });
+  }
+
+  function accountHomePage() {
+    loadMe(true).then(function (me) {
+      if (!me.account) {
+        if (!me.offline) location.replace('/login?next=%2Fhome');
+        else $('hello-name').textContent = "The game server isn't answering. Try again in a minute.";
+        return;
+      }
+      $('hello-name').classList.remove('loading');
+      $('hello-name').textContent = 'Hello, ' + me.account.name + '!';
+      $('hello-picture').appendChild(avatarPicture(me.account.userId, me.account.name, 'hello-avatar'));
+      robuxCard(me.robux);
+      friendsSection();
+    });
+    var rows = $('account-rows');
+    skeletonCards(rows.appendChild(el('div', 'game-row-track')), 6);
+    loadGames().then(function (result) {
+      showOnline(result);
+      return within(loadVotes(), 2500).then(function () { return result; });
+    }).then(function (result) {
+      rows.textContent = '';
+      offlineAlert(result, rows);
+      if (!result.games || !result.games.length) return;
+      rows.appendChild(gameRow('Popular', sorted(result.games, 'popular').slice(0, 18), '/games?sort=popular'));
+      rows.appendChild(gameRow('Recently Added', sorted(result.games, 'recent').slice(0, 18), '/games?sort=recent'));
+    });
+  }
+
   // ---- start ----
   fillSearch();
-  var pages = { home: homePage, games: gamesPage, game: gamePage, download: downloadPage };
+  var pages = {
+    home: homePage, games: gamesPage, game: gamePage, download: downloadPage,
+    login: authPage('login'), signup: authPage('signup'), 'account-home': accountHomePage,
+  };
   (pages[document.body.dataset.page] || simplePage)();
+  loadMe().then(renderHeaderAccount);
 
   // The 404 page's Go back button.
   var back = $('go-back');

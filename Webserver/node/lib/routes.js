@@ -27,6 +27,7 @@ const placefile = require('./placefile');
 const rbxbinary = require('./rbxbinary');
 const marketplace = require('./marketplace');
 const ownership = require('./ownership');
+const robux = require('./robux');
 const unionshapes = require('./unionshapes');
 const missingassets = require('./missingassets');
 const places = require('./places');
@@ -997,21 +998,73 @@ async function productInfo(ctx) {
 }
 
 // Developer product purchases (lib/marketplace.js): the client's purchase
-// prompt gets a receipt; the game server checks it before ProcessReceipt and
-// reports it granted.
+// prompt pays and gets a receipt; the game server checks it before
+// ProcessReceipt and reports it granted.
 async function submitPurchase(ctx) {
   if (ctx.method !== 'POST') return sendJson(ctx, 405, { error: 'use POST' });
-  sendJson(ctx, 200, marketplace.submitPurchase(launcher.playerAt(ctx.remote), await ctx.body(FORM_LIMIT)));
+  const body = await ctx.body(FORM_LIMIT);
+  sendJson(ctx, 200, await marketplace.submitPurchase(launcher.playerAt(ctx.remote), body));
 }
 
-// Asset and game pass purchases (lib/marketplace.js): the buyer owns the
-// item from then on (lib/ownership.js), which is what these answer:
+// The universe IDs of the game(s) a request comes from (their game passes).
+function universesOf(ctx) {
+  const library = places.exists() ? places.load().places : {};
+  return placeOf(ctx).map((id) => library[id] && library[id].universeId).filter(Boolean);
+}
+
+// Asset and game pass purchases (lib/marketplace.js): the buyer pays, and
+// owns the item from then on (lib/ownership.js), which is what these answer:
 // MarketplaceService:PlayerOwnsAsset (and UserOwnsGamePassAsync, through
 // lib/luacompat.js) asks ownership/hasasset?userId=&assetId=, and
 // GamePassService:PlayerHasPass asks GamePassHandler.ashx?Action=HasPass&UserID=&PassID=.
 async function purchaseAsset(ctx) {
   if (ctx.method !== 'POST') return sendJson(ctx, 405, { error: 'use POST' });
-  sendJson(ctx, 200, marketplace.purchaseAsset(launcher.playerAt(ctx.remote), await ctx.body(FORM_LIMIT)));
+  const body = await ctx.body(FORM_LIMIT);
+  sendJson(ctx, 200, await marketplace.purchaseAsset(launcher.playerAt(ctx.remote), body, universesOf(ctx)));
+}
+
+// The purchase prompt's balance (currency/balance): the player's Robux. With
+// no player known at the address, the prompt says it can't get the balance.
+function currencyBalance(ctx) {
+  const buyer = launcher.playerAt(ctx.remote);
+  if (!buyer) return send(ctx, 403, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }, '');
+  sendJson(ctx, 200, { robux: robux.balance(buyer.userId), tickets: 0 });
+}
+
+// The prompt's "Buy R$" button opens BaseUrl/Upgrades/Robux.aspx in a
+// browser window. Robux can't be bought, so this says how to earn it. Plain
+// HTML for the 2017 client's own browser window.
+function robuxPage(ctx) {
+  const esc = (text) => String(text).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const player = launcher.playerAt(ctx.remote);
+  const r = robux.rules();
+  const ways = [
+    r.daily > 0 ? `R$ ${r.daily} each day you open the launcher or the website` : null,
+    r.playAmount > 0 ? `R$ ${r.playAmount} for every ${r.playEvery} minutes in a game, up to R$ ${r.playDailyMax} a day` : null,
+    r.badge > 0 ? `R$ ${r.badge} for each badge you earn` : null,
+  ].filter(Boolean);
+  const balanceLine = player ? `<p class="bal">${esc(player.name)}, you have <b>R$ ${robux.balance(player.userId)}</b>.</p>` : '';
+  sendUtf8(ctx, 200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }, `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Get R$</title>
+<style>body{margin:0;background:#f2f2f2;color:#191919;font-family:"Source Sans Pro",Arial,sans-serif}
+.box{max-width:460px;margin:40px auto;background:#fff;border-radius:4px;padding:24px 28px;box-shadow:0 1px 4px rgba(0,0,0,.15)}
+h1{margin:0 0 8px;font-size:26px;font-weight:400}p{font-size:16px;line-height:1.4}.bal{font-size:18px}
+ul{padding-left:20px;font-size:16px;line-height:1.6}.note{color:#757575;font-size:14px}</style></head>
+<body><div class="box"><h1>Get R$</h1>${balanceLine}
+<p>R$ can't be bought here. You earn it by playing:</p>
+<ul>${ways.map((way) => `<li>${esc(way)}</li>`).join('')}</ul>
+<p class="note">Close this window to go back to the game.</p></div></body></html>`);
+}
+
+// A game awarded a badge for the first time: Robux, if the badge is one of
+// the game's own (its Roblox universe's), so a script can't make up badges.
+async function rewardBadge(userId, badgeId, placeId) {
+  if (!accounts.byUserId(userId)) return;
+  const place = places.exists() ? places.get(placeId) : null;
+  if (!place || !place.universeId) return;
+  const list = await marketplace.universeBadges(place.universeId);
+  const badge = Array.isArray(list) ? list.find((entry) => String(entry.id) === String(Number(badgeId))) : null;
+  if (badge && badge.enabled) robux.badgeEarned(userId, badge.name);
 }
 
 function hasAsset(ctx) {
@@ -1024,15 +1077,19 @@ function hasPass(ctx) {
   send(ctx, 200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }, `<Value Type="boolean">${owned}</Value>`);
 }
 
+// The receipt calls are the game server's (players have paid for these).
 function validatePurchase(ctx) {
+  if (!fromGameServer(ctx.remote)) return sendJson(ctx, 403, { error: 'Only game servers can check receipts.' });
   sendJson(ctx, 200, marketplace.validatePurchase(ctx.queryLower.receipt));
 }
 
 function pendingPurchases(ctx) {
+  if (!fromGameServer(ctx.remote)) return sendJson(ctx, 403, { error: 'Only game servers can list receipts.' });
   sendJson(ctx, 200, marketplace.pendingPurchases(ctx.queryLower.placeid, ctx.queryLower.playerid));
 }
 
 async function completePurchase(ctx) {
+  if (!fromGameServer(ctx.remote)) return sendJson(ctx, 403, { error: 'Only game servers can complete receipts.' });
   sendJson(ctx, 200, marketplace.completePurchase(await ctx.body(FORM_LIMIT)));
 }
 
@@ -1782,6 +1839,11 @@ async function serverApi(ctx, match) {
     }));
   }
   if (!admin.allowed(ctx)) return sendJson(ctx, 403, admin.DENIED);
+  // The website key (lib/sitekey.js), to paste into the Cloudflare project.
+  if (action === 'site-key') {
+    if (ctx.method !== 'GET') return sendJson(ctx, 405, { error: 'use GET' });
+    return sendJson(ctx, 200, { key: require('./sitekey').key() });
+  }
   if (action === 'logs') {
     if (ctx.method !== 'GET') return sendJson(ctx, 405, { error: 'use GET' });
     const parts = SERVER_LOGS[String(ctx.queryLower.name || 'server').toLowerCase()];
@@ -1937,7 +1999,9 @@ function badgeRoute(ctx, match) {
   if (call === 'isbadgedisabled') return reply(200, '0');
   if (call === 'isbadgelegal') return reply(200, '1');
   if (!fromGameServer(ctx.remote)) return reply(403, '0');
-  return reply(200, badges.award(q.userid, q.badgeid) ? 'You won a badge!' : '0');
+  const isNew = badges.award(q.userid, q.badgeid);
+  if (isNew) rewardBadge(q.userid, q.badgeid, q.placeid).catch(() => { /* no Robux this time */ });
+  return reply(200, isNew ? 'You won a badge!' : '0');
 }
 
 // Roblox Studio 2017: login, start page, editing and publishing (lib/studio.js).
@@ -1968,7 +2032,7 @@ const ROUTES = [
   [/^api\/reports(?:\/([0-9a-f]{12})(?:\/(resolve))?)?\/?$/i, reportsApi],
   [/^abusereport\/ingamechathandler\.ashx\/?$/i, abuseReport],
   [/^api\/manage\/(token|whoami)\/?$/i, (ctx, match) => admin.route(ctx, match, sendJson)],
-  [/^api\/server\/(status|update\/check|update\/install|update\/upload|update\/discard|restart|logs|moved)\/?$/i, serverApi],
+  [/^api\/server\/(status|update\/check|update\/install|update\/upload|update\/discard|restart|logs|moved|site-key)\/?$/i, serverApi],
   [new RegExp(`^asset(?:/index\\.php)?/?$`, 'i'), assetEndpoint],
   [/^asset\/bodycolors\.(?:ashx|php)$/i, bodyColors],
   [new RegExp(`^v1\\.1/avatar-fetch${opt}$`, 'i'), avatarFetch],
@@ -1984,9 +2048,9 @@ const ROUTES = [
   [new RegExp(`^moderation/v2/filtertext${opt}$`, 'i'), filterText],
   [/^marketplace\/productdetails(?:\.php)?$/i, productDetails],
   [/^marketplace\/productinfo(?:\.php)?$/i, productInfo],
-  // MarketplaceService (lib/marketplace.js): everything is free, assets and
-  // game passes are owned once bought (lib/ownership.js), developer products
-  // are bought with receipts.
+  // MarketplaceService (lib/marketplace.js): purchases cost Robux
+  // (lib/robux.js), assets and game passes are owned once bought
+  // (lib/ownership.js), developer products are bought with receipts.
   [new RegExp(`^marketplace/submitpurchase${opt}$`, 'i'), submitPurchase],
   [new RegExp(`^marketplace/validatepurchase${opt}$`, 'i'), validatePurchase],
   [new RegExp(`^marketplace/purchase${opt}$`, 'i'), purchaseAsset],
@@ -2011,7 +2075,8 @@ const ROUTES = [
   [/^setting\/quietget\/[^/]+\/?$/i, fixed('application/json; charset=utf-8', '{}', { 'Cache-Control': 'no-store' })],
   [new RegExp(`^device/initialize${opt}$`, 'i'), deviceInitialize],
   [new RegExp(`^v1\\.1/game-start-info${opt}$`, 'i'), gameStartInfo],
-  [new RegExp(`^currency/balance${opt}$`, 'i'), fixed('application/json; charset=utf-8', '{"robux":0,"tickets":0}', { 'Cache-Control': 'no-store' })],
+  [new RegExp(`^currency/balance${opt}$`, 'i'), currencyBalance],
+  [/^upgrades\/robux\.aspx$/i, robuxPage],
   [new RegExp(`^game/validate-machine${opt}$`, 'i'), fixed('application/json', '{"success":true}', { 'Cache-Control': 'no-store' })],
   [new RegExp(`^login/negotiate\\.ashx${opt}$`, 'i'), fixed('text/plain; charset=utf-8', 'true')],
   // RCC asks this before accepting a player (api.<domain>); the retired

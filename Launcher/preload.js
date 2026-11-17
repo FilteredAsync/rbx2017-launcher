@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld('launcher', {
   onOpenLink: (callback) => ipcRenderer.on('open-link', () => callback()),
   gamePage: (placeId) => ipcRenderer.invoke('game:page', placeId),
   vote: (placeId, vote) => ipcRenderer.invoke('game:vote', placeId, vote),
+  robux: () => ipcRenderer.invoke('robux:get'),
   setServer: (centralUrl) => ipcRenderer.invoke('server:set', centralUrl),
   currentAccount: () => ipcRenderer.invoke('auth:current'),
   signIn: (options) => ipcRenderer.invoke('auth:signin', options),

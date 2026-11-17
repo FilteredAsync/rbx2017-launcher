@@ -945,19 +945,43 @@ async function loadAccounts() {
     if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
     renderAccounts(result.accounts || []);
   } catch (error) {
-    $('account-rows').replaceChildren(h('tr', {}, h('td', { class: 'empty-cell', colSpan: 5, text: error.message })));
+    $('account-rows').replaceChildren(h('tr', {}, h('td', { class: 'empty-cell', colSpan: 6, text: error.message })));
   }
+}
+
+// Gives or takes an account's Robux (lib/robux.js).
+function changeRobux(account) {
+  const dialog = $('robux-dialog');
+  $('robux-title').textContent = `${account.name}'s Robux`;
+  $('robux-now').textContent = `They have R$ ${Number(account.robux || 0).toLocaleString()}.`;
+  $('robux-amount').value = '';
+  dialog.returnValue = '';
+  dialog.onclose = () => {
+    if (dialog.returnValue !== 'ok') return;
+    const amount = Math.trunc(Number($('robux-amount').value.replace(/[,\s]/g, '')));
+    if (!Number.isFinite(amount) || amount === 0) { toast('Type an amount, such as 100 or -50.', 'error'); return; }
+    act(async () => {
+      await change('POST', `/api/studio/accounts/${encodeURIComponent(account.name)}/robux`, JSON.stringify({ amount }));
+      await loadAccounts();
+    }, amount > 0 ? `Giving ${account.name} R$ ${amount}` : `Taking R$ ${-amount} from ${account.name}`, 'Robux changed');
+  };
+  dialog.showModal();
+  $('robux-amount').focus();
 }
 
 function renderAccounts(list) {
   if (!list.length) {
-    $('account-rows').replaceChildren(h('tr', {}, h('td', { class: 'empty-cell', colSpan: 5, text: 'Nobody has logged in to Studio yet.' })));
+    $('account-rows').replaceChildren(h('tr', {}, h('td', { class: 'empty-cell', colSpan: 6, text: 'Nobody has logged in to Studio yet.' })));
     return;
   }
   $('account-rows').replaceChildren(...list.map((account) => h('tr', {},
     h('td', {}, h('b', { text: account.name })),
     h('td', { class: 'num sub hide-sm', text: account.userId }),
     h('td', { class: 'sub', text: account.lastLoginAt ? when(account.lastLoginAt) : 'Never' }),
+    h('td', { class: 'num' }, h('button', {
+      type: 'button', class: 'linkish', title: `Give or take ${account.name}'s Robux`,
+      text: Number(account.robux || 0).toLocaleString(), onclick: () => changeRobux(account),
+    })),
     h('td', {}, h('input', {
       type: 'checkbox', class: 'switch', checked: account.admin, 'aria-label': `${account.name} is an admin`,
       onchange: (event) => {
@@ -1123,7 +1147,38 @@ async function serverAction(url, message, done) {
   }
 }
 
-$('srv-check').addEventListener('click', () => serverAction('/api/server/update/check', 'Asking the server to check', 'Checking. The result shows here in a few seconds.'));
+// The website key (lib/sitekey.js), shown on request.
+$('site-key-show').addEventListener('click', async () => {
+  const box = $('site-key');
+  if (!box.hidden) {
+    box.hidden = true;
+    $('site-key-copy').hidden = true;
+    $('site-key-show').textContent = 'Show';
+    return;
+  }
+  try {
+    const response = await fetch('/api/server/site-key', { headers: authHeaders(), cache: 'no-store' });
+    const result = await response.json().catch(() => ({}));
+    if (response.status === 403) unlock();
+    if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+    box.textContent = result.key;
+    box.hidden = false;
+    $('site-key-copy').hidden = false;
+    $('site-key-show').textContent = 'Hide';
+  } catch (error) {
+    toast(error.message, 'error');
+  }
+});
+$('site-key-copy').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText($('site-key').textContent);
+    toast('Website key copied', 'good');
+  } catch (error) {
+    toast("Couldn't copy. Select the key and copy it.", 'error');
+  }
+});
+
+$('srv-check').addEventListener('click',() => serverAction('/api/server/update/check', 'Asking the server to check', 'Checking. The result shows here in a few seconds.'));
 $('srv-install').addEventListener('click', async () => {
   if (!await ask('Install the update now?', 'Players are saved and get a message. The server is back in about a minute, and if the new version fails the old one comes back.', 'Install')) return;
   serverAction('/api/server/update/install', 'Asking the server to install', 'Installing. Reload this page in a minute.');

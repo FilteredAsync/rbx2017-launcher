@@ -327,7 +327,93 @@ function updateIdentity() {
   $('account-signout').classList.toggle('hidden', !me);
   // Managing the server is for its admins (set on its Manage games page).
   $('play-manage').classList.toggle('hidden', !(me && me.account.admin));
+  robux = null;
+  refreshRobux();
 }
+
+// --- Robux (the server's robux: balance, ways to earn, recent changes) ---
+
+let robux = null; // the server's answer, or null (signed out, or an older server)
+
+async function refreshRobux() {
+  if (!me || me.offline) { showRobux(null); return; }
+  const account = me.account.name;
+  try {
+    const result = await api.robux();
+    if (me && me.account.name === account) showRobux(result && Number.isFinite(result.balance) ? result : null);
+  } catch (error) {
+    // Signed out meanwhile, offline, or a server without Robux: the count goes.
+    if (!robux || /404|unknown launcher request/i.test(message(error))) showRobux(null);
+  }
+}
+
+function formatRobux(n) {
+  return Number(n || 0).toLocaleString();
+}
+
+function showRobux(next) {
+  const before = robux;
+  robux = next;
+  $('robux-wrap').classList.toggle('hidden', !next);
+  if (!next) { closeRobux(); return; }
+  $('robux-count').textContent = formatRobux(next.balance);
+  if (before && before.balance !== next.balance) {
+    const chip = $('robux-chip');
+    chip.classList.remove('bump');
+    void chip.offsetWidth; // restart the animation
+    chip.classList.add('bump');
+  }
+  if (!$('robux-pop').classList.contains('hidden')) renderRobuxPop();
+}
+
+function robuxRow(what, side, sideClass) {
+  const row = el('li');
+  row.append(el('span', 'what', what), el('span', `side${sideClass ? ` ${sideClass}` : ''}`, side));
+  return row;
+}
+
+function renderRobuxPop() {
+  if (!robux) return;
+  const earn = robux.earn || {};
+  $('robux-pop-count').textContent = formatRobux(robux.balance);
+  const ways = [];
+  if (earn.daily > 0) ways.push(robuxRow(`Daily bonus: R$ ${earn.daily}`, earn.dailyDone ? 'Got it today' : 'Not yet', earn.dailyDone ? 'done' : ''));
+  if (earn.playAmount > 0) {
+    ways.push(robuxRow(`R$ ${earn.playAmount} per ${earn.playEvery} min played`, `${formatRobux(earn.playToday)} / ${formatRobux(earn.playMax)} today`, earn.playToday >= earn.playMax ? 'done' : ''));
+  }
+  if (earn.badge > 0) ways.push(robuxRow('Each badge you earn', `R$ ${earn.badge}`));
+  $('robux-earn').replaceChildren(...ways);
+  const history = Array.isArray(robux.history) ? robux.history.slice(0, 8) : [];
+  $('robux-history-head').classList.toggle('hidden', history.length === 0);
+  $('robux-history').replaceChildren(...history.map((entry) => robuxRow(
+    entry.reason || (entry.amount > 0 ? 'Added' : 'Spent'),
+    `${entry.amount > 0 ? '+' : '−'}${formatRobux(Math.abs(entry.amount))}`,
+    entry.amount > 0 ? 'plus' : 'minus',
+  )));
+}
+
+function openRobux() {
+  if (!robux) return;
+  renderRobuxPop();
+  $('robux-pop').classList.remove('hidden');
+  $('robux-chip').setAttribute('aria-expanded', 'true');
+  refreshRobux();
+}
+
+function closeRobux() {
+  $('robux-pop').classList.add('hidden');
+  $('robux-chip').setAttribute('aria-expanded', 'false');
+}
+
+$('robux-chip').addEventListener('click', (event) => {
+  event.stopPropagation();
+  if ($('robux-pop').classList.contains('hidden')) openRobux(); else closeRobux();
+});
+$('robux-pop').addEventListener('click', (event) => event.stopPropagation());
+document.addEventListener('click', closeRobux);
+document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeRobux(); });
+window.addEventListener('focus', refreshRobux);
+setInterval(() => { if (screen === 'shell') refreshRobux(); }, 30000);
 
 $('account-signin').addEventListener('click', () => { setAccountMode('signin'); showScreen('account'); });
 $('avatar-signin').addEventListener('click', () => { setAccountMode('signup'); showScreen('account'); });
@@ -446,7 +532,7 @@ function navPool() {
   if (!$('overlay').classList.contains('hidden')) return focusables('#overlay');
   if (screen === 'start') return [$('start-press')];
   if (screen === 'account') return focusables('#screen-account');
-  return [...focusables('#tabs'), $('user-chip'), ...focusables(`#view-${view}`), $('settings-hint')];
+  return [...focusables('#tabs'), ...focusables('#robux-wrap'), $('user-chip'), ...focusables(`#view-${view}`), $('settings-hint')];
 }
 
 // Spatial navigation: the nearest focusable control in the pressed direction.
@@ -902,7 +988,8 @@ function renderItems(kind, items) {
     if (item.icon) icon.src = `launcher-net://server/asset/?id=${encodeURIComponent(String(item.icon))}`;
     icon.addEventListener('error', () => { icon.removeAttribute('src'); });
     tile.append(icon, el('span', 'item-name', item.name));
-    tile.append(el('span', 'item-tag', kind === 'badges' ? (item.owned ? 'Earned' : 'Not earned') : (item.owned ? 'Owned' : 'Free in game')));
+    tile.append(el('span', 'item-tag', kind === 'badges' ? (item.owned ? 'Earned' : 'Not earned')
+      : item.owned ? 'Owned' : item.price > 0 ? `R$ ${formatRobux(item.price)}` : 'Free'));
     const describe = () => { info.textContent = item.description ? `${item.name}: ${item.description}` : item.name; };
     tile.addEventListener('mouseenter', describe);
     tile.addEventListener('focus', describe);

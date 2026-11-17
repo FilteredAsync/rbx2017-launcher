@@ -330,6 +330,8 @@ module.exports = function accountModule({ ROOT, lib }) {
     // A game's page: votes, badges and game passes (badges/passes null while the server first looks them up).
     gamePage: (centralUrl, placeId) => maybeAuthed(centralUrl, 'GET', `game/${encodeURIComponent(String(placeId))}`, { timeoutMs: 12000 }),
     vote: (centralUrl, placeId, vote) => authed(centralUrl, 'POST', `game/${encodeURIComponent(String(placeId))}/vote`, { body: { vote: Number(vote) } }),
+    // Your Robux: {balance, earn, history} (servers from 2026-11-17 on).
+    robux: (centralUrl) => authed(centralUrl, 'GET', 'robux', { timeoutMs: 8000 }),
     block: (centralUrl, userId, on) => authed(centralUrl, 'POST', on ? 'block' : 'unblock', { body: { userId: String(userId) } }),
     following: (centralUrl) => authed(centralUrl, 'GET', 'following', { timeoutMs: 8000 }),
     follow: (centralUrl, userId, on) => authed(centralUrl, 'POST', on ? 'follow' : 'unfollow', { body: { userId: String(userId) } }),

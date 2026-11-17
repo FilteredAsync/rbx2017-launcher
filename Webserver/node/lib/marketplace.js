@@ -4,14 +4,15 @@
 // purchase prompt, ask the site about products, ownership and purchases
 // (www/marketplace/..., api.<domain>/...).
 //
-// There is no Robux here, so everything is free:
+// Purchases cost the player's Robux (lib/robux.js), at the Roblox price:
 // - Product info is the real Roblox info (games show names, prices and icons
 //   in their shops, and some use more: Lumber Tycoon 2 grants a money pack's
-//   Description), looked up once and kept in data/product-info.json, marked
-//   free and for sale, so the purchase prompt offers it "for FREE". Newer
-//   game passes have IDs of their own, which are also other assets' IDs: an
-//   ID that is one of the asking game's passes (its universe's, when the
-//   place has a universe ID) is answered as that pass.
+//   Description), looked up once and kept in data/product-info.json, and
+//   always for sale. The prompt shows its price and the player's balance
+//   (currency/balance); an item with no Roblox price is offered "for FREE".
+//   Newer game passes have IDs of their own, which are also other assets'
+//   IDs: an ID that is one of the asking game's passes (its universe's, when
+//   the place has a universe ID) is answered as that pass.
 // - Assets and game passes are owned once bought (lib/ownership.js): the
 //   client's prompt posts marketplace/purchase with the item's ProductId,
 //   and PlayerOwnsAsset, GamePassService:PlayerHasPass and
@@ -19,7 +20,9 @@
 // - Developer products (bought again and again) go through the 2017 receipt
 //   flow: the client's purchase gets a receipt here (submitpurchase), the game
 //   server checks it (validatepurchase) and calls the game's ProcessReceipt,
-//   which grants the product.
+//   which grants the product. A receipt the game never grants is refunded
+//   after an hour.
+// The price charged is this server's own, never the one the client sends.
 // The buyer is the player who joined from the request's address (the client
 // reaches this server through its player's proxy), as for in-game friend
 // requests; guests cannot buy (the 2017 prompt refuses them itself).
@@ -30,8 +33,10 @@ const path = require('path');
 const core = require('./core');
 const assets = require('./assets');
 const ownership = require('./ownership');
+const robux = require('./robux');
 
 const FILE = core.rootPath('Webserver', 'node', 'data', 'product-info.json');
+const RECEIPTS_FILE = core.rootPath('Webserver', 'node', 'data', 'receipts.json');
 const FRESH_MS = 7 * 24 * 60 * 60 * 1000;
 const RETRY_MS = 10 * 60 * 1000;
 const WAIT_MS = 4000; // longest a game waits for a lookup; it still fills the cache
@@ -172,11 +177,19 @@ function lookUp(kind, id) {
   return Promise.race([pending, new Promise((resolve) => setTimeout(() => resolve(fallback), WAIT_MS))]);
 }
 
-// Free and for sale, so the 2017 prompt offers it "for FREE" (IsPublicDomain)
-// and never refuses it as not for sale, limited or for Builders Club.
-function free(info) {
+// The R$ price of product info (0: free).
+function priceOf(info) {
+  const price = Math.floor(Number(info && info.PriceInRobux));
+  return Number.isFinite(price) && price > 0 ? price : 0;
+}
+
+// For sale at its price, so the 2017 prompt never refuses it as not for
+// sale, limited or for Builders Club; with no price it is offered "for
+// FREE" (IsPublicDomain).
+function forSale(info) {
+  const price = priceOf(info);
   return Object.assign(info, {
-    PriceInTickets: null, Sales: 0, IsNew: false, IsForSale: true, IsPublicDomain: true,
+    PriceInRobux: price, PriceInTickets: null, Sales: 0, IsNew: false, IsForSale: true, IsPublicDomain: price === 0,
     IsLimited: false, IsLimitedUnique: false, Remaining: null, MinimumMembershipLevel: 0, ContentRatingTypeId: 0,
   });
 }
@@ -219,7 +232,7 @@ async function assetInfo(assetId, universeIds = []) {
   if (info.ProductType === 'Game Pass') info.AssetTypeId = GAME_PASS_TYPE;
   if (!(Number(info.ProductId) > 0)) info.ProductId = id;
   if (id > 0) productTargets.set(Number(info.ProductId), id);
-  return free(info);
+  return forSale(info);
 }
 
 // The icon of an ID answered as a game pass (the prompt shows the asset
@@ -240,16 +253,47 @@ async function productInfo(productId) {
     AssetTypeId: 0, Creator: ROBLOX_CREATOR, IconImageAssetId: known ? known[3] : 0,
     Created: '2015-01-01T00:00:00Z', Updated: '2017-01-01T00:00:00Z', PriceInRobux: known ? known[2] : 0,
   };
-  return free(info);
+  return forSale(info);
 }
 
 // --- Purchases -------------------------------------------------------------------
 
-const receipts = new Map(); // receipt -> { userId, productId, placeId, price, requestId, at, done }
+// receipt -> { userId, productId, placeId, price, name, requestId, at, done },
+// kept in data/receipts.json so a restart loses neither a paid product nor
+// its refund.
+let receipts = null;
 
-function pruneReceipts() {
+function loadReceipts() {
+  if (receipts === null) {
+    const data = core.readJsonFile(RECEIPTS_FILE);
+    receipts = new Map(data && typeof data === 'object' && !Array.isArray(data) ? Object.entries(data) : []);
+  }
+  return receipts;
+}
+
+function saveReceipts() {
+  fs.mkdirSync(path.dirname(RECEIPTS_FILE), { recursive: true });
+  return core.writeFileAtomic(RECEIPTS_FILE, JSON.stringify(Object.fromEntries(loadReceipts())));
+}
+
+// Receipts older than an hour go; the Robux of one the game never granted
+// goes back to the player. Also run every minute (lib/launcherapi.js).
+function expireReceipts() {
   const oldest = Date.now() - RECEIPT_MS;
-  for (const [receipt, entry] of receipts) if (entry.at < oldest) receipts.delete(receipt);
+  let changed = false;
+  for (const [receipt, entry] of loadReceipts()) {
+    if (entry.at >= oldest) continue;
+    if (!entry.done && entry.price > 0) {
+      try {
+        robux.credit(entry.userId, entry.price, `Refund: ${entry.name || `product ${entry.productId}`}`);
+      } catch (error) {
+        continue; // tried again next time
+      }
+    }
+    receipts.delete(receipt);
+    changed = true;
+  }
+  if (changed) saveReceipts();
 }
 
 function formFields(body) {
@@ -258,25 +302,47 @@ function formFields(body) {
   return fields;
 }
 
+// The price the prompt showed (sent as a form field) is below this server's:
+// the player would pay more than they agreed to.
+function shownBelow(fields, name, price) {
+  if (fields[name] === undefined || fields[name] === '') return false;
+  const shown = Number(fields[name]);
+  return Number.isFinite(shown) && shown < price;
+}
+
 // POST marketplace/submitpurchase (a developer product, from the client's
-// purchase prompt): a receipt for the game server to check.
+// purchase prompt): takes its price and gives a receipt for the game server
+// to check.
 // buyer: { userId } of the player at the request's address, or null.
-function submitPurchase(buyer, body) {
-  pruneReceipts();
+async function submitPurchase(buyer, body) {
+  expireReceipts();
   const fields = formFields(body);
   const productId = Number(fields.productid);
   const placeId = Number(fields.placeid) || 0;
   if (!buyer || !(buyer.userId > 0)) return { success: false, status: 'NotAuthorized' };
   if (!(productId > 0)) return { success: false, status: 'InvalidArguments' };
-  // The prompt sends a request ID; asking again with it gives the same receipt.
-  const requestId = String(fields.requestid || '');
-  if (requestId) {
-    for (const [receipt, entry] of receipts) {
-      if (entry.requestId === requestId && entry.userId === buyer.userId) return { success: true, status: 'Bought', receipt };
-    }
-  }
+  // The prompt sends a request ID; asking again with it gives the same
+  // receipt, paid once.
+  const requestId = String(fields.requestid || '').slice(0, 64);
+  const earlier = () => {
+    if (!requestId) return null;
+    for (const [receipt, entry] of loadReceipts()) if (entry.requestId === requestId && entry.userId === buyer.userId) return receipt;
+    return null;
+  };
+  if (earlier()) return { success: true, status: 'Bought', receipt: earlier() };
+  const info = await productInfo(productId);
+  const price = info.IsPublicDomain ? 0 : priceOf(info);
+  if (shownBelow(fields, 'expectedunitprice', price)) return { success: false, status: 'PriceChanged' };
+  if (earlier()) return { success: true, status: 'Bought', receipt: earlier() }; // a retry that came in meanwhile
+  const paid = robux.charge(buyer.userId, price, info.Name);
+  if (!paid.ok) return { success: false, status: 'InsufficientFunds' };
   const receipt = crypto.randomBytes(16).toString('hex');
-  receipts.set(receipt, { userId: buyer.userId, productId, placeId, price: Number(fields.expectedunitprice) || 0, requestId, at: Date.now(), done: false });
+  loadReceipts().set(receipt, { userId: buyer.userId, productId, placeId, price, name: String(info.Name || '').slice(0, 60), requestId, at: Date.now(), done: false });
+  if (!saveReceipts()) {
+    receipts.delete(receipt);
+    if (price > 0) robux.credit(buyer.userId, price, `Refund: ${info.Name}`);
+    return { success: false, status: 'InternalError' };
+  }
   return { success: true, status: 'Bought', receipt };
 }
 
@@ -296,27 +362,37 @@ function purchasedItem(productId) {
 
 // POST marketplace/purchase (an asset or game pass, from the client's
 // purchase prompt: productId=<its ProductId>&currencyTypeId=&purchasePrice=
-// &locationType=Game&locationId=<place>): the buyer owns it from now on.
-// The prompt then fires PromptPurchaseFinished in the game.
-function purchaseAsset(buyer, body) {
-  const productId = Number(formFields(body).productid);
+// &locationType=Game&locationId=<place>): takes its price, and the buyer owns
+// it from now on. The prompt then fires PromptPurchaseFinished in the game.
+// universeIds: of the game the buyer is in (its passes are priced as passes).
+async function purchaseAsset(buyer, body, universeIds = []) {
+  const fields = formFields(body);
+  const productId = Number(fields.productid);
   if (!buyer || !(buyer.userId > 0)) return { success: false, status: 'NotAuthorized' };
   if (!(productId > 0)) return { success: false, status: 'InvalidArguments' };
   const assetId = purchasedItem(productId);
-  let isNew;
+  // The prompt counts AlreadyOwned as bought.
+  const owned = () => ownership.owns(buyer.userId, assetId);
+  if (owned()) return { success: true, status: 'AlreadyOwned', productId, assetId };
+  const info = await assetInfo(assetId, universeIds);
+  const price = info.IsPublicDomain ? 0 : priceOf(info);
+  if (shownBelow(fields, 'purchaseprice', price)) return { success: false, status: 'PriceChanged' };
+  if (owned()) return { success: true, status: 'AlreadyOwned', productId, assetId }; // a second click meanwhile
+  const paid = robux.charge(buyer.userId, price, info.Name);
+  if (!paid.ok) return { success: false, status: 'InsufficientFunds' };
   try {
-    isNew = ownership.grant(buyer.userId, assetId);
+    ownership.grant(buyer.userId, assetId);
   } catch (error) {
+    if (price > 0) robux.credit(buyer.userId, price, `Refund: ${info.Name}`);
     return { success: false, status: 'InternalError' };
   }
-  // The prompt counts AlreadyOwned as bought.
-  return { success: true, status: isNew ? 'Bought' : 'AlreadyOwned', productId, assetId };
+  return { success: true, status: 'Bought', productId, assetId };
 }
 
 // GET marketplace/validatepurchase?receipt= (the game server, before it calls
 // ProcessReceipt).
 function validatePurchase(receipt) {
-  const entry = receipts.get(String(receipt || ''));
+  const entry = loadReceipts().get(String(receipt || ''));
   if (!entry) return { playerId: 0, placeId: 0, isValid: false, productId: 0, errorReason: 'Unknown receipt' };
   return { playerId: entry.userId, placeId: entry.placeId, isValid: true, productId: entry.productId };
 }
@@ -326,9 +402,9 @@ function validatePurchase(receipt) {
 // player's purchases in that place the game has not granted yet. Each goes
 // to the game's ProcessReceipt.
 function pendingPurchases(placeId, playerId) {
-  pruneReceipts();
+  expireReceipts();
   const list = [];
-  for (const [receipt, entry] of receipts) {
+  for (const [receipt, entry] of loadReceipts()) {
     if (entry.done || entry.userId !== Number(playerId) || (entry.placeId && entry.placeId !== Number(placeId))) continue;
     list.push({
       playerId: entry.userId,
@@ -347,8 +423,11 @@ function pendingPurchases(placeId, playerId) {
 // POST gametransactions/settransactionstatuscomplete (receipt=...): the game
 // granted it.
 function completePurchase(body) {
-  const entry = receipts.get(String(formFields(body).receipt || ''));
-  if (entry) entry.done = true;
+  const entry = loadReceipts().get(String(formFields(body).receipt || ''));
+  if (entry && !entry.done) {
+    entry.done = true;
+    saveReceipts();
+  }
   return { success: Boolean(entry) };
 }
 
@@ -361,4 +440,7 @@ async function universeBadges(universeId) {
   return Number(universeId) > 0 ? lookUp('badges', Number(universeId)) : [];
 }
 
-module.exports = { universePasses, universeBadges, assetInfo, passIcon, productInfo, submitPurchase, purchaseAsset, validatePurchase, pendingPurchases, completePurchase };
+module.exports = {
+  universePasses, universeBadges, assetInfo, passIcon, productInfo,
+  submitPurchase, purchaseAsset, validatePurchase, pendingPurchases, completePurchase, expireReceipts,
+};

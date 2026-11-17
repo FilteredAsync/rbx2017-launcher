@@ -29,6 +29,7 @@ const games = require('./games');
 const gamethumbs = require('./gamethumbs');
 const places = require('./places');
 const publicnet = require('./publicnet');
+const robux = require('./robux');
 
 const PAGES = path.join(__dirname, '..', 'studio');
 const PAGE_FILES = {
@@ -782,6 +783,7 @@ pcall(function() history:SetEnabled(true) end)
   //   GET    /api/studio/accounts             every account
   //   POST   /api/studio/accounts/<name>      {admin: true|false}
   //   DELETE /api/studio/accounts/<name>      delete it (how a password is reset)
+  //   POST   /api/studio/accounts/<name>/robux {amount: 100 | -50} gives or takes Robux
   //   POST   /api/places/<id>/access          {owner: "name" | "", editors: ["name", ...]}
 
   async function manageAccounts(ctx, match) {
@@ -789,7 +791,18 @@ pcall(function() history:SetEnabled(true) end)
     const name = match[1] ? decodeURIComponent(match[1]) : null;
     if (name === null) {
       if (ctx.method !== 'GET') return sendJson(ctx, 405, { error: 'use GET' });
-      return sendJson(ctx, 200, { accounts: accounts.list() });
+      // Accounts that never looked at their balance have the starting amount waiting.
+      const balances = robux.balances();
+      const start = robux.rules().start;
+      return sendJson(ctx, 200, { accounts: accounts.list().map((account) => Object.assign(account, { robux: balances[account.userId] ?? start })) });
+    }
+    if (match[2]) {
+      if (ctx.method !== 'POST') return sendJson(ctx, 405, { error: 'use POST' });
+      const account = accounts.byName(name);
+      if (!account) return sendJson(ctx, 404, { error: 'no such account' });
+      const body = await jsonBody(ctx);
+      const result = robux.adjust(account.userId, body.amount, Number(body.amount) > 0 ? 'From an admin' : 'Taken by an admin');
+      return result.error ? sendJson(ctx, 400, { error: result.error }) : sendJson(ctx, 200, { robux: result.balance });
     }
     if (ctx.method === 'DELETE') {
       return accounts.remove(name) ? sendJson(ctx, 200, { ok: true }) : sendJson(ctx, 404, { error: 'no such account' });
@@ -865,7 +878,7 @@ pcall(function() history:SetEnabled(true) end)
     [/^sign-out\/v1\/?$/i, signOut],
     [/^game\/logout\.aspx\/?$/i, gameLogout],
     [/^my\/settings\/json\/?$/i, mySettings],
-    [/^api\/studio\/accounts(?:\/([A-Za-z0-9_]{3,20}))?\/?$/i, manageAccounts],
+    [/^api\/studio\/accounts(?:\/([A-Za-z0-9_]{3,20})(?:\/(robux))?)?\/?$/i, manageAccounts],
     [/^api\/places\/(\d{1,15})\/access\/?$/i, manageAccess],
     // Team Create
     [/^universes\/get-universe-containing-place\/?$/i, universeContainingPlace],

@@ -1090,6 +1090,7 @@ function registerIpc() {
   ipcMain.handle('link:take', () => { const link = pendingLink; pendingLink = null; return link; });
   ipcMain.handle('game:page', (event, placeId) => account.gamePage(account.serverUrl(), placeId));
   ipcMain.handle('game:vote', (event, placeId, vote) => account.vote(account.serverUrl(), placeId, vote));
+  ipcMain.handle('robux:get', () => account.robux(account.serverUrl()));
 
   // Accounts, avatars and the catalog (account.js; all on the server in the
   // launcher's settings).
