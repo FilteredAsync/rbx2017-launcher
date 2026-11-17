@@ -11,6 +11,9 @@
 #   bash setup-vps.sh --domain NAME      use your own domain (its A record -> this VPS;
 #                                        on Cloudflare, "DNS only", or UDP and the
 #                                        certificate fail)
+#   bash setup-vps.sh --site URL         send browsers opening the bare address
+#                                        (https://NAME/ only) to the website, such
+#                                        as https://www.rbx2017.com (site/README.md)
 #   bash setup-vps.sh --check            is the server PC connected and answering?
 # Without --domain the address is <ip-with-dashes>.sslip.io (a free DNS name
 # that points at this IP), so no domain is needed. With one, that sslip.io
@@ -24,14 +27,19 @@
 set -euo pipefail
 
 DOMAIN=""
+SITE=""
 CHECK=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --domain) DOMAIN="${2:-}"; shift 2 ;;
+    --site) SITE="${2:-}"; shift 2 ;;
     --check) CHECK=1; shift ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
 done
+if [ -n "$SITE" ] && ! [[ "$SITE" =~ ^https://[A-Za-z0-9.-]+/?$ ]]; then
+  echo "--site takes an address like https://www.example.com"; exit 1
+fi
 [ "$(id -u)" = 0 ] || { echo "Run this as root (sudo bash setup-vps.sh)."; exit 1; }
 
 DIR=/root/rbx-relay
@@ -132,10 +140,12 @@ fi
 
 echo "== Caddy (HTTPS for $SITES)"
 [ -f /etc/caddy/Caddyfile ] && [ ! -f /etc/caddy/Caddyfile.before-rbx ] && cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.before-rbx
+SITE_REDIRECT=""
+[ -n "$SITE" ] && SITE_REDIRECT=$'\t# The bare address in a browser opens the website (site/).\n\tredir / '"$SITE"$' 302\n'
 cat > /etc/caddy/Caddyfile <<CADDY
 # The VPS relay for the always-on server (setup-vps.sh).
 $SITES {
-	request_body {
+${SITE_REDIRECT}	request_body {
 		max_size 1GB
 	}
 	reverse_proxy $PC:80 {

@@ -11,6 +11,8 @@
 !/start-web.sh
 !/packaging/
 !/tools/
+# The public website (Cloudflare Pages, site/README.md).
+!/site/
 # Scheduled releases (tools/schedule-release.js) and the project's notices to every launcher.
 !/.github/
 !/announcements.json
