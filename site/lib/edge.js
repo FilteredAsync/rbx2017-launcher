@@ -217,7 +217,9 @@ const SETUP_NAMES = {
 };
 
 async function releaseFromYml(channel) {
-  const response = await upstream(`${RELEASES}/latest/download/${channel}.yml`, 10000);
+  // A new address every 10 minutes: Cloudflare kept serving a failed answer
+  // for the plain one (latest.yml failed for hours while win7.yml worked).
+  const response = await upstream(`${RELEASES}/latest/download/${channel}.yml?t=${Math.floor(Date.now() / 600000)}`, 10000);
   if (!response.ok) throw new Error(`${channel}.yml: HTTP ${response.status}`);
   const yml = await response.text();
   const field = (name) => {
