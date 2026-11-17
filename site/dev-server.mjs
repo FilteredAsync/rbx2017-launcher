@@ -65,6 +65,7 @@ const ROUTES = [
   [/^\/api\/(.+)$/, 'functions/api/[[path]].js'],
   [/^\/games\/(.+)$/, 'functions/games/[[path]].js'],
   [/^\/download\/latest$/, 'functions/download/latest.js'],
+  [/^\/download\/win7$/, 'functions/download/win7.js'],
 ];
 
 async function handle(request) {

@@ -230,8 +230,15 @@ module.exports = function gameFiles({ root, normalizeUrl, canPlay, onProgress = 
   }
 
   // A .zip (Windows' tar reads zip) or a .tar.zst (unpacked here, fed to tar).
+  // Windows 7, 8 and 8.1 have no tar.exe; their launcher (Node 16, no zstd)
+  // only gets zips, and unzip.js unpacks them.
   function unpack(file, destination) {
-    if (!/\.tar\.zst(\.part)?$/.test(file)) return runTar(['-xf', file, '-C', destination]);
+    if (!/\.tar\.zst(\.part)?$/.test(file)) {
+      if (!fs.existsSync(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe'))) {
+        return require('./unzip')(file, destination).catch((error) => { throw new Error(`Could not unpack ${k.what}: ${error.message}`); });
+      }
+      return runTar(['-xf', file, '-C', destination]);
+    }
     return runTar(['-xf', '-', '-C', destination], (stdin, fail) => {
       const source = fs.createReadStream(file);
       const unzstd = zlib.createZstdDecompress();

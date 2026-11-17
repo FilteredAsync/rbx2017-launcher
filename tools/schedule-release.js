@@ -3,7 +3,7 @@
 // Schedules a launcher release (and, with --server, a server update) to go
 // out at a time you pick, and tells every launcher about it until then.
 //
-//   cd Launcher && npm run dist && cd ..
+//   cd Launcher && npm run dist && npm run dist:win7 && cd ..
 //   node tools/schedule-release.js --at "2026-11-21 18:00" [--server share/RobloxServer-update-<build>.rbxupd] [--dry-run]
 //
 // --at is Eastern time (ET), "YYYY-MM-DD HH:MM" (24-hour, or "6:00 PM"), at
@@ -303,7 +303,8 @@ function main() {
   const entry = announcementFor(version, publishAt, now);
   const message = `Announce launcher ${version} for ${stampText(publishAt)}`;
   const hidden = marker(publishAt, tag);
-  const files = build ? build.files : [`RobloxClient-Setup-${version}.exe`, `RobloxClient-Setup-${version}.exe.blockmap`, 'latest.yml'].map((name) => path.join(DIST, name));
+  const files = build ? build.files : [`RobloxClient-Setup-${version}.exe`, `RobloxClient-Setup-${version}.exe.blockmap`, 'latest.yml',
+    `RobloxClient-Setup-Win7-${version}.exe`, `RobloxClient-Setup-Win7-${version}.exe.blockmap`, 'win7.yml'].map((name) => path.join(DIST, name));
   const launcherArgs = ['release', 'create', tag, ...files.map(repoPath),
     '--draft', '--title', `RobloxClient Launcher ${version}`, '--notes', `${notes || ''}\n${hidden}\n`, '--target', target];
   const serverArgs = server && ['release', 'create', server.tag, repoPath(path.resolve(server.file)), '--draft', '--prerelease', '--latest=false',

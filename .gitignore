@@ -32,6 +32,8 @@
 !/Launcher/account.js
 !/Launcher/cleanup.js
 !/Launcher/embed.js
+!/Launcher/legacy.js
+!/Launcher/unzip.js
 !/Launcher/changelog.json
 # Launcher/default-server.txt (the server address packed into builds) stays untracked.
 !/Launcher/package.json

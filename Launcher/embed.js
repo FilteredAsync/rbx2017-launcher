@@ -18,6 +18,8 @@
 //   embedder.stop()
 
 const { spawn } = require('child_process');
+const fs = require('fs');
+const path = require('path');
 
 const HELPER = String.raw`
 $ErrorActionPreference = 'Stop'
@@ -207,15 +209,21 @@ module.exports = function embedder({ log = () => {} } = {}) {
   function start() {
     if (helper && helper.process.exitCode === null) return helper;
     const encoded = Buffer.from(HELPER, 'utf16le').toString('base64');
-    const process = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], {
+    // The 32-bit Windows 7 build on 64-bit Windows: the 64-bit PowerShell
+    // (the helper's window calls are the 64-bit ones). Windows 7's own
+    // PowerShell 2.0 has no JSON commands, so there the game keeps a window
+    // of its own unless PowerShell 3.0 or newer is installed.
+    const sysnative = path.join(process.env.SystemRoot || 'C:\\Windows', 'Sysnative', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    const shell = process.arch === 'ia32' && process.env.PROCESSOR_ARCHITEW6432 && fs.existsSync(sysnative) ? sysnative : 'powershell.exe';
+    const helperProcess = spawn(shell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], {
       windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
     });
-    const state = { process, waiting: [], buffer: '', errors: '' };
+    const state = { process: helperProcess, waiting: [], buffer: '', errors: '' };
     let readyResolve;
     let readyReject;
     state.ready = new Promise((resolve, reject) => { readyResolve = resolve; readyReject = reject; });
-    process.stdout.setEncoding('utf8');
-    process.stdout.on('data', (text) => {
+    helperProcess.stdout.setEncoding('utf8');
+    helperProcess.stdout.on('data', (text) => {
       state.buffer += text;
       let at;
       while ((at = state.buffer.indexOf('\n')) >= 0) {
@@ -229,13 +237,13 @@ module.exports = function embedder({ log = () => {} } = {}) {
         if (next) next.resolve(data);
       }
     });
-    process.stderr.on('data', (text) => { state.errors = (state.errors + text).slice(-2000); });
+    helperProcess.stderr.on('data', (text) => { state.errors = (state.errors + text).slice(-2000); });
     const failAll = (error) => {
       readyReject(error);
       for (const next of state.waiting.splice(0)) next.reject(error);
     };
-    process.on('error', (error) => failAll(new Error(`the window helper did not start: ${error.message}`)));
-    process.on('exit', (code) => failAll(new Error(`the window helper stopped (code ${code})${state.errors ? `: ${state.errors.trim().slice(0, 300)}` : ''}`)));
+    helperProcess.on('error', (error) => failAll(new Error(`the window helper did not start: ${error.message}`)));
+    helperProcess.on('exit', (code) => failAll(new Error(`the window helper stopped (code ${code})${state.errors ? `: ${state.errors.trim().slice(0, 300)}` : ''}`)));
     state.ready.catch(() => {});
     helper = state;
     return state;

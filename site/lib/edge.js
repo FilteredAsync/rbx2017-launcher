@@ -206,9 +206,10 @@ export async function image(url, maxAge) {
   return { status: 200, type, body: bytes, maxAge };
 }
 
-// The newest launcher release, from the latest.yml electron-builder publishes.
-export async function release() {
-  const response = await upstream(`${RELEASES}/latest/download/latest.yml`, 10000);
+// The newest launcher release, from the latest.yml electron-builder publishes
+// (win7.yml: the Windows 7, 8 and 8.1 build in the same release).
+export async function release(channel = 'latest') {
+  const response = await upstream(`${RELEASES}/latest/download/${channel}.yml`, 10000);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   const yml = await response.text();
   const field = (name) => {
@@ -219,7 +220,7 @@ export async function release() {
   const file = field('path');
   const size = Number((/^\s+size:\s*(\d+)\s*$/m.exec(yml) || [])[1]) || null;
   const date = field('releaseDate');
-  if (!/^\d+\.\d+\.\d+$/.test(version) || !/^[\w.-]+\.exe$/.test(file)) throw new Error('latest.yml did not look right');
+  if (!/^\d+\.\d+\.\d+$/.test(version) || !/^[\w.-]+\.exe$/.test(file)) throw new Error(`${channel}.yml did not look right`);
   const body = { version, file, size, date: /^\d{4}-\d\d-\d\d/.test(date) ? date : null, url: `${RELEASES}/download/v${version}/${file}` };
   return { status: 200, type: 'application/json; charset=utf-8', body: JSON.stringify(body), maxAge: 600 };
 }

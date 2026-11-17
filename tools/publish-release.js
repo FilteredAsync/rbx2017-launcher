@@ -3,12 +3,14 @@
 // Publishes the small Setup.exe as a GitHub release that installed launchers
 // update to on their own.
 //
-//   cd Launcher && npm run dist && cd ..
+//   cd Launcher && npm run dist && npm run dist:win7 && cd ..
 //   node tools/publish-release.js                  notes from Launcher/changelog.json
 //   node tools/publish-release.js --notes notes.md
 //
 // Uploads RobloxClient-Setup-<version>.exe, its .blockmap and latest.yml
-// (what electron-updater reads) to a new release v<version>, using the
+// (what electron-updater reads), and the same three for the Windows 7, 8 and
+// 8.1 build (RobloxClient-Setup-Win7-<version>.exe, win7.yml) to a new
+// release v<version>, using the
 // GitHub CLI (gh). Raise "version" in Launcher/package.json for each release
 // and add its entry at the top of Launcher/changelog.json.
 // Never upload the full installer: it contains Roblox's client.
@@ -25,19 +27,34 @@ const CHANGELOG = path.join(LAUNCHER, 'changelog.json');
 
 const launcherVersion = () => JSON.parse(fs.readFileSync(path.join(LAUNCHER, 'package.json'), 'utf8')).version;
 
+// The two installers each release has: Windows 10 and 11 (latest.yml), and
+// Windows 7, 8 and 8.1 (Electron 22, win7.yml). Installed launchers update
+// from their own .yml in the newest release, so both must be in every one.
+const BUILDS = [
+  { setup: (version) => `RobloxClient-Setup-${version}.exe`, yml: 'latest.yml', command: 'npm run dist' },
+  { setup: (version) => `RobloxClient-Setup-Win7-${version}.exe`, yml: 'win7.yml', command: 'npm run dist:win7' },
+];
+
 // The built installer files for the version in package.json -> { version, tag, files }, or throws why not.
 function checkBuild(version = launcherVersion()) {
-  const setup = path.join(DIST, `RobloxClient-Setup-${version}.exe`);
-  const files = [setup, `${setup}.blockmap`, path.join(DIST, 'latest.yml')];
-  for (const file of files) {
-    if (!fs.existsSync(file)) throw new Error(`Missing ${path.relative(ROOT, file)}: run "npm run dist" in Launcher first.`);
-  }
-  const latest = fs.readFileSync(files[2], 'utf8');
-  if (!new RegExp(`^version: ${version.replace(/\./g, '\\.')}\\s*$`, 'm').test(latest)) {
-    throw new Error(`latest.yml is not for version ${version}: build again.`);
-  }
-  if (/RobloxClient-Setup-Full/i.test(latest)) {
-    throw new Error('latest.yml points at the full installer, which must never be published.');
+  const files = [];
+  for (const build of BUILDS) {
+    const setup = path.join(DIST, build.setup(version));
+    const yml = path.join(DIST, build.yml);
+    for (const file of [setup, `${setup}.blockmap`, yml]) {
+      if (!fs.existsSync(file)) throw new Error(`Missing ${path.relative(ROOT, file)}: run "${build.command}" in Launcher first.`);
+    }
+    const text = fs.readFileSync(yml, 'utf8');
+    if (!new RegExp(`^version: ${version.replace(/\./g, '\\.')}\\s*$`, 'm').test(text)) {
+      throw new Error(`${build.yml} is not for version ${version}: run "${build.command}" again.`);
+    }
+    if (/RobloxClient-Setup-Full/i.test(text)) {
+      throw new Error(`${build.yml} points at the full installer, which must never be published.`);
+    }
+    if (!new RegExp(`^path: ${build.setup(version).replace(/\./g, '\\.')}\\s*$`, 'm').test(text)) {
+      throw new Error(`${build.yml} does not point at ${build.setup(version)}: run "${build.command}" again.`);
+    }
+    files.push(setup, `${setup}.blockmap`, yml);
   }
   return { version, tag: `v${version}`, files };
 }

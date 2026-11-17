@@ -6,6 +6,8 @@
 // and the launcher behave the same. Node scripts run on Electron's own Node,
 // so players do not need Node.js installed.
 
+// Fills in what Electron 22 (the Windows 7 build) lacks; first, before anything uses fetch.
+const legacy = require('./legacy');
 const { app, BrowserWindow, ipcMain, shell, clipboard, dialog, protocol, screen, globalShortcut, Notification } = require('electron');
 const { spawn, spawnSync } = require('child_process');
 const dns = require('dns').promises;
@@ -110,7 +112,7 @@ function canConnect(port, host, timeoutMs = 800) {
 
 // Runs a Node script (relative to RobloxClient) on Electron's own Node.
 function nodeScript(relative, args, options = {}) {
-  return spawn(process.execPath, [path.join(ROOT, relative), ...args], Object.assign({
+  return spawn(process.execPath, [...legacy.nodeFlags, path.join(ROOT, relative), ...args], Object.assign({
     cwd: ROOT,
     env: Object.assign({}, process.env, { ELECTRON_RUN_AS_NODE: '1' }),
     windowsHide: true,
@@ -621,7 +623,8 @@ async function embedClient(session) {
   if (!win || win.isDestroyed() || !session.pid) return;
   setEmbedState('waiting');
   try {
-    const parent = win.getNativeWindowHandle().readBigUInt64LE(0).toString();
+    const handle = win.getNativeWindowHandle(); // 4 bytes in the 32-bit Windows 7 build
+    const parent = (handle.length >= 8 ? handle.readBigUInt64LE(0) : handle.readUInt32LE(0)).toString();
     const child = await embedder().attach(session.pid, parent, gameRect());
     if (!child || playSession !== session) {
       setEmbedState('off');

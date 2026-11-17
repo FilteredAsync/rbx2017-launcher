@@ -86,8 +86,16 @@ Build the installers on a PC that has the full RobloxClient folder:
 cd Launcher
 npm install
 npm run dist        # small Setup.exe (Launcher/dist-installer/)
+npm run dist:win7   # small Setup.exe for Windows 7, 8 and 8.1
 npm run dist:full   # full Setup.exe
 ```
+
+The Windows 7 Setup.exe (`RobloxClient-Setup-Win7-<version>.exe`) is the
+same launcher on Electron 22, the last Electron for Windows 7, 8 and 8.1,
+32-bit like the 2017 client. It updates from `win7.yml`, so every release
+carries both small installers (`tools/publish-release.js` checks). That
+Electron no longer gets security fixes; the launcher only shows its own pages
+and your server's pictures.
 
 The installers are not code-signed, so Windows SmartScreen may say "Windows
 protected your PC": choose **More info > Run anyway**. To ship an update,
