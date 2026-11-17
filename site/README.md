@@ -57,8 +57,14 @@ control: production branch `site-live`, preview deployments None), so
 pushes to `main` don't change it. It goes out with a release:
 
 ```
+node site/stamp.mjs
 git push origin main:site-live
 ```
+
+`stamp.mjs` gives the pages' stylesheet and script links a version from
+their contents (commit what it changes before pushing). Cloudflare lets
+browsers keep those files for 4 hours, so without a new address visitors
+would keep the old script after a release.
 
 ## Set up signing in (once)
 
