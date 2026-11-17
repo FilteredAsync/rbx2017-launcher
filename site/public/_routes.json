@@ -1,5 +1,5 @@
 {
   "version": 1,
-  "include": ["/api/*", "/games/*", "/download/latest"],
+  "include": ["/api/*", "/games/*", "/download/latest", "/download/win7"],
   "exclude": []
 }

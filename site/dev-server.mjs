@@ -61,6 +61,8 @@ function serveStatic(request) {
   });
 }
 
+// Keep in step with public/_routes.json: Cloudflare only runs functions for
+// the paths listed there (others are 404 there, though they work here).
 const ROUTES = [
   [/^\/api\/(.+)$/, 'functions/api/[[path]].js'],
   [/^\/games\/(.+)$/, 'functions/games/[[path]].js'],
