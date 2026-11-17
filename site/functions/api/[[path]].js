@@ -43,6 +43,7 @@ export async function onRequest(context) {
   if (route === 'games') return cached(context, '/games', () => gameList(server));
   if (route === 'votes') return cached(context, '/votes', () => allVotes(server));
   if (route === 'release') return cached(context, '/release', () => release(), 'GitHub did not answer.');
+  if (route === 'release/win7') return cached(context, '/release-win7', () => release('win7'), 'GitHub did not answer.');
 
   if ((match = /^game\/(\d{1,15})$/.exec(route))) {
     const placeId = match[1];

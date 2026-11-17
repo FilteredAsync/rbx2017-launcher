@@ -65,10 +65,12 @@ export async function cached(context, key, produce, failure = 'The game server d
     if (hit) return hit;
   }
   let item = null;
+  let problem = '';
   try {
     item = await produce();
   } catch (error) {
     item = null;
+    problem = String((error && error.message) || error).slice(0, 200);
   }
   if (item && item.status < 500) {
     const response = toResponse(item);
@@ -91,12 +93,12 @@ export async function cached(context, key, produce, failure = 'The game server d
       return copy;
     }
   }
-  return json({ error: failure }, 502);
+  return json(problem ? { error: failure, detail: problem } : { error: failure }, 502);
 }
 
-async function upstream(url, timeoutMs = 8000) {
+async function upstream(url, timeoutMs = 8000, headers = {}) {
   return fetch(url, {
-    headers: { 'User-Agent': 'rbx2017-site', Accept: '*/*' },
+    headers: Object.assign({ 'User-Agent': 'rbx2017-site', Accept: '*/*' }, headers),
     redirect: 'follow',
     signal: AbortSignal.timeout(timeoutMs),
   });
@@ -206,11 +208,17 @@ export async function image(url, maxAge) {
   return { status: 200, type, body: bytes, maxAge };
 }
 
-// The newest launcher release, from the latest.yml electron-builder publishes
-// (win7.yml: the Windows 7, 8 and 8.1 build in the same release).
-export async function release(channel = 'latest') {
+// The newest launcher release: { version, file, size, date, url } for
+// channel 'latest' (Windows 10 and 11) or 'win7' (Windows 7, 8 and 8.1).
+// From the .yml electron-builder publishes, or else GitHub's API.
+const SETUP_NAMES = {
+  latest: /^RobloxClient-Setup-(\d+\.\d+\.\d+)\.exe$/,
+  win7: /^RobloxClient-Setup-Win7-(\d+\.\d+\.\d+)\.exe$/,
+};
+
+async function releaseFromYml(channel) {
   const response = await upstream(`${RELEASES}/latest/download/${channel}.yml`, 10000);
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  if (!response.ok) throw new Error(`${channel}.yml: HTTP ${response.status}`);
   const yml = await response.text();
   const field = (name) => {
     const match = new RegExp(`^${name}:\\s*'?([^'\\r\\n]+)'?\\s*$`, 'm').exec(yml);
@@ -220,7 +228,31 @@ export async function release(channel = 'latest') {
   const file = field('path');
   const size = Number((/^\s+size:\s*(\d+)\s*$/m.exec(yml) || [])[1]) || null;
   const date = field('releaseDate');
-  if (!/^\d+\.\d+\.\d+$/.test(version) || !/^[\w.-]+\.exe$/.test(file)) throw new Error(`${channel}.yml did not look right`);
-  const body = { version, file, size, date: /^\d{4}-\d\d-\d\d/.test(date) ? date : null, url: `${RELEASES}/download/v${version}/${file}` };
-  return { status: 200, type: 'application/json; charset=utf-8', body: JSON.stringify(body), maxAge: 600 };
+  if (!/^\d+\.\d+\.\d+$/.test(version) || !SETUP_NAMES[channel].test(file)) throw new Error(`${channel}.yml did not look right`);
+  return { version, file, size, date };
+}
+
+async function releaseFromApi(channel) {
+  const repo = RELEASES.replace(/^https:\/\/github\.com\/|\/releases$/g, '');
+  const response = await upstream(`https://api.github.com/repos/${repo}/releases/latest`, 10000, { Accept: 'application/vnd.github+json' });
+  if (!response.ok) throw new Error(`GitHub API: HTTP ${response.status}`);
+  const data = await response.json();
+  const asset = (Array.isArray(data.assets) ? data.assets : []).find((item) => item && SETUP_NAMES[channel].test(String(item.name)));
+  if (!asset) throw new Error(`GitHub API: no ${channel} installer in the newest release`);
+  return { version: SETUP_NAMES[channel].exec(asset.name)[1], file: asset.name, size: Number(asset.size) || null, date: data.published_at || '' };
+}
+
+export async function release(channel = 'latest') {
+  if (!SETUP_NAMES[channel]) throw new Error('no such channel');
+  const problems = [];
+  for (const source of [releaseFromYml, releaseFromApi]) {
+    try {
+      const { version, file, size, date } = await source(channel);
+      const body = { version, file, size, date: /^\d{4}-\d\d-\d\d/.test(date) ? date : null, url: `${RELEASES}/download/v${version}/${file}` };
+      return { status: 200, type: 'application/json; charset=utf-8', body: JSON.stringify(body), maxAge: 600 };
+    } catch (error) {
+      problems.push(error.message);
+    }
+  }
+  throw new Error(problems.join('; '));
 }
