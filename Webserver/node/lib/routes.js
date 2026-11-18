@@ -2018,6 +2018,8 @@ const studio = require('./studio')({ send, sendUtf8, sendFile, sendJson, jsonBod
 const launcher = require('./launcherapi')({ send, sendJson, jsonBody, assetBytes });
 // The Android app (lib/mobile.js).
 const mobile = require('./mobile')({ send, sendUtf8, sendJson, launcher, sessionCookie: studio.sessionCookie });
+// The Xbox One app, rebuilt for Windows (lib/xbox.js).
+const xbox = require('./xbox')({ send, sendUtf8, sendJson, launcher, sessionCookie: studio.sessionCookie });
 
 // --- Route table ---------------------------------------------------------------------
 // Matched case-insensitively against the path without the leading "/".
@@ -2028,6 +2030,7 @@ const ROUTES = [
   ...studio.routes,
   ...launcher.routes,
   ...mobile.routes,
+  ...xbox.routes,
   [/^api\/games(?:\/([a-z0-9]+)(?:\/([a-z]+))?)?\/?$/i, gamesApi],
   [/^api\/thumbnails\/(\d{1,15})\/?$/i, thumbnailsApi],
   [/^play\/(\d{1,15})\/?$/i, sharePage],

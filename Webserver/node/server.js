@@ -57,7 +57,8 @@ function log(message) {
 
 // Login tickets and Studio edit tokens stay out of the log.
 function loggedUrl(url) {
-  return String(url).replace(/([?&](?:t|suggest|ticket)=)[^&#]*/gi, '$1…');
+  // password: the Xbox app signs in with ?username=&password= (lib/xbox.js).
+  return String(url).replace(/([?&](?:t|suggest|ticket|password)=)[^&#]*/gi, '$1…');
 }
 
 function accessLog(ctx, status, bytes, started) {

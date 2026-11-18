@@ -129,6 +129,15 @@ later runs keep it). The server's side
 is `Webserver/node/lib/mobile.js`. Phones need 32-bit app support: the app
 has 32-bit ARM code only, which many phones from 2023 on can't run.
 
+## Xbox One app on Windows (private)
+
+The 2016 Xbox One app can also be built as a Windows 10/11 app from the 2016
+engine source. It contains Roblox's code, so it is shared privately like the
+Android app. It has no Xbox Live here: it signs in with an account's username
+and password, asks `api.<domain>` and `assetgame.<domain>` (the same DNS
+names as the Android app) and joins through the same
+`Game/PlaceLauncher.ashx`. The server's side is `Webserver/node/lib/xbox.js`.
+
 ## The always-on server: RobloxServer.zip
 
 ```
