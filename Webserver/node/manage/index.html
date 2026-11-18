@@ -33,7 +33,7 @@
         <a href="#games" data-nav="games">Games <span class="count" id="nav-games"></span></a>
         <a href="#reports" data-nav="reports">Reports <span class="count" id="nav-reports"></span></a>
         <a href="#announcements" data-nav="announcements">Announcements <span class="count" id="nav-news"></span></a>
-        <a href="#accounts" data-nav="accounts">Studio accounts</a>
+        <a href="#accounts" data-nav="accounts">Accounts</a>
         <a href="#assets" data-nav="assets">Missing assets <span class="count" id="nav-assets"></span></a>
         <a href="#server" data-nav="server">Server <span class="dot" id="nav-server"></span></a>
       </nav>
@@ -52,7 +52,7 @@
             <p class="sub" id="games-sub"></p>
           </div>
           <div class="head-actions">
-            <input class="search" id="games-filter" type="search" placeholder="Filter" aria-label="Filter games">
+            <input class="search" id="games-filter" type="search" placeholder="Find a game" aria-label="Find a game">
             <button class="btn primary" type="button" id="upload-open">Upload game</button>
           </div>
         </header>
@@ -60,7 +60,7 @@
         <div class="table-wrap">
           <table class="table games">
             <thead>
-              <tr><th>Game</th><th>Status</th><th class="num hide-sm">Players</th><th class="num hide-sm">Servers</th><th class="hide-sm">Avatars</th><th class="right">Online</th></tr>
+              <tr><th>Game</th><th>Status</th><th class="right">Online</th></tr>
             </thead>
             <tbody id="games-rows"></tbody>
           </table>
@@ -72,7 +72,6 @@
         <header class="view-head">
           <div>
             <h1>Reports</h1>
-            <p class="sub">From players in games and in the launcher.</p>
           </div>
         </header>
         <div class="seg" id="reports-filter" role="tablist">
@@ -88,12 +87,11 @@
         <header class="view-head">
           <div>
             <h1>Announcements</h1>
-            <p class="sub">Shown in every player's launcher.</p>
           </div>
         </header>
         <form class="card composer" id="news-form" autocomplete="off">
           <input id="news-title" class="bare title" maxlength="80" placeholder="Title (optional)">
-          <textarea id="news-text" class="bare" maxlength="1000" rows="3" placeholder="Write an announcement" required></textarea>
+          <textarea id="news-text" class="bare" maxlength="1000" rows="3" placeholder="Every player's launcher shows this" required></textarea>
           <div class="composer-foot">
             <label class="inline">Show for
               <select id="news-expires">
@@ -112,17 +110,20 @@
         <div class="news" id="news-list"></div>
       </section>
 
-      <!-- Studio accounts -->
+      <!-- Accounts (launcher, website, Studio and the phone app share them) -->
       <section data-view="accounts" hidden>
         <header class="view-head">
           <div>
-            <h1>Studio accounts</h1>
-            <p class="sub">The first login with a name creates it. Delete an account to reset its password.</p>
+            <h1>Accounts</h1>
+            <p class="sub" id="accounts-sub"></p>
+          </div>
+          <div class="head-actions">
+            <input class="search" id="accounts-filter" type="search" placeholder="Find a name" aria-label="Find an account">
           </div>
         </header>
         <div class="table-wrap">
           <table class="table">
-            <thead><tr><th>Name</th><th class="num hide-sm">User ID</th><th>Last login</th><th class="num">R$</th><th>Admin</th><th></th></tr></thead>
+            <thead><tr><th>Name</th><th class="hide-sm">Last login</th><th class="num">R$</th><th>Admin</th><th></th></tr></thead>
             <tbody id="account-rows"></tbody>
           </table>
         </div>
@@ -133,7 +134,7 @@
         <header class="view-head">
           <div>
             <h1>Missing assets</h1>
-            <p class="sub" id="assets-sub">Assets Roblox no longer serves. Upload a replacement and games use it instead.</p>
+            <p class="sub" id="assets-sub">Roblox no longer serves these. Upload a replacement, or drop a file on its row.</p>
           </div>
         </header>
         <div class="seg" id="assets-filter" role="tablist">
@@ -144,8 +145,8 @@
           <button type="button" data-filter="">All</button>
         </div>
         <div class="table-wrap">
-          <table class="table">
-            <thead><tr><th>Asset</th><th class="hide-sm">Type</th><th class="hide-sm">Games</th><th class="num hide-sm">ID</th><th class="hide-sm">Why</th><th></th></tr></thead>
+          <table class="table" id="asset-table">
+            <thead><tr><th>Asset</th><th class="hide-sm col-type">Type</th><th class="hide-sm">Games</th><th class="num hide-sm">ID</th><th class="hide-sm">Why</th><th></th></tr></thead>
             <tbody id="asset-rows"></tbody>
           </table>
         </div>
@@ -159,8 +160,7 @@
             <p class="sub" id="srv-sub"></p>
           </div>
           <div class="head-actions">
-            <button class="btn" type="button" id="srv-check">Check for updates</button>
-            <button class="btn" type="button" id="srv-restart">Restart</button>
+            <button class="btn" type="button" id="srv-restart">Restart server</button>
           </div>
         </header>
         <div class="stats" id="srv-stats"></div>
@@ -168,7 +168,8 @@
           <div class="update-text" id="srv-updates"></div>
           <div class="update-actions">
             <progress id="srv-progress" max="100" value="0" hidden></progress>
-            <button class="btn" type="button" id="srv-upload-button">Upload update file</button>
+            <button class="btn" type="button" id="srv-check">Check now</button>
+            <button class="btn" type="button" id="srv-upload-button">Upload file</button>
             <button class="btn primary" type="button" id="srv-install" hidden>Install now</button>
           </div>
         </div>
@@ -192,7 +193,7 @@
               <button type="button" data-log="access">Requests</button>
               <button type="button" data-log="studio">Studio</button>
             </div>
-            <button class="btn small" type="button" id="log-reload">Reload</button>
+            <button class="btn small" type="button" id="log-copy">Copy</button>
           </div>
           <pre class="log" id="srv-log"></pre>
         </div>

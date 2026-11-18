@@ -24,6 +24,9 @@ let reportList = [];
 let reportFilter = 'open';
 let reportsShown = '';       // what the report list shows, so polling leaves it alone
 const openChats = new Set(); // reports whose chat is unfolded
+let gameOrder = [];          // place IDs, online first; kept while the view is open so a switched game stays put
+let settingsDirty = false;   // the open game's Settings tab has unsaved changes
+let accountList = [];
 
 // --- small helpers ---------------------------------------------------------------------
 
@@ -173,18 +176,35 @@ async function act(work, message, done) {
 
 // --- views ----------------------------------------------------------------------------------
 
-function route() {
+async function route() {
   const [name, arg] = location.hash.replace(/^#/, '').split('/');
-  view = VIEWS.includes(name) ? name : 'games';
+  const next = VIEWS.includes(name) ? name : 'games';
+  const nextGame = next === 'games' && arg ? arg : null;
+  // Leaving a game with unsaved settings asks first.
+  if (settingsDirty && openId !== null && nextGame !== openId) {
+    const place = places.find((item) => item.placeId === openId);
+    if (!await ask('Discard your changes?', place ? `${place.name}'s settings aren't saved.` : '', 'Discard', true)) {
+      history.replaceState(null, '', `#games/${openId}`);
+      return;
+    }
+    settingsDirty = false;
+  }
+  if (next === 'games' && view !== 'games') gameOrder = [];
+  view = next;
   for (const section of document.querySelectorAll('main > section')) section.hidden = section.dataset.view !== view;
-  for (const link of document.querySelectorAll('.nav a')) link.classList.toggle('active', link.dataset.nav === view);
-  if (view === 'games' && arg) showDrawer(arg);
+  for (const link of document.querySelectorAll('.nav a')) {
+    link.classList.toggle('active', link.dataset.nav === view);
+    // Phones: the nav is a row that scrolls sideways.
+    const side = link.closest('.side');
+    if (link.dataset.nav === view && side && side.scrollWidth > side.clientWidth) link.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+  if (nextGame) showDrawer(nextGame);
   else hideDrawer();
   if (view === 'reports') loadReports();
   if (view === 'accounts') loadAccounts();
   if (view === 'assets') loadMissing();
   if (view === 'announcements') loadNews();
-  if (view === 'server') { loadServer(); if (!$('srv-log').textContent) loadLog(); }
+  if (view === 'server') { loadServer(); loadLog(); }
 }
 
 // --- games ----------------------------------------------------------------------------------
@@ -222,28 +242,50 @@ function onlineSwitch(place) {
   });
 }
 
+// "5 players on 2 servers", "Empty": under Live in the table and the drawer.
+function liveLine(place) {
+  const servers = (place.servers || []).filter((server) => server.state === 'running').length;
+  if (!servers) return '';
+  const players = playersIn(place);
+  if (!players) return servers > 1 ? `${servers} servers, empty` : 'Empty';
+  return `${plural(players, 'player')}${servers > 1 ? ` on ${servers} servers` : ''}`;
+}
+
 function gameRow(place) {
   const state = gameState(place);
-  const players = playersIn(place);
-  const servers = (place.servers || []).filter((server) => server.state === 'running').length;
   const creator = place.creator ? place.creator.name : null;
+  const open = () => { location.hash = `games/${place.placeId}`; };
+  const live = liveLine(place);
   return h('tr', {
     class: `${place.enabled ? '' : 'off'} ${openId === place.placeId ? 'selected' : ''}`.trim(),
     dataset: { id: place.placeId },
-    onclick: () => { location.hash = `games/${place.placeId}`; },
+    tabIndex: 0,
+    onclick: open,
+    onkeydown: (event) => { if ((event.key === 'Enter' || event.key === ' ') && event.target === event.currentTarget) { event.preventDefault(); open(); } },
   },
   h('td', {}, h('div', { class: 'game-cell' }, thumb(place),
-    h('div', {}, h('div', { class: 'game-name', text: place.name }), h('div', { class: 'sub' }, h('span', { class: 'mono', text: place.placeId }), creator && h('span', { text: creator }))))),
-  h('td', {}, h('span', { class: `state ${state.kind}`, text: state.text, title: state.title || null })),
-  h('td', { class: 'num hide-sm', text: servers ? String(players) : '–' }),
-  h('td', { class: 'num hide-sm', text: servers ? String(servers) : '–' }),
-  h('td', { class: 'hide-sm', text: place.avatarType === 'R15' ? 'R15' : 'R6' }),
+    h('div', { class: 'game-text' },
+      h('div', { class: 'game-name' }, h('span', { text: place.name }), place.avatarType === 'R15' && h('span', { class: 'tag', text: 'R15' })),
+      h('div', { class: 'sub' }, h('span', { class: 'mono', text: place.placeId }), creator && h('span', { text: creator }))))),
+  h('td', {}, h('span', { class: `state ${state.kind}`, text: state.text, title: state.title || null }),
+    live && h('div', { class: 'state-sub', text: live }),
+    state.kind === 'error' && state.title && h('div', { class: 'state-sub clip', text: state.title, title: state.title })),
   h('td', { class: 'right' }, onlineSwitch(place)));
+}
+
+// Online games first, busiest first; worked out again each time the view opens.
+function orderGames() {
+  gameOrder = places.slice()
+    .sort((a, b) => (b.enabled - a.enabled) || (playersIn(b) - playersIn(a)) || a.name.localeCompare(b.name))
+    .map((place) => place.placeId);
 }
 
 function renderGames() {
   const filter = $('games-filter').value.trim().toLowerCase();
-  const shown = places.filter((place) => !filter || place.name.toLowerCase().includes(filter) || place.placeId.includes(filter));
+  if (places.some((place) => !gameOrder.includes(place.placeId))) orderGames();
+  const rank = (place) => gameOrder.indexOf(place.placeId);
+  const shown = places.filter((place) => !filter || place.name.toLowerCase().includes(filter) || place.placeId.includes(filter))
+    .sort((a, b) => rank(a) - rank(b));
   const rows = $('games-rows');
   // Rows only change when their game did, so focus and hover survive polling.
   const wanted = shown.map((place) => {
@@ -256,8 +298,15 @@ function renderGames() {
     return row;
   });
   if (wanted.length === 0) {
-    rows.replaceChildren(h('tr', {}, h('td', { class: 'empty-cell', colSpan: 6, text: places.length ? 'No game matches.' : 'No games yet.' })));
+    // Redrawn only when it changes, so its button keeps focus through polling.
+    const empty = places.length ? 'no-match' : 'no-games';
+    if (rows.dataset.empty !== empty) {
+      rows.dataset.empty = empty;
+      rows.replaceChildren(h('tr', {}, h('td', { class: 'empty-cell', colSpan: 3 }, places.length ? 'No game matches.'
+        : h('div', { class: 'empty-start' }, h('div', { text: 'No games yet.' }), btn('Upload one', 'primary', openUpload)))));
+    }
   } else {
+    delete rows.dataset.empty;
     rows.replaceChildren(...wanted);
   }
   const live = places.reduce((sum, place) => sum + (place.servers || []).filter((server) => server.state === 'running').length, 0);
@@ -320,7 +369,8 @@ function renderDrawer(full) {
     h('div', { class: 'head-text' }, h('h2', { text: place.name }), meta,
       h('div', { class: 'online' },
         h('label', { class: 'inline check' }, onlineSwitch(place), h('span', { text: place.enabled ? 'Online' : 'Offline' })),
-        state.kind !== 'off' && h('span', { class: `state ${state.kind}`, text: state.text, title: state.title || null }))),
+        state.kind !== 'off' && h('span', { class: `state ${state.kind}`, text: state.text, title: state.title || null }),
+        liveLine(place) && h('span', { class: 'muted', text: liveLine(place) }))),
     h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Close', text: '×', onclick: closeDrawer }));
 
   for (const tab of document.querySelectorAll('#drawer-tabs button')) {
@@ -421,8 +471,22 @@ function settingsForm(place) {
   const field = (label, control, hint) => h('label', { class: 'field' }, h('span', { text: label }), control, hint && h('small', { text: hint }));
   const toggle = (title, hint, control) => h('label', { class: 'switch-row' }, h('div', {}, h('b', { text: title }), h('small', { text: hint })), control);
 
-  const save = h('button', { type: 'submit', class: 'btn primary', text: 'Save' });
-  const form = h('form', { class: 'settings', autocomplete: 'off' },
+  // Save is off until something changes; switching games or closing asks first (route).
+  settingsDirty = false;
+  const save = h('button', { type: 'submit', class: 'btn primary', text: 'Save', disabled: true });
+  const discard = btn('Discard', '', () => {
+    settingsDirty = false;
+    $('pane-settings').replaceChildren(settingsForm(place));
+  }, { hidden: true });
+  const note = h('span', { class: 'save-note' });
+  const markDirty = () => {
+    if (settingsDirty) return;
+    settingsDirty = true;
+    save.disabled = false;
+    discard.hidden = false;
+    note.textContent = 'Unsaved changes';
+  };
+  const form = h('form', { class: 'settings', autocomplete: 'off', oninput: markDirty, onchange: markDirty },
     field('Name', name),
     field('Description', description),
     h('div', { class: 'pair' }, field('Players per server', maxPlayers), field('Avatars', avatar, 'Used by servers started after saving.')),
@@ -433,7 +497,7 @@ function settingsForm(place) {
     h('div', { class: 'pair' }, field('Owner', owner), field('Editors', editors)),
     h('h3', { text: 'Credit' }),
     h('div', { class: 'pair' }, field('Roblox universe ID', universe, 'For its icon and creator.'), field('Creator', creator)),
-    h('div', { class: 'save-bar' }, save, btn('Reset', '', () => $('pane-settings').replaceChildren(settingsForm(place)))));
+    h('div', { class: 'save-bar' }, save, discard, note));
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     act(async () => {
@@ -443,8 +507,12 @@ function settingsForm(place) {
       };
       if (!ownedHere) fields.creator = creator.value.trim();
       await change('POST', `/api/places/${id}`, JSON.stringify(fields));
+      // Access only when it changed, so an owner whose account is gone doesn't block other saves.
       const names = editors.value.split(',').map((item) => item.trim()).filter(Boolean);
-      await change('POST', `/api/places/${id}/access`, JSON.stringify({ owner: owner.value.trim(), editors: names }));
+      const before = JSON.stringify([place.owner ? place.owner.name : '', place.editors.map((editor) => editor.name)]);
+      if (JSON.stringify([owner.value.trim(), names]) !== before) {
+        await change('POST', `/api/places/${id}/access`, JSON.stringify({ owner: owner.value.trim(), editors: names }));
+      }
       $('pane-settings').dataset.id = '';
     }, `Saving ${name.value}`, 'Saved');
   });
@@ -733,6 +801,40 @@ $('upload-cancel').addEventListener('click', closeUpload);
 $('upload').addEventListener('cancel', (event) => { if ($('upload-button').disabled) event.preventDefault(); });
 $('upload-open-game').addEventListener('click', () => { $('upload').close(); if (uploadedId) location.hash = `games/${uploadedId}`; });
 
+// A place file dropped anywhere on the Games view opens Upload with it.
+const gamesView = document.querySelector('section[data-view="games"]');
+gamesView.addEventListener('dragover', (event) => {
+  if (!hasFiles(event) || $('upload').open) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'copy';
+  gamesView.classList.add('dropping');
+});
+gamesView.addEventListener('dragleave', (event) => {
+  if (!gamesView.contains(event.relatedTarget)) gamesView.classList.remove('dropping');
+});
+gamesView.addEventListener('drop', (event) => {
+  if (!hasFiles(event)) return;
+  event.preventDefault();
+  gamesView.classList.remove('dropping');
+  const file = event.dataTransfer.files[0];
+  if (!file || !/\.rbx[lm]x?$/i.test(file.name)) { toast(`${file ? file.name : 'That'} isn't a place file. Use a .rbxl or .rbxlx.`, 'error'); return; }
+  openUpload();
+  $('upload-file').files = event.dataTransfer.files;
+  $('upload-file').dispatchEvent(new Event('change'));
+  $('upload-name').focus();
+});
+
+// A file dropped where nothing takes it would open in the tab and lose the page.
+const fileInput = (target) => target instanceof Element && target.matches('input[type=file]');
+document.addEventListener('dragover', (event) => {
+  if (!hasFiles(event) || event.defaultPrevented || fileInput(event.target)) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'none';
+});
+document.addEventListener('drop', (event) => {
+  if (hasFiles(event) && !event.defaultPrevented && !fileInput(event.target)) event.preventDefault();
+});
+
 $('upload-file').addEventListener('change', () => {
   const file = $('upload-file').files[0];
   $('upload-file-name').textContent = file ? `${file.name} (${size(file.size)})` : 'Choose a .rbxl or .rbxlx file, or drop it here';
@@ -846,7 +948,7 @@ function reportCard(report) {
         await change('POST', `/api/reports/${report.id}/resolve`, '{}');
         await loadReports();
       }, 'Resolving', 'Resolved')) : null,
-      btn('Delete', 'small danger', async () => {
+      btn('Delete', 'small quiet danger', async () => {
         if (!await ask('Delete this report?', '', 'Delete', true)) return;
         act(async () => {
           await change('DELETE', `/api/reports/${report.id}`);
@@ -943,11 +1045,13 @@ async function loadAccounts() {
     const response = await fetch('/api/studio/accounts', { headers: authHeaders(), cache: 'no-store' });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
-    renderAccounts(result.accounts || []);
+    accountList = result.accounts || [];
+    renderAccounts();
   } catch (error) {
-    $('account-rows').replaceChildren(h('tr', {}, h('td', { class: 'empty-cell', colSpan: 6, text: error.message })));
+    $('account-rows').replaceChildren(h('tr', {}, h('td', { class: 'empty-cell', colSpan: 5, text: error.message })));
   }
 }
+$('accounts-filter').addEventListener('input', renderAccounts);
 
 // Gives or takes an account's Robux (lib/robux.js).
 function changeRobux(account) {
@@ -969,21 +1073,33 @@ function changeRobux(account) {
   $('robux-amount').focus();
 }
 
-function renderAccounts(list) {
+function renderAccounts() {
+  const admins = accountList.filter((account) => account.admin).length;
+  $('accounts-sub').textContent = accountList.length ? `${plural(accountList.length, 'account')}, ${plural(admins, 'admin')}` : '';
+  const filter = $('accounts-filter').value.trim().toLowerCase();
+  // Most recent login first; never-used accounts last.
+  const list = accountList.filter((account) => !filter || account.name.toLowerCase().includes(filter) || String(account.userId).includes(filter))
+    .sort((a, b) => String(b.lastLoginAt || '').localeCompare(String(a.lastLoginAt || '')) || a.name.localeCompare(b.name));
+  // Redrawn only when something changed, and the focused control gets its focus back.
+  const rows = $('account-rows');
+  const signature = JSON.stringify([list, filter]);
+  if (rows.dataset.sig === signature) return;
+  rows.dataset.sig = signature;
+  const focused = rows.contains(document.activeElement) ? document.activeElement : null;
+  const refocus = focused && focused.dataset.kind ? [focused.closest('tr').dataset.name, focused.dataset.kind] : null;
   if (!list.length) {
-    $('account-rows').replaceChildren(h('tr', {}, h('td', { class: 'empty-cell', colSpan: 6, text: 'Nobody has logged in to Studio yet.' })));
+    rows.replaceChildren(h('tr', {}, h('td', { class: 'empty-cell', colSpan: 5, text: accountList.length ? 'No account matches.' : 'No accounts yet.' })));
     return;
   }
-  $('account-rows').replaceChildren(...list.map((account) => h('tr', {},
-    h('td', {}, h('b', { text: account.name })),
-    h('td', { class: 'num sub hide-sm', text: account.userId }),
-    h('td', { class: 'sub', text: account.lastLoginAt ? when(account.lastLoginAt) : 'Never' }),
+  rows.replaceChildren(...list.map((account) => h('tr', { dataset: { name: account.name } },
+    h('td', {}, h('div', { class: 'game-name', text: account.name }), h('div', { class: 'sub mono', text: account.userId })),
+    h('td', { class: 'sub hide-sm', text: account.lastLoginAt ? when(account.lastLoginAt) : 'Never' }),
     h('td', { class: 'num' }, h('button', {
-      type: 'button', class: 'linkish', title: `Give or take ${account.name}'s Robux`,
+      type: 'button', class: 'linkish', title: `Give or take ${account.name}'s Robux`, dataset: { kind: 'robux' },
       text: Number(account.robux || 0).toLocaleString(), onclick: () => changeRobux(account),
     })),
     h('td', {}, h('input', {
-      type: 'checkbox', class: 'switch', checked: account.admin, 'aria-label': `${account.name} is an admin`,
+      type: 'checkbox', class: 'switch', checked: account.admin, 'aria-label': `${account.name} is an admin`, dataset: { kind: 'admin' },
       onchange: (event) => {
         const on = event.target.checked;
         act(async () => {
@@ -992,13 +1108,18 @@ function renderAccounts(list) {
         }, on ? `Making ${account.name} an admin` : `Removing ${account.name} as admin`, on ? `${account.name} is an admin` : `${account.name} is no longer an admin`);
       },
     })),
-    h('td', { class: 'actions' }, btn('Delete', 'small danger', async () => {
-      if (!await ask(`Delete ${account.name}?`, 'They are logged out. The next login with this name makes a new account with a new password, and it gets the games this one owns, so only do this for its owner.', 'Delete', true)) return;
+    h('td', { class: 'actions' }, btn('Delete', 'small quiet danger', async () => {
+      if (!await ask(`Delete ${account.name}?`, 'This is how a password is reset. They are logged out, and the next login with this name makes a new account that gets the games this one owns, so only do this for its owner.', 'Delete', true)) return;
       act(async () => {
         await change('DELETE', `/api/studio/accounts/${encodeURIComponent(account.name)}`);
         await loadAccounts();
       }, `Deleting ${account.name}`, `${account.name} deleted`);
-    })))));
+    }, { dataset: { kind: 'delete' } })))));
+  if (refocus) {
+    const row = Array.from(rows.children).find((tr) => tr.dataset.name === refocus[0]);
+    const control = row && row.querySelector(`[data-kind="${refocus[1]}"]`);
+    if (control) control.focus();
+  }
 }
 
 // --- missing assets ---------------------------------------------------------------------------
@@ -1026,6 +1147,8 @@ function renderMissing() {
     badge.textContent = count || '';
   }
   const shown = missing.filter((asset) => matches(asset, assetFilter));
+  // The Type column only where the list mixes types.
+  $('asset-table').classList.toggle('no-type', KNOWN_TYPES.includes(assetFilter));
   if (!shown.length) {
     $('asset-rows').replaceChildren(h('tr', {}, h('td', { class: 'empty-cell', colSpan: 6, text: 'Nothing missing here.' })));
     return;
@@ -1038,9 +1161,25 @@ function renderMissing() {
     const text = names.slice(0, 3).join(', ') + (names.length > 3 ? ` +${names.length - 3}` : '');
     return h('td', { class: 'sub hide-sm', text, title: names.length > 3 ? names.join(', ') : null });
   };
-  $('asset-rows').replaceChildren(...shown.map((asset) => h('tr', {},
+  // A file dropped on a row replaces that asset.
+  const dropOn = (asset) => ({
+    ondragover: (event) => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+      event.currentTarget.classList.add('drop-target');
+    },
+    ondragleave: (event) => { if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.classList.remove('drop-target'); },
+    ondrop: (event) => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      event.currentTarget.classList.remove('drop-target');
+      replaceAsset(asset, event.dataTransfer.files[0]);
+    },
+  });
+  $('asset-rows').replaceChildren(...shown.map((asset) => h('tr', dropOn(asset),
     h('td', {}, h('div', { class: 'game-name', text: asset.name || 'Unknown' }), asset.creator && h('div', { class: 'sub', text: asset.creator })),
-    h('td', { class: 'hide-sm', text: asset.type || '…' }),
+    h('td', { class: 'hide-sm col-type', text: asset.type || '…' }),
     usedBy(asset),
     h('td', { class: 'num sub mono hide-sm', text: asset.id }),
     h('td', { class: 'sub hide-sm', text: asset.reason }),
@@ -1055,16 +1194,15 @@ function renderMissing() {
 for (const button of document.querySelectorAll('#assets-filter button')) {
   button.addEventListener('click', () => { assetFilter = button.dataset.filter; renderMissing(); });
 }
-$('missing-file').addEventListener('change', () => {
-  const file = $('missing-file').files[0];
-  const asset = pendingAsset;
+function replaceAsset(asset, file) {
   if (!file || !asset) return;
   if (file.size > 20 * 1024 * 1024) { toast('Replacements can be up to 20 MB.', 'error'); return; }
   act(async () => {
     await uploadFile(`/api/assets/${asset.id}/replacement`, file);
     await loadMissing();
   }, `Uploading ${file.name}`, `${asset.name || asset.id} replaced`);
-});
+}
+$('missing-file').addEventListener('change', () => replaceAsset(pendingAsset, $('missing-file').files[0]));
 
 // --- server ------------------------------------------------------------------------------------
 
@@ -1178,7 +1316,7 @@ $('site-key-copy').addEventListener('click', async () => {
   }
 });
 
-$('srv-check').addEventListener('click',() => serverAction('/api/server/update/check', 'Asking the server to check', 'Checking. The result shows here in a few seconds.'));
+$('srv-check').addEventListener('click', () => serverAction('/api/server/update/check', 'Asking the server to check', 'Checking. The result shows here in a few seconds.'));
 $('srv-install').addEventListener('click', async () => {
   if (!await ask('Install the update now?', 'Players are saved and get a message. The server is back in about a minute, and if the new version fails the old one comes back.', 'Install')) return;
   serverAction('/api/server/update/install', 'Asking the server to install', 'Installing. Reload this page in a minute.');
@@ -1208,27 +1346,46 @@ $('srv-upload').addEventListener('change', async () => {
   }
 });
 
+// Refreshed every few seconds while the Server view is open. It follows new
+// lines only when scrolled to the end, and waits while text in it is selected.
 async function loadLog() {
   for (const button of document.querySelectorAll('#log-tabs button')) button.classList.toggle('active', button.dataset.log === logName);
   const out = $('srv-log');
+  const name = logName;
+  let text;
   try {
-    const response = await fetch(`/api/server/logs?name=${encodeURIComponent(logName)}&lines=300`, { headers: authHeaders(), cache: 'no-store' });
-    const text = await response.text();
+    const response = await fetch(`/api/server/logs?name=${encodeURIComponent(name)}&lines=300`, { headers: authHeaders(), cache: 'no-store' });
+    text = await response.text();
     if (!response.ok) {
       let message = text;
       try { message = JSON.parse(text).error; } catch (error) { /* plain text */ }
       throw new Error(message || `HTTP ${response.status}`);
     }
-    out.textContent = text || '(empty)';
-    out.scrollTop = out.scrollHeight;
+    text = text || '(empty)';
   } catch (error) {
-    out.textContent = error.message;
+    text = error.message;
   }
+  if (name !== logName) return; // another tab was picked meanwhile
+  const selection = window.getSelection();
+  if (out.dataset.log === name && selection && !selection.isCollapsed && out.contains(selection.anchorNode)) return;
+  if (out.dataset.log === name && out.textContent === text) return;
+  const follow = out.dataset.log !== name || out.scrollHeight - out.scrollTop - out.clientHeight < 30;
+  const top = out.scrollTop;
+  out.textContent = text;
+  out.dataset.log = name;
+  out.scrollTop = follow ? out.scrollHeight : top;
 }
 for (const button of document.querySelectorAll('#log-tabs button')) {
   button.addEventListener('click', () => { logName = button.dataset.log; loadLog(); });
 }
-$('log-reload').addEventListener('click', loadLog);
+$('log-copy').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText($('srv-log').textContent);
+    toast('Log copied', 'good');
+  } catch (error) {
+    toast("Couldn't copy. Select the text and copy it.", 'error');
+  }
+});
 
 // --- lock ---------------------------------------------------------------------------------------
 
@@ -1268,7 +1425,11 @@ async function unlock() {
   loadNews();
   loadMissing();
   loadReports();
-  setInterval(() => { if (!busy && unlocked && !document.hidden) refresh(); }, 5000);
+  setInterval(() => {
+    if (busy || !unlocked || document.hidden) return;
+    refresh();
+    if (view === 'server') loadLog();
+  }, 5000);
   setInterval(() => {
     if (busy || !unlocked || document.hidden) return;
     loadServer();
@@ -1297,5 +1458,20 @@ $('key-forget').addEventListener('click', () => {
 window.addEventListener('hashchange', () => {
   if (takeTokenFromAddress()) unlock();
   else if (unlocked) route();
+});
+window.addEventListener('beforeunload', (event) => {
+  if (!settingsDirty) return;
+  event.preventDefault();
+  event.returnValue = '';
+});
+// "/" jumps to the open view's search box.
+document.addEventListener('keydown', (event) => {
+  if (event.key !== '/' || event.ctrlKey || event.metaKey || event.altKey || document.querySelector('dialog[open]')) return;
+  if (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable]')) return;
+  const box = view === 'games' && openId === null ? $('games-filter') : view === 'accounts' ? $('accounts-filter') : null;
+  if (!box) return;
+  event.preventDefault();
+  box.focus();
+  box.select();
 });
 unlock();
