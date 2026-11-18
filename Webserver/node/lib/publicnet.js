@@ -64,7 +64,7 @@ function requestInfo(req) {
 // "host:port" of a game server on this PC -> "<public name>:port".
 function publicAddress(ctx, address) {
   const match = /^\[?([^\]\s]+?)\]?:(\d{1,5})$/.exec(address);
-  if (!match || !ownAddresses().has(plain(match[1]).toLowerCase())) return address;
+  if (!match || !ctx || !ctx.publicHost || !ownAddresses().has(plain(match[1]).toLowerCase())) return address;
   return `${ctx.publicHost}:${match[2]}`;
 }
 

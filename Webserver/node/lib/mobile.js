@@ -1,11 +1,13 @@
 'use strict';
 
 // The rbx2017 Android app: the 2017 Roblox app (2.299), rebuilt by
-// tools/build-android-apk.py to use this server. It uses two names, both
-// this server through the VPS (tools/vps/setup-vps.sh):
+// tools/build-android-apk.py to use this server. Its names, all this server
+// through the VPS (tools/vps/setup-vps.sh --android):
 //   m.<domain>    its pages (the Home and Games tabs are web pages) and the
-//                 game engine's base address (placelauncher, join.php, assets)
+//                 game engine's base address (join.php, assets)
 //   api.<domain>  its API calls
+//   assetgame.<domain>, clientsettings.api.<domain>, ephemeralcounters.api.<domain>
+//                 the game engine's own: PlaceLauncher, its settings, counters
 // This answers what only the app asks, its pages, and its game joins.
 //
 //   const mobile = require('./mobile')({ send, sendUtf8, sendJson, launcher });
@@ -35,19 +37,26 @@ const APP_SETTINGS = {
   EnableNativeSignalRv3: false,
   NativeSignalRPercentageRollout: 0,
   EnableNotificationStream: false,
-  EnableBreakpadUploadCrashDump: false,
+  // Its game engine's crash dumps come here (Error/Dmp.ashx, kept in logs/captures).
+  EnableBreakpadUploadCrashDump: true,
   AppRatingsEnabled: false,
 };
 
 const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
 
-module.exports = function mobileApi({ send, sendUtf8, sendJson, launcher }) {
+module.exports = function mobileApi({ send, sendUtf8, sendJson, launcher, sessionCookie }) {
   function hostOf(ctx) {
     return String(ctx.req.headers['x-forwarded-host'] || ctx.publicHost || ctx.req.headers.host || '').replace(/:\d+$/, '').toLowerCase();
   }
 
-  const isMobile = (ctx) => /^m\.[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(hostOf(ctx));
-  const baseUrl = (ctx) => `https://${hostOf(ctx)}/`;
+  // m.<domain>, and assetgame.<domain>, where the game engine asks for a
+  // server (Game/PlaceLauncher.ashx). Never the PC client's localhost. names.
+  const MOBILE_HOST = /^(?:m|assetgame)\.((?!localhost$)[a-z0-9-]+(?:\.[a-z0-9-]+)+)$/;
+  const isMobile = (ctx) => MOBILE_HOST.test(hostOf(ctx));
+  const baseUrl = (ctx) => {
+    const match = MOBILE_HOST.exec(hostOf(ctx));
+    return `https://m.${match ? match[1] : hostOf(ctx)}/`;
+  };
   const json = (value) => (ctx) => sendJson(ctx, 200, value);
 
   // --- the app's API calls --------------------------------------------------------------
@@ -68,6 +77,64 @@ module.exports = function mobileApi({ send, sendUtf8, sendJson, launcher }) {
   // Its analytics beacon (ecsv2 pe.png, sent to m. by the APK): nothing kept.
   function beacon(ctx) {
     send(ctx, 200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-store' }, Buffer.alloc(0));
+  }
+
+  // --- signing up -------------------------------------------------------------------------
+  // The app's Sign Up screen checks the name and password while they are typed
+  // (signup/is-*-valid: IsValid, and an ErrorMessage the app shows; "already in
+  // use" in it means taken), then posts the account to signup/v1 and carries on
+  // signed in with the session cookie from that answer. Same rules as the
+  // launcher's sign-up (lib/accounts.js).
+  const queryText = (ctx, name) => String(ctx.query[name] || '');
+
+  function nameProblem(name) {
+    if (!accounts.NAME_RE.test(name)) return 'Usernames are 3 to 20 letters, numbers or underscores.';
+    if (accounts.byName(name)) return 'This username is already in use.';
+    return '';
+  }
+
+  function passwordProblem(name, password) {
+    if (password.length < accounts.MIN_PASSWORD) return `Passwords are at least ${accounts.MIN_PASSWORD} characters.`;
+    if (name && password.toLowerCase() === name.toLowerCase()) return "Your password can't be your username.";
+    return '';
+  }
+
+  function usernameValid(ctx) {
+    const problem = nameProblem(queryText(ctx, 'username').trim());
+    sendJson(ctx, 200, { IsValid: !problem, ErrorMessage: problem });
+  }
+
+  function passwordValid(ctx) {
+    const problem = passwordProblem(queryText(ctx, 'username').trim(), queryText(ctx, 'password'));
+    sendJson(ctx, 200, { IsValid: !problem, ErrorMessage: problem });
+  }
+
+  // Sent as JSON or as a form: username, password, gender, birthday (and
+  // perhaps email and deviceHandle, not kept). 200 { userId }, or 403 with the
+  // app's reasons (UsernameTaken, UsernameInvalid, PasswordInvalid), or 429.
+  async function signUp(ctx) {
+    if (ctx.method !== 'POST') return sendJson(ctx, 405, { reasons: [] });
+    const text = (await ctx.body(16 * 1024)).toString('utf8');
+    let fields = {};
+    if (/json/i.test(String(ctx.req.headers['content-type'] || ''))) {
+      try { fields = JSON.parse(text || '{}') || {}; } catch (error) { fields = {}; }
+    } else {
+      fields = Object.fromEntries(new URLSearchParams(text));
+    }
+    const name = String(fields.username || '').trim();
+    const password = String(fields.password || '');
+    const reasons = [];
+    const badName = nameProblem(name);
+    if (badName) reasons.push(/in use/.test(badName) ? 'UsernameTaken' : 'UsernameInvalid');
+    if (passwordProblem(name, password)) reasons.push('PasswordInvalid');
+    if (reasons.length) return sendJson(ctx, 403, { reasons });
+    const result = accounts.login(name, password, ctx.remote, 'signup');
+    if (result.status === 429) return sendJson(ctx, 429, { reasons: [] });
+    if (result.error) return sendJson(ctx, 403, { reasons: [result.status === 409 ? 'UsernameTaken' : 'UsernameInvalid'] });
+    sendUtf8(ctx, 200, {
+      'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store',
+      'Set-Cookie': sessionCookie(ctx, result.token, 30 * 24 * 3600),
+    }, JSON.stringify({ userId: result.account.userId }));
   }
 
   // --- joining a game -----------------------------------------------------------------------
@@ -180,6 +247,14 @@ main{padding:12px;max-width:720px;margin:0 auto}h1{font-size:20px;font-weight:60
       [/^v2\/stream-notifications\/[a-z-]+\/?$/i, json({ unreadNotifications: 0 })],
       [/^v1\.1\/counters\/increment\/?$/i, json({})],
       [/^pe\.png$/i, beacon],
+      [/^signup\/is-username-valid\/?$/i, usernameValid],
+      [/^signup\/is-password-valid\/?$/i, passwordValid],
+      [/^signup\/v1\/?$/i, signUp],
+      [/^v1\/validators\/username\/?$/i, (ctx) => sendJson(ctx, 200, { didGenerateNewUsername: false, suggestedUsername: queryText(ctx, 'username') })],
+      [/^v1\/validators\/email\/?$/i, json({ isEmailValid: true })],
+      // The game engine's report after a crash (the dump itself goes to
+      // Error/Dmp.ashx), and its join statistics: nothing kept.
+      [/^game\/(?:sessions\/report|joinrate\.ashx)\/?$/i, (ctx) => send(ctx, 200, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' }, 'OK')],
     ],
     pageRoutes: [
       [/^(?:home)?\/?$/i, homePage],

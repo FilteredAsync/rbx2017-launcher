@@ -121,9 +121,11 @@ This writes `share/rbx2017-android.apk`. It needs Java, [apktool](https://apktoo
 the Android build-tools and openssl, and signs with `config/android-signing.*`
 (made on the first build; keep them, or phones can't update the app).
 
-The app uses `m.<domain>` (its pages and the game engine) and `api.<domain>`:
-both A records point at the VPS ("DNS only"), and the VPS serves them with
-`bash setup-vps.sh --android` (once; later runs keep it). The server's side
+The app uses `m.<domain>` (its pages and the game engine) and `api.<domain>`,
+and its game engine also asks `assetgame.`, `clientsettings.api.` and
+`ephemeralcounters.api.<domain>`. All five A records point at the VPS ("DNS
+only"), and the VPS serves them with `bash setup-vps.sh --android` (once;
+later runs keep it). The server's side
 is `Webserver/node/lib/mobile.js`. Phones need 32-bit app support: the app
 has 32-bit ARM code only, which many phones from 2023 on can't run.
 

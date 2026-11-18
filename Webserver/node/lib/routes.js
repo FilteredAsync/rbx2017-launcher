@@ -782,7 +782,10 @@ const captureHeaders = { 'Content-Type': 'text/plain', 'Cache-Control': 'no-stor
 function captureKept(ctx) {
   if (ctx.method !== 'POST') return false;
   if (publicnet.fromLoopback(ctx)) return true;
-  if (!fromGameServer(ctx.remote) && accounts.fromRequest(ctx.req) === null) return false;
+  // The Android app's crash dumps (log_*.Android.dmp to m.<domain>, at its
+  // next start) may come before anyone has signed in.
+  const androidDump = mobile.isMobile(ctx) && /\.android\.dmp$/i.test(String(ctx.query.filename || ''));
+  if (!fromGameServer(ctx.remote) && accounts.fromRequest(ctx.req) === null && !androidDump) return false;
   if (captureReading >= CAPTURE_AT_ONCE) return false;
   const now = Date.now();
   let entry = captureCounts.get(ctx.remote);
@@ -2014,7 +2017,7 @@ function badgeRoute(ctx, match) {
 const studio = require('./studio')({ send, sendUtf8, sendFile, sendJson, jsonBody, sign });
 const launcher = require('./launcherapi')({ send, sendJson, jsonBody, assetBytes });
 // The Android app (lib/mobile.js).
-const mobile = require('./mobile')({ send, sendUtf8, sendJson, launcher });
+const mobile = require('./mobile')({ send, sendUtf8, sendJson, launcher, sessionCookie: studio.sessionCookie });
 
 // --- Route table ---------------------------------------------------------------------
 // Matched case-insensitively against the path without the leading "/".

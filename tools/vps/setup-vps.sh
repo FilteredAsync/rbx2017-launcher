@@ -14,9 +14,11 @@
 #   bash setup-vps.sh --site URL         send browsers opening the bare address
 #                                        (https://NAME/ only) to the website, such
 #                                        as https://www.rbx2017.com (site/README.md)
-#   bash setup-vps.sh --android          also serve m.NAME and api.NAME, for the
-#                                        Android app (tools/build-android-apk.py);
-#                                        their A records -> this VPS, "DNS only"
+#   bash setup-vps.sh --android          also serve the Android app's names
+#                                        (tools/build-android-apk.py): m, api,
+#                                        assetgame, clientsettings.api and
+#                                        ephemeralcounters.api .NAME; their A
+#                                        records -> this VPS, "DNS only"
 #   bash setup-vps.sh --check            is the server PC connected and answering?
 # Without --domain the address is <ip-with-dashes>.sslip.io (a free DNS name
 # that points at this IP), so no domain is needed. With one, that sslip.io
@@ -72,10 +74,16 @@ SITES="$DOMAIN"
 # The Android app's names (Webserver/node/lib/mobile.js), kept on later runs.
 # Also plain HTTP with no redirect: the 2017 engine asks some http:// addresses.
 [ -f "$DIR/android" ] && ANDROID=1
+# m and api are the app's; the game engine asks assetgame (PlaceLauncher),
+# clientsettings.api (its flags) and ephemeralcounters.api.
+ANDROID_NAMES="m api assetgame clientsettings.api ephemeralcounters.api"
 ANDROID_SITES=""
 if [ "$ANDROID" = 1 ]; then
-  [ "$DOMAIN" != "$SSLIP" ] || { echo "--android needs --domain (m.NAME and api.NAME)."; exit 1; }
-  ANDROID_SITES="m.$DOMAIN, api.$DOMAIN, http://m.$DOMAIN, http://api.$DOMAIN"
+  [ "$DOMAIN" != "$SSLIP" ] || { echo "--android needs --domain (m.NAME, api.NAME and others)."; exit 1; }
+  for name in $ANDROID_NAMES; do ANDROID_SITES="${ANDROID_SITES:+$ANDROID_SITES, }$name.$DOMAIN, http://$name.$DOMAIN"; done
+  for name in $ANDROID_NAMES; do
+    getent ahostsv4 "$name.$DOMAIN" >/dev/null || echo "Note: $name.$DOMAIN has no A record yet (add it, DNS only, then run this again)."
+  done
 fi
 
 if [ "$CHECK" = 1 ]; then
@@ -152,7 +160,7 @@ else
   echo "ufw is not on. If your provider has a cloud firewall, open TCP 80, 443 and UDP 51820, $GAME_PORTS there."
 fi
 
-echo "== Caddy (HTTPS for $SITES${ANDROID_SITES:+, m.$DOMAIN, api.$DOMAIN})"
+echo "== Caddy (HTTPS for $SITES${ANDROID_SITES:+, and the Android names})"
 [ -f /etc/caddy/Caddyfile ] && [ ! -f /etc/caddy/Caddyfile.before-rbx ] && cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.before-rbx
 SITE_REDIRECT=""
 [ -n "$SITE" ] && SITE_REDIRECT=$'\t# The bare address in a browser opens the website (site/).\n\tredir / '"$SITE"$' 302\n'

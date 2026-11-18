@@ -920,5 +920,5 @@ pcall(function() history:SetEnabled(true) end)
     [/^(?:game\/report-stats|analytics\/measurement\.ashx|game\/report-event)\/?$/i, (ctx) => send(ctx, 200, { 'Content-Type': 'text/plain' }, '')],
   ];
 
-  return { routes, placeAsset, mayHavePlaceFile, cloudEditLaunch, openedPlace };
+  return { routes, placeAsset, mayHavePlaceFile, cloudEditLaunch, openedPlace, sessionCookie };
 };
