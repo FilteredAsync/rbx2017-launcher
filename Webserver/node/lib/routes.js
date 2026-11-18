@@ -1125,6 +1125,12 @@ function thumbnailRoute(kind) {
       // An account here has no Roblox picture under its user ID.
       if (avatarStore.isGuestId(raw) || accounts.byUserId(raw)) return fail(ctx, 404, 'No picture saved for this player yet');
     }
+    // The Xbox app's game tiles: a game's picture is asset -<placeId> (lib/xbox.js).
+    if (kind === 'asset' && /^-\d{1,15}$/.test(raw.trim())) {
+      const found = gamethumbs.get(raw.trim().slice(1));
+      if (!found) return fail(ctx, 404, 'This game has no picture');
+      return sendFile(ctx, found.file, { 'Content-Type': found.type, 'Cache-Control': 'no-cache' });
+    }
     let id = core.decimal(raw);
     if (id === null || id === '0' || id.length > 15) return fail(ctx, 400, 'Invalid id');
     // A game pass ID (the purchase prompt shows the ID's asset thumbnail): its icon.

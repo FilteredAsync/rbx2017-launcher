@@ -6,8 +6,9 @@
 //   assetgame.<domain>  its Lua screens: game sorts and lists, details,
 //                       thumbnails, votes, friends; and Game/PlaceLauncher.ashx
 //                       (lib/mobile.js, shared with the Android app)
-// Game pictures: the screens ask asset-thumbnail/json for a game's ImageId, so
-// a game's ImageId is IMAGE_BASE + its place ID (far above real asset IDs).
+// Game pictures: a game's ImageId is minus its place ID (no real asset is
+// negative, and the screens format it with %d, so it must fit 32 bits);
+// Thumbs/Asset.ashx and asset-thumbnail/json give the game's picture for it.
 
 const accounts = require('./accounts');
 const robux = require('./robux');
@@ -18,7 +19,6 @@ const gamethumbs = require('./gamethumbs');
 
 const crypto = require('crypto');
 
-const IMAGE_BASE = 9e12;
 const SESSION_SECONDS = 30 * 24 * 3600;
 // "Play as Guest" signs in with this name (no account can have it: NAME_RE has
 // no ':'). Guests get a session for the app's own calls, kept in memory.
@@ -125,7 +125,7 @@ module.exports = function xboxApi({ send, sendUtf8, sendJson, launcher, sessionC
     const account = name ? accounts.byName(name) : null;
     return account ? account.userId : 0;
   };
-  const imageId = (placeId) => IMAGE_BASE + Number(placeId);
+  const imageId = (placeId) => -Number(placeId);
   const placeImage = (ctx, placeId) => {
     const version = gamethumbs.version(placeId);
     return `${baseOf(ctx)}api/thumbnails/${encodeURIComponent(placeId)}${version !== null && version !== undefined ? `?v=${encodeURIComponent(version)}` : ''}`;
@@ -272,8 +272,8 @@ module.exports = function xboxApi({ send, sendUtf8, sendJson, launcher, sessionC
     const assetId = Number(q(ctx, 'assetId'));
     const width = int(ctx, 'width', 420);
     const height = int(ctx, 'height', width);
-    const url = assetId >= IMAGE_BASE
-      ? placeImage(ctx, String(assetId - IMAGE_BASE))
+    const url = assetId < 0
+      ? placeImage(ctx, String(-assetId))
       : `${baseOf(ctx)}Thumbs/Asset.ashx?assetId=${encodeURIComponent(q(ctx, 'assetId'))}&width=${width}&height=${height}`;
     sendJson(ctx, 200, { Url: url, Final: true });
   }
@@ -330,12 +330,13 @@ module.exports = function xboxApi({ send, sendUtf8, sendJson, launcher, sessionC
   }
 
   function balance(ctx) {
-    const who = accounts.fromRequest(ctx.req);
-    sendJson(ctx, 200, { robux: who ? robux.balance(who.userId) : 0, tickets: 0 });
+    const who = viewerOf(ctx);
+    // The store reads "Robux" from my/platform-currency-budget and "robux" from currency/balance.
+    const amount = who && !who.guest ? robux.balance(who.userId) : 0;
+    sendJson(ctx, 200, { Robux: amount, robux: amount, tickets: 0 });
   }
 
   return {
-    IMAGE_BASE,
     routes: [
       // sign-in (api.)
       [/^xboxlive\/link-existing-user\/?$/i, linkExistingUser],
@@ -349,7 +350,8 @@ module.exports = function xboxApi({ send, sendUtf8, sendJson, launcher, sessionC
       [/^xboxlive\/consume-all\/?$/i, json({ success: true })],
       [/^xbox\/translate\/?$/i, json([])],
       [/^xbox\/get-login-consecutive-days\/?$/i, json({ count: 1 })],
-      [/^xbox\/catalog\/contents\/?$/i, json({ data: [], total: 0 })],
+      // The avatar store pages until a page has fewer than its count of Products.
+      [/^xbox\/catalog\/contents\/?$/i, json({ Products: [] })],
       [/^xbox\/currently-wearing\/?$/i, json({ assetIds: [] })],
       [/^appearance\/get-my-user-outfits\/?$/i, json({ data: [], total: 0 })],
       [/^appearance\/wear-user-outfit\/?$/i, json({ success: false })],
