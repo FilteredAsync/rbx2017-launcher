@@ -106,6 +106,27 @@ cache and downloaded game files.
 Players also need [Tailscale](https://tailscale.com/download), signed in to
 your tailnet.
 
+## Android (private)
+
+The 2017 Roblox app (2.299.137632) can play here too, rebuilt as "rbx2017"
+(`com.rbx2017.client`, next to the real Roblox app). Like the full
+installer, it contains Roblox's app: share it privately, never on GitHub or
+the website.
+
+```
+python tools/build-android-apk.py roblox-2-299-137632.apk --apktool apktool.jar
+```
+
+This writes `share/rbx2017-android.apk`. It needs Java, [apktool](https://apktool.org),
+the Android build-tools and openssl, and signs with `config/android-signing.*`
+(made on the first build; keep them, or phones can't update the app).
+
+The app uses `m.<domain>` (its pages and the game engine) and `api.<domain>`:
+both A records point at the VPS ("DNS only"), and the VPS serves them with
+`bash setup-vps.sh --android` (once; later runs keep it). The server's side
+is `Webserver/node/lib/mobile.js`. Phones need 32-bit app support: the app
+has 32-bit ARM code only, which many phones from 2023 on can't run.
+
 ## The always-on server: RobloxServer.zip
 
 ```

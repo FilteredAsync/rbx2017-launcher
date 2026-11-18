@@ -560,6 +560,8 @@ async function characterAppearance(ctx) {
 async function placeLauncher(ctx) {
   // Studio joining a Team Create server (lib/studio.js).
   if (studio.cloudEditLaunch(ctx)) return;
+  // The Android app's game engine (lib/mobile.js).
+  if (mobile.isMobile(ctx)) return mobile.placeLauncher(ctx);
   const q = ctx.query;
   let state = gameServerState();
   const gameId = ctx.queryLower.gameid;
@@ -644,7 +646,10 @@ function join(ctx) {
     id = String(guest.userId);
     user = guest.name;
   }
-  const app = `http://localhost./v1.1/avatar-fetch/?placeId=${placeid}&userId=${id}`;
+  // The Android app's engine reaches this server by its public name, not
+  // through the PC launcher's localhost. proxy.
+  const mobileBase = mobile.isMobile(ctx) ? mobile.baseUrl(ctx) : null;
+  const app = `${mobileBase || 'http://localhost./'}v1.1/avatar-fetch/?placeId=${placeid}&userId=${id}`;
   avatar.rememberLocalUser(id, String(user));
   if (net.isIP(ip) === 0) ip = '127.0.0.1';
 
@@ -660,6 +665,7 @@ function join(ctx) {
   // The client reads ServerPort as a number, and needs these fields before
   // MachineAddress; see the comments in join.php.
   payload = payload.split(`"ServerPort":"${port}"`).join(`"ServerPort":${port}`);
+  if (mobileBase) payload = payload.split('"BaseUrl":"http://localhost./"').join(`"BaseUrl":${core.phpJson(mobileBase)}`);
   // PlaceId comes from the template (%placeid%, the hosted game's place). It
   // was once forced to 1818 here, so any other place ID gave the client and
   // RCC different place IDs and the client crashed right after loading.
@@ -2007,6 +2013,8 @@ function badgeRoute(ctx, match) {
 // Roblox Studio 2017: login, start page, editing and publishing (lib/studio.js).
 const studio = require('./studio')({ send, sendUtf8, sendFile, sendJson, jsonBody, sign });
 const launcher = require('./launcherapi')({ send, sendJson, jsonBody, assetBytes });
+// The Android app (lib/mobile.js).
+const mobile = require('./mobile')({ send, sendUtf8, sendJson, launcher });
 
 // --- Route table ---------------------------------------------------------------------
 // Matched case-insensitively against the path without the leading "/".
@@ -2016,6 +2024,7 @@ const opt = '(?:/index\\.php)?/?';
 const ROUTES = [
   ...studio.routes,
   ...launcher.routes,
+  ...mobile.routes,
   [/^api\/games(?:\/([a-z0-9]+)(?:\/([a-z]+))?)?\/?$/i, gamesApi],
   [/^api\/thumbnails\/(\d{1,15})\/?$/i, thumbnailsApi],
   [/^play\/(\d{1,15})\/?$/i, sharePage],
@@ -2088,4 +2097,8 @@ const ROUTES = [
   [new RegExp(`^studio/e\\.png${opt}$`, 'i'), fixed('text/plain', '')],
 ];
 
-module.exports = { ROUTES, send, sendFile, sign };
+// The Android app's pages, tried first for requests to m.<domain>, and its
+// page for anything else it opens there.
+const MOBILE_ROUTES = mobile.pageRoutes;
+
+module.exports = { ROUTES, MOBILE_ROUTES, isMobile: mobile.isMobile, mobileNotHere: mobile.notHerePage, send, sendFile, sign };

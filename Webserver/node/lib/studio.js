@@ -59,7 +59,7 @@ module.exports = function studioRoutes({ send, sendUtf8, sendFile, sendJson, jso
   // A player's launcher proxy forwards Studio's requests with Host set to
   // this server; the name Studio used comes along as X-Forwarded-Host.
   function requestHost(ctx) {
-    return String(ctx.req.headers['x-forwarded-host'] || ctx.req.headers.host || '');
+    return String(ctx.req.headers['x-forwarded-host'] || ctx.publicHost || ctx.req.headers.host || '');
   }
 
   function baseUrl(ctx) {
@@ -74,7 +74,11 @@ module.exports = function studioRoutes({ send, sendUtf8, sendFile, sendJson, jso
   function sessionCookie(ctx, token, maxAgeSeconds) {
     const host = requestHost(ctx).replace(/:\d+$/, '').toLowerCase();
     const named = /^[a-z0-9-]+(\.[a-z0-9-]+)*\.?$/.test(host) && !/^[\d.]+$/.test(host);
-    const domain = named ? `; Domain=.${host.replace(/^www\./, '')}` : '';
+    // localhost. names (the launcher's proxy, Studio) keep their own. A public
+    // name (the Android app signs in on api.<domain>, its pages are on
+    // m.<domain>) shares the cookie with the whole domain.
+    const local = /(^|\.)localhost\.?$/.test(host);
+    const domain = !named ? '' : `; Domain=.${local ? host.replace(/^www\./, '') : host.replace(/\.$/, '').split('.').slice(-2).join('.')}`;
     const expires = new Date(Date.now() + maxAgeSeconds * 1000).toUTCString();
     return `.ROBLOSECURITY=${token}; Path=/; Max-Age=${maxAgeSeconds}; Expires=${expires}${domain}`;
   }
@@ -251,7 +255,8 @@ module.exports = function studioRoutes({ send, sendUtf8, sendFile, sendJson, jso
     send(ctx, 200, headers, 'true');
   }
 
-  // auth.roblox.com/v2/login, for Studio's built-in login screen.
+  // auth.roblox.com/v2/login, for Studio's built-in login screen, and the
+  // Android app's login (it reads userId and message, the 2017 answer).
   async function v2Login(ctx) {
     if (ctx.method !== 'POST') return sendJson(ctx, 405, { errors: [{ code: 0, message: 'use POST' }] });
     const body = await jsonBody(ctx);
@@ -260,7 +265,10 @@ module.exports = function studioRoutes({ send, sendUtf8, sendFile, sendJson, jso
     sendUtf8(ctx, 200, {
       'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store',
       'Set-Cookie': sessionCookie(ctx, result.token, 30 * 24 * 3600),
-    }, JSON.stringify({ user: { id: result.account.userId, name: result.account.name, displayName: result.account.name }, isBanned: false }));
+    }, JSON.stringify({
+      userId: result.account.userId, message: 'Success',
+      user: { id: result.account.userId, name: result.account.name, displayName: result.account.name }, isBanned: false,
+    }));
   }
 
   // Studio clears its own (WinINet) side with this before it copies a login

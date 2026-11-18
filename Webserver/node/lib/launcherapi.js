@@ -213,6 +213,20 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
     return who;
   }
 
+  // The Android app's placelauncher (lib/mobile.js): the player is the
+  // signed-in account (its cookie), else a guest; body { placeId } or
+  // { gameId }. -> { game, identity }, { starting: true } or { status, error }.
+  // Its address stands for the player too, as with joinIdentity.
+  function mobileJoin(ctx, body) {
+    const who = account(ctx);
+    const chosen = chooseServer(body, who);
+    if (chosen.error || chosen.starting) return chosen;
+    const identity = who ? { name: who.name, userId: who.userId, guest: false } : guestIdentity();
+    noteJoin(chosen.game.id, identity.name);
+    if (ctx.remote) players.set(addressKey(ctx.remote), Object.assign({ at: Date.now(), placeId: String(chosen.game.placeId) }, identity));
+    return { game: gameFor(chosen.game), identity };
+  }
+
   // The game the player at that address joined last (missing assets name it), or null.
   function placeAt(remote) {
     const entry = players.get(addressKey(remote));
@@ -1371,5 +1385,7 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
     joinSignature,
     checkJoinSignature,
     guestIdentity,
+    mobileJoin,
+    gameList,
   };
 };

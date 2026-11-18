@@ -283,7 +283,11 @@
   function onDialogKey(event) { if (event.key === 'Escape') closeDialog(); }
 
   function play(game, serverId) {
-    var link = 'rbx2017://play/' + game.placeId + '?host=' + encodeURIComponent(GAME_HOST) + (serverId ? '&server=' + serverId : '');
+    // Android phones: the rbx2017 app (tools/build-android-apk.py) takes the
+    // 2017 app's own link and picks a server itself.
+    var android = /Android/i.test(navigator.userAgent);
+    var link = android ? 'rbx2017://placeID=' + game.placeId
+      : 'rbx2017://play/' + game.placeId + '?host=' + encodeURIComponent(GAME_HOST) + (serverId ? '&server=' + serverId : '');
     closeDialog();
     dialog = el('div', 'modal-backdrop');
     var box = el('div', 'modal');
@@ -291,11 +295,11 @@
     box.setAttribute('aria-modal', 'true');
     box.setAttribute('aria-labelledby', 'play-title');
     box.appendChild(el('div', 'spinner'));
-    var title = el('h2', null, 'Opening the launcher');
+    var title = el('h2', null, android ? 'Opening the app' : 'Opening the launcher');
     title.id = 'play-title';
     box.appendChild(title);
     box.appendChild(el('p', null, serverId ? 'Joining a server in ' + game.name + '.' : game.name));
-    var help = el('p', 'hidden', 'Nothing happened? You need the launcher first.');
+    var help = el('p', 'hidden', android ? 'Nothing happened? You need the rbx2017 app.' : 'Nothing happened? You need the launcher first.');
     box.appendChild(help);
     var buttons = el('div', 'buttons');
     var get = el('a', 'btn btn-green btn-lg hidden', 'Download the launcher');
@@ -303,7 +307,7 @@
     var close = el('button', 'btn btn-secondary', 'Close');
     close.type = 'button';
     close.addEventListener('click', closeDialog);
-    buttons.appendChild(get);
+    if (!android) buttons.appendChild(get);
     buttons.appendChild(close);
     box.appendChild(buttons);
     dialog.appendChild(box);

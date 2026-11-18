@@ -14,6 +14,9 @@
 #   bash setup-vps.sh --site URL         send browsers opening the bare address
 #                                        (https://NAME/ only) to the website, such
 #                                        as https://www.rbx2017.com (site/README.md)
+#   bash setup-vps.sh --android          also serve m.NAME and api.NAME, for the
+#                                        Android app (tools/build-android-apk.py);
+#                                        their A records -> this VPS, "DNS only"
 #   bash setup-vps.sh --check            is the server PC connected and answering?
 # Without --domain the address is <ip-with-dashes>.sslip.io (a free DNS name
 # that points at this IP), so no domain is needed. With one, that sslip.io
@@ -28,11 +31,13 @@ set -euo pipefail
 
 DOMAIN=""
 SITE=""
+ANDROID=0
 CHECK=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --domain) DOMAIN="${2:-}"; shift 2 ;;
     --site) SITE="${2:-}"; shift 2 ;;
+    --android) ANDROID=1; shift ;;
     --check) CHECK=1; shift ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
@@ -64,6 +69,14 @@ case "$DOMAIN" in *[!a-z0-9.-]*|"") echo "Not a domain name: $DOMAIN"; exit 1 ;;
 # Caddy serves (and gets certificates for) both names.
 SITES="$DOMAIN"
 [ "$DOMAIN" = "$SSLIP" ] || SITES="$DOMAIN, $SSLIP"
+# The Android app's names (Webserver/node/lib/mobile.js), kept on later runs.
+# Also plain HTTP with no redirect: the 2017 engine asks some http:// addresses.
+[ -f "$DIR/android" ] && ANDROID=1
+ANDROID_SITES=""
+if [ "$ANDROID" = 1 ]; then
+  [ "$DOMAIN" != "$SSLIP" ] || { echo "--android needs --domain (m.NAME and api.NAME)."; exit 1; }
+  ANDROID_SITES="m.$DOMAIN, api.$DOMAIN, http://m.$DOMAIN, http://api.$DOMAIN"
+fi
 
 if [ "$CHECK" = 1 ]; then
   echo "Address for players: https://$DOMAIN"
@@ -98,6 +111,7 @@ umask 077
 [ -f "$DIR/vps.key" ] || wg genkey > "$DIR/vps.key"
 [ -f "$DIR/server-pc.key" ] || wg genkey > "$DIR/server-pc.key"
 echo "$DOMAIN" > "$DIR/domain"
+if [ "$ANDROID" = 1 ]; then touch "$DIR/android"; fi
 VPS_PUB=$(wg pubkey < "$DIR/vps.key")
 PC_PUB=$(wg pubkey < "$DIR/server-pc.key")
 
@@ -138,14 +152,21 @@ else
   echo "ufw is not on. If your provider has a cloud firewall, open TCP 80, 443 and UDP 51820, $GAME_PORTS there."
 fi
 
-echo "== Caddy (HTTPS for $SITES)"
+echo "== Caddy (HTTPS for $SITES${ANDROID_SITES:+, m.$DOMAIN, api.$DOMAIN})"
 [ -f /etc/caddy/Caddyfile ] && [ ! -f /etc/caddy/Caddyfile.before-rbx ] && cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.before-rbx
 SITE_REDIRECT=""
 [ -n "$SITE" ] && SITE_REDIRECT=$'\t# The bare address in a browser opens the website (site/).\n\tredir / '"$SITE"$' 302\n'
+ANDROID_BLOCK=""
+[ -n "$ANDROID_SITES" ] && ANDROID_BLOCK=$'
+# The Android app.
+'"$ANDROID_SITES"$' {
+	import rbx_server
+}
+'
 cat > /etc/caddy/Caddyfile <<CADDY
 # The VPS relay for the always-on server (setup-vps.sh).
-$SITES {
-${SITE_REDIRECT}	request_body {
+(rbx_server) {
+	request_body {
 		max_size 1GB
 	}
 	reverse_proxy $PC:80 {
@@ -160,6 +181,11 @@ ${SITE_REDIRECT}	request_body {
 		}
 	}
 }
+
+$SITES {
+${SITE_REDIRECT}	import rbx_server
+}
+${ANDROID_BLOCK}
 
 http://$PUBIP {
 	redir https://$DOMAIN{uri}

@@ -176,7 +176,9 @@ async function handle(req, res) {
   res.on('finish', () => accessLog(ctx, res.statusCode, ctx.method === 'HEAD' ? 0 : (ctx.bytes || 0), started));
 
   try {
-    for (const [pattern, handler] of routes.ROUTES) {
+    // The Android app (m.<domain>) gets its own pages first (lib/mobile.js).
+    const mobile = routes.isMobile(ctx);
+    for (const [pattern, handler] of mobile ? routes.MOBILE_ROUTES.concat(routes.ROUTES) : routes.ROUTES) {
       const match = pattern.exec(ctx.path);
       if (match) {
         await handler(ctx, match);
@@ -184,7 +186,8 @@ async function handle(req, res) {
       }
     }
     if (!www.serve(ctx, routes.send, routes.sendFile, log)) {
-      routes.send(ctx, 404, { 'Content-Type': 'text/plain; charset=utf-8' }, 'Not Found');
+      if (mobile && ctx.method === 'GET' && /text\/html/.test(String(req.headers.accept || ''))) routes.mobileNotHere(ctx);
+      else routes.send(ctx, 404, { 'Content-Type': 'text/plain; charset=utf-8' }, 'Not Found');
     }
   } catch (error) {
     if (error && error.requestBody) {
