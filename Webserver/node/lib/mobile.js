@@ -42,6 +42,22 @@ const APP_SETTINGS = {
   AppRatingsEnabled: false,
 };
 
+// The game server's public name -> its IPv4 address, for join scripts. This
+// PC's own resolver first; if it fails (a home router can remember "no such
+// name" for half an hour after a DNS record is added), public resolvers.
+const publicDns = new dns.Resolver();
+publicDns.setServers(['1.1.1.1', '8.8.8.8']);
+async function ipv4Of(name) {
+  try {
+    return (await dns.lookup(name, { family: 4 })).address;
+  } catch (error) { /* asked again below */ }
+  try {
+    const list = await publicDns.resolve4(name);
+    if (list.length) return list[0];
+  } catch (error) { /* no answer */ }
+  return null;
+}
+
 const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
 
 module.exports = function mobileApi({ send, sendUtf8, sendJson, launcher, sessionCookie }) {
@@ -158,11 +174,8 @@ module.exports = function mobileApi({ send, sendUtf8, sendJson, launcher, sessio
     if (!match) return reply({ jobId: game.id, status: 4, message: 'The game server has no address.' });
     let ip = match[1];
     if (net.isIP(ip) === 0) {
-      try {
-        ip = (await dns.lookup(ip, { family: 4 })).address;
-      } catch (error) {
-        return reply({ jobId: game.id, status: 4, message: `Could not look up ${match[1]}.` });
-      }
+      ip = await ipv4Of(match[1]);
+      if (!ip) return reply({ jobId: game.id, status: 4, message: `Could not look up ${match[1]}.` });
     }
     const base = baseUrl(ctx);
     const placeId = String(game.placeId);
