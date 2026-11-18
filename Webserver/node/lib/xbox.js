@@ -16,8 +16,15 @@ const friends = require('./friends');
 const presence = require('./presence');
 const gamethumbs = require('./gamethumbs');
 
+const crypto = require('crypto');
+
 const IMAGE_BASE = 9e12;
 const SESSION_SECONDS = 30 * 24 * 3600;
+// "Play as Guest" signs in with this name (no account can have it: NAME_RE has
+// no ':'). Guests get a session for the app's own calls, kept in memory.
+const GUEST_LINK_NAME = ':guest';
+const GUEST_SECONDS = 24 * 3600;
+const MAX_GUEST_SESSIONS = 2000;
 const SORTS = [
   { Id: 1, Name: 'Popular' },
   { Id: 2, Name: 'Top Rated' },
@@ -42,11 +49,36 @@ module.exports = function xboxApi({ send, sendUtf8, sendJson, launcher, sessionC
     'Set-Cookie': sessionCookie(ctx, token, SESSION_SECONDS),
   }, JSON.stringify(value));
 
+  // --- guests -------------------------------------------------------------------------------
+  const guests = new Map(); // session token -> { name, userId, until }
+  function newGuest() {
+    const now = Date.now();
+    for (const [token, guest] of guests) if (guest.until < now) guests.delete(token);
+    if (guests.size >= MAX_GUEST_SESSIONS) guests.delete(guests.keys().next().value);
+    const identity = typeof launcher.guestIdentity === 'function'
+      ? launcher.guestIdentity()
+      : (() => { const number = 1000 + crypto.randomInt(9000); return { name: `Guest_${number}`, userId: -number }; })();
+    const token = crypto.randomBytes(32).toString('hex');
+    guests.set(token, { name: identity.name, userId: identity.userId, until: now + GUEST_SECONDS * 1000 });
+    return token;
+  }
+  function guestOf(ctx) {
+    const token = accounts.cookieToken(ctx.req.headers.cookie);
+    const guest = token ? guests.get(token) : null;
+    return guest && guest.until > Date.now() ? { name: guest.name, userId: guest.userId, guest: true } : null;
+  }
+  // The signed-in account, else this app's guest session, else null.
+  const viewerOf = (ctx) => accounts.fromRequest(ctx.req) || guestOf(ctx);
+
   // --- signing in -------------------------------------------------------------------------
   // "Link" an account: ?username=&password= (the app sends them in the query;
   // server.js keeps password out of the access log). Then xboxlive/connect and
   // xboxlive/get-roblox-userInfo with the cookie this answer sets.
   function linkExistingUser(ctx) {
+    if (q(ctx, 'username') === GUEST_LINK_NAME) {
+      const token = newGuest();
+      return signedIn(ctx, { success: true, userId: guests.get(token).userId }, token);
+    }
     const result = accounts.login(q(ctx, 'username').trim(), q(ctx, 'password'), ctx.remote, 'signin');
     if (result.status === 429) return word(ctx, 429, 'Flooded');
     if (result.error) return word(ctx, 403, result.status === 404 || result.status === 400 ? 'InvalidRobloxUser' : 'InvalidPassword');
@@ -67,19 +99,21 @@ module.exports = function xboxApi({ send, sendUtf8, sendJson, launcher, sessionC
   }
 
   function connect(ctx) {
-    const who = accounts.fromRequest(ctx.req);
+    const who = viewerOf(ctx);
     if (!who) return word(ctx, 403, 'UsernamePasswordNotSet');
     sendJson(ctx, 200, { success: true, userId: who.userId });
   }
 
   function userInfo(ctx) {
-    const who = accounts.fromRequest(ctx.req);
+    const who = viewerOf(ctx);
     if (!who) return sendJson(ctx, 401, { errors: [{ code: 0, message: 'Not signed in.' }] });
-    sendJson(ctx, 200, { userId: who.userId, username: who.name, robuxBalance: robux.balance(who.userId) });
+    sendJson(ctx, 200, { userId: who.userId, username: who.name, robuxBalance: who.guest ? 0 : robux.balance(who.userId), isGuest: Boolean(who.guest) });
   }
 
   function disconnect(ctx) {
-    accounts.logout(accounts.cookieToken(ctx.req.headers.cookie));
+    const token = accounts.cookieToken(ctx.req.headers.cookie);
+    guests.delete(token);
+    accounts.logout(token);
     sendUtf8(ctx, 200, {
       'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store',
       'Set-Cookie': sessionCookie(ctx, '', 0),
@@ -308,8 +342,8 @@ module.exports = function xboxApi({ send, sendUtf8, sendJson, launcher, sessionC
       [/^xboxlive\/set-roblox-username-password\/?$/i, setUsernamePassword],
       [/^xboxlive\/connect\/?$/i, connect],
       [/^xboxlive\/get-roblox-userinfo\/?$/i, userInfo],
-      [/^xboxlive\/has-linked-account\/?$/i, (ctx) => sendJson(ctx, 200, { hasLinkedAccount: Boolean(accounts.fromRequest(ctx.req)) })],
-      [/^xboxlive\/has-set-username-password\/?$/i, (ctx) => sendJson(ctx, 200, { hasSetUsernameAndPassword: Boolean(accounts.fromRequest(ctx.req)) })],
+      [/^xboxlive\/has-linked-account\/?$/i, (ctx) => sendJson(ctx, 200, { hasLinkedAccount: Boolean(viewerOf(ctx)) })],
+      [/^xboxlive\/has-set-username-password\/?$/i, (ctx) => sendJson(ctx, 200, { hasSetUsernameAndPassword: Boolean(viewerOf(ctx)) })],
       [/^xboxlive\/disconnect\/?$/i, disconnect],
       [/^xboxlive\/get-inventory\/?$/i, json({ data: [] })],
       [/^xboxlive\/consume-all\/?$/i, json({ success: true })],
