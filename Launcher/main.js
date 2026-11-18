@@ -54,6 +54,8 @@ const lib = (name) => require(path.join(ROOT, 'Webserver', 'node', 'lib', name))
 const account = ROOT === null ? null : require('./account')({ ROOT, lib });
 
 let win = null;
+// Set once quitting with Studio open was asked (or an update restart needs no asking).
+let quitWithStudioConfirmed = false;
 let hostSession = null;
 let playSession = null;
 let webChild = null;
@@ -405,7 +407,7 @@ function studioAlive() {
 
 function presenceNow() {
   if (playSession) return { state: 'game', placeId: playSession.placeId || null };
-  if (studioAlive()) return { state: 'studio' };
+  if (studioAlive() || (studioWatchModule && studioWatchModule.held())) return { state: 'studio' };
   return { state: 'online' };
 }
 
@@ -521,30 +523,47 @@ function studioFiles() {
   return studioFilesModule;
 }
 
-// Studio windows from this install (each opened place is its own process).
-function studioRunning() {
-  const pattern = `${path.join(ROOT, 'Studio')}\\*`.replace(/'/g, "''");
-  const command = `@(Get-Process RobloxStudioBeta -ErrorAction SilentlyContinue | Where-Object { $_.Path -like '${pattern}' }).Count`;
-  const result = spawnSync('powershell.exe', ['-NoProfile', '-Command', command], { encoding: 'utf8', windowsHide: true });
-  return Number(String(result.stdout || '').trim()) > 0;
+// Studio windows from this install (each opened place is its own process),
+// and the proxy hold that keeps them reaching the server (studiowatch.js).
+let studioWatchModule = null;
+function studioWatch() {
+  if (!studioWatchModule) {
+    studioWatchModule = require('./studiowatch')({
+      studioDir: path.join(ROOT, 'Studio'),
+      acquire: (url) => lib('proxy').acquireProxy(url, logger('play')),
+      log: logger('play'),
+    });
+  }
+  return studioWatchModule;
 }
 
-let studioHold = null; // { release, timer }
-async function holdProxyForStudio(url, log) {
+// True unless Studio is surely closed (when Windows cannot say, assume open).
+async function studioRunning() {
+  return (await studioWatch().state()) !== 'stopped';
+}
+
+// The server Studio talks to, or null on the server's own PC (no proxy there).
+function studioServerUrl() {
+  const proxy = lib('proxy');
+  const url = proxy.normalizeCentralUrl((lib('joining').loadConfig() || {}).centralUrl || '');
+  return url === null || proxy.centralIsLocalPort80(url) ? null : url;
+}
+
+async function holdProxyForStudio(url) {
   if (lib('proxy').centralIsLocalPort80(url)) return; // the server's own PC
-  if (studioHold) return;
-  const hold = await lib('proxy').acquireProxy(url, log);
-  let idleChecks = 0;
-  const timer = setInterval(() => {
-    idleChecks = studioRunning() ? 0 : idleChecks + 1;
-    if (idleChecks >= 2) {
-      clearInterval(timer);
-      hold.release();
-      studioHold = null;
-      log('Studio closed; stopped forwarding its requests.');
-    }
-  }, 20000);
-  studioHold = { release: hold.release, timer };
+  await studioWatch().hold(url);
+}
+
+// Every 20 s while Studio is installed: holds the proxy for a Studio this
+// launcher did not start, and lets go once Studio is closed.
+function startStudioWatch() {
+  if (process.platform !== 'win32') return;
+  const look = () => {
+    if (!fs.existsSync(STUDIO_EXE()) && !(studioWatchModule && studioWatchModule.held())) return;
+    studioWatch().check(studioServerUrl()).catch((error) => logger('play')(`Studio check failed: ${error.message}`));
+  };
+  setTimeout(look, 5000);
+  setInterval(look, 20000);
 }
 
 async function openStudio(centralUrl) {
@@ -556,14 +575,14 @@ async function openStudio(centralUrl) {
   if (!fs.existsSync(STUDIO_EXE())) {
     log('Downloading Roblox Studio from the server...');
     await files.download(url);
-  } else if (!studioRunning()) {
+  } else if (!(await studioRunning())) {
     const update = await files.update(url);
     if (update) {
       log(`Updating Roblox Studio (${update.installed} -> ${update.available})...`);
       await files.download(url);
     }
   }
-  await holdProxyForStudio(url, log);
+  await holdProxyForStudio(url);
   try {
     if (joining.moveStudioPluginsSetting()) log('Studio plugins now load from AppData\\Local\\ROBLOX2017 Revival\\Plugins.');
   } catch (error) {
@@ -721,7 +740,7 @@ async function cleanStorage(kind) {
   if (kind === 'updates' && ['downloading', 'ready'].includes(updateStatus.state)) {
     throw new Error('A launcher update is downloading or waiting to install. Restart to update first.');
   }
-  if (kind === 'studio' && studioRunning()) throw new Error('Close Studio first.');
+  if (kind === 'studio' && await studioRunning()) throw new Error('Close Studio first.');
   const result = await cleaner().clean(kind);
   logger('launcher')(`Storage: removed ${result.files} file${result.files === 1 ? '' : 's'} (${megabytes(result.bytes)}) of ${kind}${result.skipped ? `; ${result.skipped} in use were kept` : ''}.`);
   if (kind === 'studio') send('status-changed');
@@ -1242,6 +1261,23 @@ function createWindow() {
   }
   let leaveGameConfirmed = false;
   win.on('close', async (event) => {
+    // Studio reaches the server through the launcher's proxy too; it stays
+    // open, but cannot publish until the launcher is back (studiowatch.js).
+    if (!playSession && !quitWithStudioConfirmed && studioWatchModule && studioWatchModule.held()) {
+      event.preventDefault();
+      const answer = await dialog.showMessageBox(win, {
+        type: 'question',
+        buttons: ['Quit anyway', 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+        message: 'Studio is still open.',
+        detail: 'It reaches the server through the launcher, so it can\'t publish until you open the launcher again.',
+      });
+      if (answer.response !== 0) return;
+      quitWithStudioConfirmed = true;
+      if (!win.isDestroyed()) win.close();
+      return;
+    }
     // The game reaches the server through the launcher (its local proxy and
     // game relay), and Windows ends it with the launcher: ask, then leave the
     // game properly (a game inside the window goes with it).
@@ -1253,10 +1289,13 @@ function createWindow() {
         defaultId: 1,
         cancelId: 1,
         message: 'Quitting the launcher ends your game.',
-        detail: 'The game reaches your server through the launcher.',
+        detail: studioWatchModule && studioWatchModule.held()
+          ? 'The game and Studio reach your server through the launcher.'
+          : 'The game reaches your server through the launcher.',
       });
       if (answer.response !== 0) return;
       leaveGameConfirmed = true;
+      quitWithStudioConfirmed = true;
       const session = playSession;
       if (session) {
         session.stop();
@@ -1364,6 +1403,7 @@ app.whenReady().then(() => {
   registerIpc();
   createWindow();
   startPresence();
+  startStudioWatch();
   const files = installedFiles();
   logger('launcher')(`Launcher ${app.getVersion()} started (${app.isPackaged ? 'installed' : 'from source'}, Windows ${os.release()}, folder ${ROOT}, `
     + `game files ${files ? files.version : capabilities().canPlay ? 'local' : 'none'}, server ${(lib('joining').loadConfig() || {}).centralUrl || 'not set'}).`);
@@ -1416,6 +1456,8 @@ function setupUpdates() {
     if (playSession) throw new Error('Close the game first.');
     if (hostSession) throw new Error('Stop hosting first.');
     if (updateStatus.state !== 'ready') throw new Error('No update is ready yet.');
+    // Studio stays open; the restarted launcher picks it up again (studiowatch.js).
+    quitWithStudioConfirmed = true;
     setImmediate(() => autoUpdater.quitAndInstall(true, true));
     return true;
   });

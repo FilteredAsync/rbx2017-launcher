@@ -38,6 +38,7 @@
       "tailscale.js",
       "account.js",
       "cleanup.js",
+      "studiowatch.js",
       "embed.js",
       "changelog.json",
       "default-server.txt",

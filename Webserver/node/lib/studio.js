@@ -518,35 +518,50 @@ pcall(function() history:SetEnabled(true) end)
     sendFile(ctx, places.filePath(allowed.place), { 'Content-Type': 'application/octet-stream', 'Cache-Control': 'no-store' });
   }
 
-  // Studio posts the whole place (binary .rbxl, sometimes gzipped).
+  // Studio posts the whole place (binary .rbxl, sometimes gzipped). Studio
+  // shows a text answer's body after "Error while publishing:"; refusals are
+  // also noted in the Studio log.
   async function upload(ctx) {
     const headers = { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' };
     if (ctx.method !== 'POST') return send(ctx, 405, headers, 'use POST');
     const placeId = ctx.queryLower.assetid;
     const allowed = authorize(ctx, placeId);
-    if (allowed.error) return send(ctx, allowed.status, headers, allowed.error);
-    let bytes = await ctx.body(MAX_PLACE_BYTES);
+    const what = allowed.place ? `${allowed.place.name} (place ${allowed.place.placeId})` : `place ${String(placeId || '?').slice(0, 20)}`;
+    const note = (message) => logStudio(`could not publish ${what}${allowed.account ? ` for ${allowed.account.name}` : ''}: ${message}`);
+    const refuse = (status, message) => {
+      note(message);
+      return send(ctx, status, headers, message);
+    };
+    if (allowed.error) return refuse(allowed.status, allowed.error);
+    let bytes;
+    try {
+      bytes = await ctx.body(MAX_PLACE_BYTES);
+    } catch (error) {
+      note(error.message); // too large or cut off: server.js answers
+      throw error;
+    }
     const declared = Number(ctx.req.headers['content-length']);
-    if (Number.isFinite(declared) && declared !== bytes.length) return send(ctx, 413, headers, 'The upload was cut short.');
+    if (Number.isFinite(declared) && declared !== bytes.length) return refuse(413, 'The upload was cut short.');
     if (bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) {
-      try { bytes = zlib.gunzipSync(bytes, { maxOutputLength: MAX_PLACE_BYTES }); } catch (error) { return send(ctx, 400, headers, 'The upload could not be unpacked.'); }
+      try { bytes = zlib.gunzipSync(bytes, { maxOutputLength: MAX_PLACE_BYTES }); } catch (error) { return refuse(400, 'The upload could not be unpacked.'); }
     }
     const head = bytes.subarray(0, 8).toString('latin1');
-    if (!head.startsWith('<roblox')) return send(ctx, 400, headers, 'That is not a Roblox place.');
+    if (!head.startsWith('<roblox')) return refuse(400, 'That is not a Roblox place.');
     let place;
     try {
       place = await places.replaceFile(allowed.place.placeId, { bytes, notes: [], from: `Studio (${allowed.account.name})` });
     } catch (error) {
-      if (error.busy) return send(ctx, 409, headers, 'A server of this game is still loading the current version. Publish again in a minute.');
-      throw error;
+      if (error.busy) return refuse(409, 'A server of this game is still loading the current version. Publish again in a minute.');
+      note(`saving failed: ${error.message}`);
+      return send(ctx, 500, headers, `The server could not save the place${error.code ? ` (${error.code})` : ''}.`);
     }
+    if (!place) return refuse(404, 'This game was removed from the server.');
     const key = String(allowed.place.placeId);
     if (pendingOnline.has(key)) {
       places.update(key, { enabled: pendingOnline.get(key) });
       pendingOnline.delete(key);
     }
-    core.appendLog(path.join(core.rootPath('Webserver', 'node', 'logs'), 'studio.log'),
-      `${core.gmdate()}  ${allowed.account.name} published ${place.name} (place ${key}, version ${place.version}, ${bytes.length} bytes)`, 1024 * 1024);
+    logStudio(`${allowed.account.name} published ${place.name} (place ${key}, version ${place.version}, ${bytes.length} bytes)`);
     send(ctx, 200, headers, String(place.version));
   }
 
