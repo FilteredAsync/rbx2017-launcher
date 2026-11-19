@@ -1538,6 +1538,17 @@ function convertSource(source, options = {}) {
         done = false;
         break;
       }
+      // player.PlayerGui -> player:WaitForChild("PlayerGui"): 2017 makes PlayerGui when the
+      // character first spawns, after game:IsLoaded() (Flee the Facility's loading script).
+      // Only on names that are clearly a player; it yields only where the old read errored.
+      if (isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && tokens[i + 1].value === 'PlayerGui'
+        && tokens[i - 1] && tokens[i - 1].type === 'name' && /(?:player|plr)$|^lp$/i.test(tokens[i - 1].value)
+        && !isSymbol(tokens[i + 2], '=') && !isSymbol(tokens[i + 2], '(')) {
+        text = `${text.slice(0, tokens[i].start)}:WaitForChild("PlayerGui")${text.slice(tokens[i + 1].end)}`;
+        changes.add('PlayerGui waited for');
+        done = false;
+        break;
+      }
       // object.AttributeChanged -> __rbx2017.AttributeChanged(object) (attributes are Value objects here).
       if (isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && tokens[i + 1].value === 'AttributeChanged' && !isSymbol(tokens[i + 2], '=')
         && !isSymbol(tokens[i + 2], '(') && tokens[i - 1].value !== '__rbx2017') {
