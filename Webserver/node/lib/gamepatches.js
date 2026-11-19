@@ -600,6 +600,28 @@ const PATCHES = [
       'local own = gundata.attachments[Type] and gundata.attachments[Type][Name] if Name == "" or not (own or infodata[Name]) then elseif own and own.unlockkills then'],
     ['unlockkills = unlockkills + infodata[Name].unlockkills', 'unlockkills = unlockkills + (infodata[Name] and infodata[Name].unlockkills or 0)'],
   ]),
+  // A client without a keyboard (the Xbox app) counts as a console: the
+  // framework swaps in ReplicatedStorage.XBOX's MainGui and Leaderboard, which
+  // lack objects its code waits for (GameGui.Capping, Spotted, the ammo HUD's
+  // health bar...), so the HUD module waited forever on the loading screen.
+  // Missing objects (not scripts) are copied from the PC versions into the
+  // Xbox ones. PC players never take this branch. Line count unchanged.
+  edits('Phantom Forces console HUD', [
+    [lines(
+      '\t\tmaingui:Destroy()',
+      '\t\tmaingui = repstore.XBOX.MainGui:Clone()',
+    ), lines(
+      '\t\tlocal __pc = maingui wfc(wfc(__pc, "GameGui"), "Capping") wait(1) local function __fill(x, p) for _, c in ipairs(p:GetChildren()) do local o = x:FindFirstChild(c.Name) if o then __fill(o, c) elseif not c:IsA("LuaSourceContainer") then local k = c:Clone() if k then k.Parent = x end end end end',
+      '\t\tmaingui = repstore.XBOX.MainGui:Clone() __fill(maingui, __pc) __pc:Destroy() -- (2017 converter: the Xbox HUD lacks objects the HUD code waits for)',
+    )],
+    [lines(
+      '\t\tboard:Destroy()',
+      '\t\tboard = misc.Leaderboard:Clone()',
+    ), lines(
+      '\t\tlocal __pc = board local function __fill(x, p) for _, c in ipairs(p:GetChildren()) do local o = x:FindFirstChild(c.Name) if o then __fill(o, c) elseif not c:IsA("LuaSourceContainer") then local k = c:Clone() if k then k.Parent = x end end end end',
+      '\t\tboard = misc.Leaderboard:Clone() __fill(board, __pc) __pc:Destroy() -- (2017 converter: the Xbox leaderboard lacks objects the code waits for)',
+    )],
+  ]),
   DECOMPILED_MAGNITUDE,
 ];
 
