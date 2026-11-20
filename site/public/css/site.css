@@ -750,3 +750,56 @@ a.friend:hover { text-decoration: none; background: var(--page); }
 }
 
 .loading { animation: pulse 1.2s ease-in-out infinite; }
+
+/* ---- catalog, item pages, inventories, settings ---- */
+.catalog-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+.catalog-head h1 { font-size: 28px; font-weight: 300; }
+.catalog-search input { width: 260px; height: 34px; border: 1px solid var(--text-muted); border-radius: 3px; padding: 0 10px; font-size: 16px; background: var(--white); }
+.catalog-layout { display: flex; gap: 16px; align-items: flex-start; }
+.catalog-cats { flex: 0 0 170px; display: flex; flex-direction: column; background: var(--white); box-shadow: var(--shadow); padding: 6px 0; }
+.catalog-cat { padding: 6px 14px; color: var(--text); font-size: 15px; }
+.catalog-cat:hover { background: var(--page); text-decoration: none; }
+.catalog-cat.active { font-weight: 600; box-shadow: inset 3px 0 0 var(--blue); }
+.catalog-main { flex: 1; min-width: 0; }
+.item-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
+.item-card { display: flex; flex-direction: column; background: var(--white); box-shadow: var(--shadow); color: var(--text); padding-bottom: 8px; }
+a.item-card:hover { text-decoration: none; box-shadow: 0 3px 8px 0 rgba(25, 25, 25, .35); }
+.item-card-thumb { display: block; aspect-ratio: 1; background: #fff; border-bottom: 1px solid var(--line); }
+.item-card-thumb img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.item-card-name { font-size: 15px; font-weight: 600; padding: 6px 8px 0; line-height: 1.25; max-height: 2.5em; overflow: hidden; }
+.item-card-type { font-size: 13px; color: var(--text-secondary); padding: 0 8px; }
+.item-price { display: flex; align-items: center; gap: 4px; font-size: 15px; font-weight: 600; color: var(--green); padding: 2px 8px 0; }
+.item-price.off-sale { color: var(--text-secondary); font-weight: 400; }
+.item-owned { font-size: 14px; font-weight: 600; color: var(--blue); padding: 2px 8px 0; }
+.item-owned.big { font-size: 17px; padding: 6px 0; }
+.item-card-buy { margin: 6px 8px 0; align-self: flex-start; }
+.catalog-status { color: var(--text-secondary); font-size: 15px; margin: 12px 0 0; min-height: 1.4em; }
+.catalog-status.error, .form-error { color: #c0392b; }
+.catalog-status.good, .form-good { color: var(--green); }
+.catalog-more { text-align: center; margin-top: 10px; }
+.item-page { display: flex; gap: 24px; background: var(--white); box-shadow: var(--shadow); padding: 18px; }
+.item-page.loading { min-height: 360px; }
+.item-picture { flex: 0 0 360px; aspect-ratio: 1; border: 1px solid var(--line); }
+.item-picture img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.item-info { flex: 1; min-width: 0; }
+.item-title { font-size: 30px; font-weight: 300; line-height: 1.2; }
+.item-by { color: var(--text-secondary); margin: 4px 0 14px; }
+.item-buy { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 12px 0; margin-bottom: 12px; }
+.item-buy-label { font-size: 13px; color: var(--text-secondary); text-transform: uppercase; }
+.item-buy .item-price { font-size: 22px; padding: 2px 0 10px; }
+.item-note { font-size: 14px; color: var(--text-secondary); margin: 8px 0 0; }
+.item-description { white-space: pre-wrap; overflow-wrap: anywhere; }
+.settings-title { font-size: 28px; font-weight: 300; margin-bottom: 10px; }
+.settings-box { max-width: 520px; }
+.settings-section { background: var(--white); box-shadow: var(--shadow); padding: 16px 18px; margin-bottom: 16px; }
+.settings-section h2 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
+@media (max-width: 720px) {
+  .catalog-layout, .item-page { flex-direction: column; align-items: stretch; }
+  .catalog-cats { flex: none; width: 100%; flex-direction: row; overflow-x: auto; padding: 0; }
+  .catalog-cat { white-space: nowrap; }
+  .catalog-cat.active { box-shadow: inset 0 -3px 0 var(--blue); }
+  .catalog-search input { width: 100%; }
+  .catalog-search { width: 100%; }
+  .item-picture { flex: none; width: 100%; max-width: 360px; }
+  .item-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+}

@@ -1156,6 +1156,9 @@ function registerIpc() {
   ipcMain.handle('catalog:search', (event, options) => account.catalog(undefined, options || {}));
   ipcMain.handle('catalog:bundle', (event, id) => account.bundle(undefined, id));
   ipcMain.handle('catalog:item', (event, id) => account.item(undefined, id));
+  ipcMain.handle('catalog:buy', (event, options) => account.buy(undefined, options || {}));
+  ipcMain.handle('catalog:inventory', (event, options) => account.inventory(undefined, options || {}));
+  ipcMain.handle('auth:password', (event, options) => account.changePassword(undefined, options || {}));
   ipcMain.handle('players:list', () => account.players());
   ipcMain.handle('server:moved-check', () => checkMovedServer());
   ipcMain.handle('announcements:list', () => listAnnouncements());

@@ -325,6 +325,7 @@ function updateIdentity() {
     : 'Guests join as "Guest" with a number and the guest look. Sign up to pick your own name, dress your avatar and use Roblox Studio.';
   $('account-signin').classList.toggle('hidden', Boolean(me));
   $('account-signout').classList.toggle('hidden', !me);
+  $('password-panel').classList.toggle('hidden', !me || Boolean(me.offline));
   // Managing the server is for its admins (set on its Manage games page).
   $('play-manage').classList.toggle('hidden', !(me && me.account.admin));
   robux = null;
@@ -418,6 +419,29 @@ setInterval(() => { if (screen === 'shell') refreshRobux(); }, 30000);
 $('account-signin').addEventListener('click', () => { setAccountMode('signin'); showScreen('account'); });
 $('avatar-signin').addEventListener('click', () => { setAccountMode('signup'); showScreen('account'); });
 $('account-signout').addEventListener('click', signOut);
+// A new password; the server signs this account out everywhere else.
+$('password-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const status = $('password-status');
+  const current = $('password-current').value;
+  const password = $('password-new').value;
+  if (!current || !password) { status.textContent = 'Type both passwords.'; status.className = 'status error'; return; }
+  $('password-save').disabled = true;
+  status.textContent = 'Saving…';
+  status.className = 'status';
+  try {
+    await api.changePassword({ current, password });
+    $('password-current').value = '';
+    $('password-new').value = '';
+    status.textContent = 'Password changed. Other places you were signed in are signed out.';
+    status.className = 'status good';
+  } catch (error) {
+    status.textContent = /unknown launcher request|404/i.test(message(error)) ? 'Your server is too old for this.' : message(error);
+    status.className = 'status error';
+  } finally {
+    $('password-save').disabled = false;
+  }
+});
 $('user-chip').addEventListener('click', () => { showView('settings', false); showSettings('account'); });
 
 // Pictures of the avatar for Home and the top bar; sent to the server when
@@ -443,6 +467,8 @@ async function refreshPictures(upload, asGuest) {
 const editor = window.AvatarEditor.create({
   api,
   onSaved: () => refreshPictures(true, false),
+  // After buying an item: the new balance (the rest of the Robux info stays).
+  onRobux: (balance) => { if (robux) showRobux(Object.assign({}, robux, { balance })); else refreshRobux(); },
 });
 
 // --- views and navigation -----------------------------------------------------------

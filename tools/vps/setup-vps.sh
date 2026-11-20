@@ -16,9 +16,11 @@
 #                                        as https://www.rbx2017.com (site/README.md)
 #   bash setup-vps.sh --android          also serve the Android app's names
 #                                        (tools/build-android-apk.py): m, api,
-#                                        assetgame, clientsettings.api and
-#                                        ephemeralcounters.api .NAME; their A
-#                                        records -> this VPS, "DNS only"
+#                                        assetgame, clientsettings.api,
+#                                        ephemeralcounters.api, and the avatar
+#                                        editor's avatar.m, inventory.m and
+#                                        www.m .NAME; their A records -> this
+#                                        VPS, "DNS only"
 #   bash setup-vps.sh --check            is the server PC connected and answering?
 # Without --domain the address is <ip-with-dashes>.sslip.io (a free DNS name
 # that points at this IP), so no domain is needed. With one, that sslip.io
@@ -75,8 +77,9 @@ SITES="$DOMAIN"
 # Also plain HTTP with no redirect: the 2017 engine asks some http:// addresses.
 [ -f "$DIR/android" ] && ANDROID=1
 # m and api are the app's; the game engine asks assetgame (PlaceLauncher),
-# clientsettings.api (its flags) and ephemeralcounters.api.
-ANDROID_NAMES="m api assetgame clientsettings.api ephemeralcounters.api"
+# clientsettings.api (its flags) and ephemeralcounters.api; the avatar
+# editor puts avatar., inventory. and www. in front of m.NAME.
+ANDROID_NAMES="m api assetgame clientsettings.api ephemeralcounters.api avatar.m inventory.m www.m"
 ANDROID_SITES=""
 if [ "$ANDROID" = 1 ]; then
   [ "$DOMAIN" != "$SSLIP" ] || { echo "--android needs --domain (m.NAME, api.NAME and others)."; exit 1; }

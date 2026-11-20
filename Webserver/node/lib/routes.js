@@ -2026,6 +2026,8 @@ const launcher = require('./launcherapi')({ send, sendJson, jsonBody, assetBytes
 const mobile = require('./mobile')({ send, sendUtf8, sendJson, launcher, sessionCookie: studio.sessionCookie });
 // The Xbox One app, rebuilt for Windows (lib/xbox.js).
 const xbox = require('./xbox')({ send, sendUtf8, sendJson, launcher, sessionCookie: studio.sessionCookie });
+// Studio's Toolbox: the signed-in player's inventory (lib/toolbox.js).
+const toolbox = require('./toolbox')({ sendUtf8, launcher });
 
 // --- Route table ---------------------------------------------------------------------
 // Matched case-insensitively against the path without the leading "/".
@@ -2033,6 +2035,7 @@ const xbox = require('./xbox')({ send, sendUtf8, sendJson, launcher, sessionCook
 
 const opt = '(?:/index\\.php)?/?';
 const ROUTES = [
+  [/^ide\/clienttoolbox\.aspx/i, toolbox.page],
   ...studio.routes,
   ...launcher.routes,
   ...mobile.routes,

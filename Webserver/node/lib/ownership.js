@@ -85,4 +85,42 @@ function bundleIds(userId) {
     .map(([key]) => key.slice('bundle:'.length));
 }
 
-module.exports = { owns, grant, ownsBundle, grantBundle, bundleIds };
+// -> [{ id, at }] the asset (and pass) IDs a player owns, newest first.
+function assetIds(userId) {
+  const user = id(userId);
+  const owned = user ? load()[user] : null;
+  if (!owned || typeof owned !== 'object') return [];
+  return Object.entries(owned)
+    .filter(([key]) => /^\d+$/.test(key))
+    .sort((a, b) => String(b[1]).localeCompare(String(a[1])))
+    .map(([key, at]) => ({ id: key, at: String(at) }));
+}
+
+// Grants many assets at once (one write) and, with mark, notes that this was
+// done ("_<mark>": date), so it is done once. -> how many were new.
+function grantAll(userId, assetIdList, mark) {
+  const user = id(userId);
+  if (!user) return 0;
+  const data = load();
+  if (!data[user] || typeof data[user] !== 'object') data[user] = {};
+  if (mark && data[user][`_${mark}`]) return 0;
+  let added = 0;
+  const at = core.isoDate();
+  for (const assetId of assetIdList) {
+    const item = id(assetId);
+    if (item && !data[user][item]) { data[user][item] = at; added++; }
+  }
+  if (mark) data[user][`_${mark}`] = at;
+  if (added === 0 && !mark) return 0;
+  fs.mkdirSync(DATA, { recursive: true });
+  if (!core.writeFileAtomic(FILE, `${JSON.stringify(data, null, 2)}\n`)) throw new Error('could not save what players own');
+  return added;
+}
+
+function marked(userId, mark) {
+  const user = id(userId);
+  const owned = user ? load()[user] : null;
+  return Boolean(owned && typeof owned === 'object' && owned[`_${mark}`]);
+}
+
+module.exports = { owns, grant, grantAll, marked, assetIds, ownsBundle, grantBundle, bundleIds };

@@ -66,6 +66,8 @@ function serveStatic(request) {
 const ROUTES = [
   [/^\/api\/(.+)$/, 'functions/api/[[path]].js'],
   [/^\/games\/(.+)$/, 'functions/games/[[path]].js'],
+  [/^\/catalog\/(.+)$/, 'functions/catalog/[[path]].js'],
+  [/^\/users\/(.+)$/, 'functions/users/[[path]].js'],
   [/^\/download\/latest$/, 'functions/download/latest.js'],
   [/^\/download\/win7$/, 'functions/download/win7.js'],
 ];

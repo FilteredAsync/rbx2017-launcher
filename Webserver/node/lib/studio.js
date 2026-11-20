@@ -218,13 +218,6 @@ module.exports = function studioRoutes({ send, sendUtf8, sendFile, sendJson, jso
     return sendFile(ctx, path.join(PAGES, name), { 'Content-Type': PAGE_FILES[name], 'Cache-Control': 'no-cache' });
   }
 
-  function toolboxPage(ctx) {
-    sendUtf8(ctx, 200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' },
-      '<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="/studio/studio.css"></head>'
-      + '<body class="toolbox"><p>The Toolbox isn\'t available on this server.</p>'
-      + '<p class="hint">Insert models you saved as .rbxm/.rbxmx with right-click &gt; Insert from File.</p></body></html>');
-  }
-
   // --- login (Studio's own requests) ---------------------------------------------------
 
   // A user ID when logged in. Studio reads anything else as "not logged in";
@@ -888,7 +881,6 @@ pcall(function() history:SetEnabled(true) end)
   const routes = [
     [/^my\/places\.aspx/i, page('start.html')],
     [/^ide\/(?:publishas|publishgameas|upload\.aspx)\/?$/i, page('publish.html')],
-    [/^ide\/clienttoolbox\.aspx/i, toolboxPage],
     [/^studio\/(start\.html|publish\.html|studio\.css|studio\.js)$/i, pageAsset],
     [/^studio\/api\/(me|login|logout|games|open|publish|editors)\/?$/i, api],
     [/^studio\/place\/(\d{1,15})\/?$/i, placeDownload],

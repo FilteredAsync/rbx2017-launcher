@@ -810,10 +810,16 @@
     var list = el('div', 'user-menu-list hidden');
     var home = el('a', null, 'Home');
     home.href = '/home';
+    var inventory = el('a', null, 'Inventory');
+    inventory.href = '/users/' + me.account.userId + '/inventory';
+    var settings = el('a', null, 'Settings');
+    settings.href = '/my/account';
     var out = el('button', null, 'Log Out');
     out.type = 'button';
     out.addEventListener('click', logOut);
     list.appendChild(home);
+    list.appendChild(inventory);
+    list.appendChild(settings);
     list.appendChild(out);
     button.addEventListener('click', function (event) {
       event.stopPropagation();
@@ -1057,11 +1063,307 @@
     });
   }
 
+  // ---- catalog, item pages, inventories, settings (lib/account.js shop routes) ----
+  var SHOP_CATEGORIES = [
+    ['hats', 'Hats'], ['hair', 'Hair'], ['faces', 'Faces'], ['heads', 'Heads'], ['shirts', 'Shirts'], ['pants', 'Pants'],
+    ['tshirts', 'T-Shirts'], ['packages', 'Packages'], ['face', 'Face Accessories'], ['neck', 'Neck'], ['shoulder', 'Shoulder'],
+    ['front', 'Front'], ['back', 'Back'], ['waist', 'Waist'], ['torsos', 'Torsos'], ['rightarms', 'Right Arms'],
+    ['leftarms', 'Left Arms'], ['rightlegs', 'Right Legs'], ['leftlegs', 'Left Legs'],
+  ];
+  var INVENTORY_CATEGORIES = SHOP_CATEGORIES.concat([['gear', 'Gear']]);
+
+  function categoryKnown(list, key) {
+    return list.some(function (entry) { return entry[0] === key; });
+  }
+
+  function itemPictureUrl(item) {
+    return '/api/' + (item.kind === 'bundle' ? 'bundle' : 'asset') + '-thumb/' + encodeURIComponent(item.id);
+  }
+
+  // Packages and body parts (sold in their package) are bought from their card.
+  function itemPageUrl(item) {
+    return item.kind === 'bundle' || item.packageId ? null : '/catalog/' + item.id + '/' + slug(item.name);
+  }
+
+  // What a card's Buy button buys: the item, or the package a body part comes in.
+  function purchaseOf(item) {
+    if (item.kind === 'bundle') return { kind: 'bundle', id: item.id, price: item.price, name: item.name };
+    if (item.packageId) return { kind: 'bundle', id: item.packageId, price: item.packagePrice, name: item.packageName || 'its package' };
+    return { kind: 'asset', id: item.id, price: item.price, name: item.name };
+  }
+
+  function priceNode(price) {
+    var node = el('div', 'item-price');
+    if (price === null || price === undefined) { node.classList.add('off-sale'); node.textContent = 'Off Sale'; return node; }
+    if (price === 0) { node.textContent = 'Free'; return node; }
+    node.appendChild(rbxBadge());
+    node.appendChild(el('span', null, number(price)));
+    return node;
+  }
+
+  // Buy after a confirmation -> Promise of true when bought.
+  function buyFlow(buying, status) {
+    var question = buying.price === 0 ? 'Get "' + buying.name + '" for free?' : 'Buy "' + buying.name + '" for R$ ' + number(buying.price) + '?';
+    if (!window.confirm(question)) return Promise.resolve(false);
+    if (status) { status.textContent = 'Buying…'; status.className = 'catalog-status'; }
+    return post('buy', { kind: buying.kind, id: buying.id, price: buying.price }).then(function (result) {
+      if (!result.ok) {
+        if (status) { status.textContent = result.data.error || 'That did not work.'; status.className = 'catalog-status error'; }
+        return false;
+      }
+      if (status) { status.textContent = 'You own "' + buying.name + '" now. Wear it from the Avatar tab in the launcher.'; status.className = 'catalog-status good'; }
+      storeMe(null);
+      loadMe(true).then(renderHeaderAccount);
+      return true;
+    });
+  }
+
+  function itemCard(item, signedIn, status) {
+    var link = itemPageUrl(item);
+    var card = el(link ? 'a' : 'div', 'item-card');
+    if (link) card.href = link;
+    var thumb = el('span', 'item-card-thumb');
+    var img = el('img');
+    img.alt = '';
+    img.loading = 'lazy';
+    img.src = itemPictureUrl(item);
+    img.addEventListener('error', function () { img.style.visibility = 'hidden'; });
+    thumb.appendChild(img);
+    card.appendChild(thumb);
+    card.appendChild(el('div', 'item-card-name', item.name || 'Item ' + item.id));
+    if (item.typeName) card.appendChild(el('div', 'item-card-type', item.typeName));
+    var buying = purchaseOf(item);
+    var priceEl = null;
+    if (item.owned === true) card.appendChild(el('div', 'item-owned', 'Owned'));
+    else if (item.price !== undefined || item.packageId) priceEl = card.appendChild(priceNode(buying.price));
+    if (item.packageId) card.title = (item.name || '') + ' (from ' + buying.name + ')';
+    if (signedIn && item.owned === false && buying.price !== null && buying.price !== undefined && !link) {
+      var button = el('button', 'btn btn-green btn-xs item-card-buy', buying.price === 0 ? 'Get' : 'Buy');
+      button.type = 'button';
+      button.addEventListener('click', function (event) {
+        event.preventDefault();
+        button.disabled = true;
+        buyFlow(buying, status).then(function (bought) {
+          button.disabled = false;
+          if (!bought) return;
+          item.owned = true;
+          if (priceEl) priceEl.replaceWith(el('div', 'item-owned', 'Owned'));
+          button.remove();
+        });
+      });
+      card.appendChild(button);
+    }
+    return card;
+  }
+
+  function categoryNav(nav, list, current, hrefFor) {
+    nav.textContent = '';
+    list.forEach(function (entry) {
+      var link = el('a', 'catalog-cat' + (entry[0] === current ? ' active' : ''), entry[1]);
+      link.href = hrefFor(entry[0]);
+      if (entry[0] === current) link.setAttribute('aria-current', 'page');
+      nav.appendChild(link);
+    });
+  }
+
+  function catalogPage() {
+    var params = new URLSearchParams(location.search);
+    var category = categoryKnown(SHOP_CATEGORIES, params.get('category')) ? params.get('category') : 'hats';
+    var keyword = (params.get('q') || '').trim().slice(0, 50);
+    var grid = $('catalog-grid');
+    var status = $('catalog-status');
+    var more = $('catalog-more');
+    var cursor = null;
+    var label = SHOP_CATEGORIES.filter(function (entry) { return entry[0] === category; })[0][1];
+    $('catalog-q').value = keyword;
+    $('catalog-heading').textContent = keyword ? label + ': “' + keyword + '”' : label;
+    document.title = label + ' - Catalog - rbx2017';
+    categoryNav($('catalog-cats'), SHOP_CATEGORIES, category, function (key) { return '/catalog?category=' + key; });
+    $('catalog-search').addEventListener('submit', function (event) {
+      event.preventDefault();
+      var q = $('catalog-q').value.trim();
+      location.href = '/catalog?category=' + category + (q ? '&q=' + encodeURIComponent(q) : '');
+    });
+    loadMe().then(function (me) {
+      var signedIn = Boolean(me && me.account);
+      function load() {
+        status.textContent = keyword ? 'Searching…' : 'Loading…';
+        status.className = 'catalog-status';
+        more.classList.add('hidden');
+        var query = new URLSearchParams({ category: category });
+        if (keyword) query.set('keyword', keyword);
+        if (cursor) query.set('cursor', cursor);
+        fetch('/api/catalog?' + query, { headers: { Accept: 'application/json' }, credentials: 'same-origin' }).then(function (response) {
+          return response.json().catch(function () { return null; }).then(function (data) { return { ok: response.ok, data: data || {} }; });
+        }, function () { return { ok: false, data: { error: "Couldn't reach the site." } }; }).then(function (result) {
+          if (!result.ok) { status.textContent = result.data.error || 'The catalog did not answer.'; status.className = 'catalog-status error'; return; }
+          (result.data.items || []).forEach(function (item) { grid.appendChild(itemCard(item, signedIn, status)); });
+          cursor = result.data.nextCursor || null;
+          more.classList.toggle('hidden', !cursor);
+          status.textContent = grid.children.length ? (signedIn ? '' : 'Log in to buy items.') : (keyword ? 'Nothing found.' : 'Nothing here right now.');
+        });
+      }
+      more.addEventListener('click', load);
+      load();
+    });
+  }
+
+  function itemPage() {
+    var root = $('item-root');
+    var match = /^\/catalog\/(\d{1,15})/.exec(location.pathname);
+    if (!match) { location.href = '/catalog'; return; }
+    var id = match[1];
+    Promise.all([fetch('/api/item/' + id, { headers: { Accept: 'application/json' }, credentials: 'same-origin' }).then(function (response) {
+      return response.json().catch(function () { return null; }).then(function (data) { return { ok: response.ok, data: data || {} }; });
+    }, function () { return { ok: false, data: {} }; }), loadMe()]).then(function (results) {
+      var result = results[0];
+      var me = results[1];
+      root.textContent = '';
+      if (!result.ok) {
+        var gone = el('div', 'empty-state', result.data.error || 'This item could not be found.');
+        root.appendChild(gone);
+        return;
+      }
+      var item = result.data;
+      document.title = item.name + ' - rbx2017';
+      var page = el('div', 'item-page');
+      var picture = el('div', 'item-picture');
+      var img = el('img');
+      img.alt = item.name;
+      img.src = itemPictureUrl({ kind: 'asset', id: item.id });
+      picture.appendChild(img);
+      page.appendChild(picture);
+      var info = el('div', 'item-info');
+      info.appendChild(el('h1', 'item-title', item.name));
+      var by = el('p', 'item-by');
+      by.appendChild(document.createTextNode('By '));
+      by.appendChild(el('strong', null, item.creator));
+      if (item.typeName) by.appendChild(document.createTextNode(' · ' + item.typeName));
+      info.appendChild(by);
+      var box = el('div', 'item-buy');
+      box.appendChild(el('div', 'item-buy-label', 'Price'));
+      box.appendChild(priceNode(item.limited ? null : item.price));
+      var status = el('p', 'catalog-status');
+      var balanceNote = null;
+      if (item.owned) {
+        box.appendChild(el('div', 'item-owned big', 'You own this item'));
+      } else if (!me || !me.account) {
+        var login = el('a', 'btn btn-primary btn-sm', 'Log in to buy');
+        login.href = '/login?next=' + encodeURIComponent(location.pathname);
+        box.appendChild(login);
+      } else if (item.limited) {
+        box.appendChild(el('p', 'item-note', 'Limited items can\'t be bought yet.'));
+      } else if (item.price !== null) {
+        var button = el('button', 'btn btn-green', item.price === 0 ? 'Get' : 'Buy');
+        button.type = 'button';
+        button.addEventListener('click', function () {
+          button.disabled = true;
+          buyFlow({ kind: 'asset', id: item.id, price: item.price, name: item.name }, status).then(function (bought) {
+            button.disabled = false;
+            if (!bought) return;
+            button.replaceWith(el('div', 'item-owned big', 'You own this item'));
+            if (balanceNote) balanceNote.remove();
+          });
+        });
+        box.appendChild(button);
+      }
+      if (me && me.account && item.balance !== null && !item.owned) balanceNote = box.appendChild(el('p', 'item-note', 'You have R$ ' + number(item.balance) + '.'));
+      box.appendChild(status);
+      info.appendChild(box);
+      if (item.description) info.appendChild(el('p', 'item-description', item.description));
+      if (item.updated) {
+        var date = new Date(item.updated);
+        if (!isNaN(date)) info.appendChild(el('p', 'item-note', 'Updated ' + date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })));
+      }
+      page.appendChild(info);
+      root.appendChild(page);
+    });
+  }
+
+  function inventoryPage() {
+    var match = /^\/users\/(\d{1,15})\/inventory/.exec(location.pathname);
+    if (!match) { location.href = '/'; return; }
+    var userId = match[1];
+    var params = new URLSearchParams(location.search);
+    var category = categoryKnown(INVENTORY_CATEGORIES, params.get('category')) ? params.get('category') : 'hats';
+    var grid = $('inventory-grid');
+    var status = $('inventory-status');
+    categoryNav($('inventory-cats'), INVENTORY_CATEGORIES, category, function (key) { return '/users/' + userId + '/inventory?category=' + key; });
+    status.textContent = 'Loading…';
+    getJson('inventory/' + userId + '?category=' + category).then(function (result) {
+      if (!result.ok || !result.data) { status.textContent = (result.data && result.data.error) || 'Could not load this inventory.'; status.className = 'catalog-status error'; return; }
+      var data = result.data;
+      $('inventory-heading').textContent = data.name + '’s Inventory';
+      document.title = data.name + '’s Inventory - rbx2017';
+      data.items.forEach(function (item) { grid.appendChild(itemCard(item, false, status)); });
+      status.textContent = data.items.length ? '' : 'Nothing here yet.';
+    });
+  }
+
+  function settingsPage() {
+    var root = $('settings-root');
+    loadMe().then(function (me) {
+      if (!me || !me.account) {
+        location.href = '/login?next=' + encodeURIComponent('/my/account');
+        return;
+      }
+      root.textContent = '';
+      var account = el('div', 'settings-section');
+      account.appendChild(el('h2', null, 'Account'));
+      account.appendChild(el('p', null, 'Username: ' + me.account.name));
+      var inv = el('a', null, 'Your inventory');
+      inv.href = '/users/' + me.account.userId + '/inventory';
+      account.appendChild(inv);
+      root.appendChild(account);
+
+      var section = el('div', 'settings-section');
+      section.appendChild(el('h2', null, 'Change password'));
+      var form = el('form', 'auth-form');
+      form.noValidate = true;
+      function field(label, autocomplete) {
+        var wrap = el('label', 'field');
+        wrap.appendChild(el('span', null, label));
+        var input = el('input');
+        input.type = 'password';
+        input.autocomplete = autocomplete;
+        input.maxLength = 200;
+        wrap.appendChild(input);
+        form.appendChild(wrap);
+        return input;
+      }
+      var current = field('Current password', 'current-password');
+      var next = field('New password (at least ' + MIN_PASSWORD + ' characters)', 'new-password');
+      var again = field('New password again', 'new-password');
+      var message = el('p', 'form-error hidden');
+      form.appendChild(message);
+      var save = el('button', 'btn btn-primary btn-sm', 'Change password');
+      save.type = 'submit';
+      form.appendChild(save);
+      form.addEventListener('submit', function (event) {
+        event.preventDefault();
+        function show(text, good) { message.textContent = text; message.className = good ? 'form-good' : 'form-error'; }
+        if (!current.value || !next.value) return show('Type your current and new password.');
+        if (next.value.length < MIN_PASSWORD) return show('Pick a new password of at least ' + MIN_PASSWORD + ' characters.');
+        if (next.value !== again.value) return show('The new passwords don’t match.');
+        save.disabled = true;
+        post('password', { current: current.value, password: next.value }).then(function (result) {
+          save.disabled = false;
+          if (!result.ok) return show(result.data.error || 'That did not work.');
+          current.value = next.value = again.value = '';
+          show('Password changed. You were signed out everywhere else.', true);
+        });
+      });
+      section.appendChild(form);
+      root.appendChild(section);
+    });
+  }
+
   // ---- start ----
   fillSearch();
   var pages = {
     home: homePage, games: gamesPage, game: gamePage, download: downloadPage,
     login: authPage('login'), signup: authPage('signup'), 'account-home': accountHomePage,
+    catalog: catalogPage, item: itemPage, inventory: inventoryPage, settings: settingsPage,
   };
   (pages[document.body.dataset.page] || simplePage)();
   loadMe().then(renderHeaderAccount);

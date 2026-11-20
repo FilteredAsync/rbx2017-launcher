@@ -66,8 +66,9 @@ module.exports = function mobileApi({ send, sendUtf8, sendJson, launcher, sessio
   }
 
   // m.<domain>, and assetgame.<domain>, where the game engine asks for a
-  // server (Game/PlaceLauncher.ashx). Never the PC client's localhost. names.
-  const MOBILE_HOST = /^(?:m|assetgame)\.((?!localhost$)[a-z0-9-]+(?:\.[a-z0-9-]+)+)$/;
+  // server (Game/PlaceLauncher.ashx), and www.m.<domain>, where the avatar
+  // editor opens item pages. Never the PC client's localhost. names.
+  const MOBILE_HOST = /^(?:(?:www\.)?m|assetgame)\.((?!localhost$)[a-z0-9-]+(?:\.[a-z0-9-]+)+)$/;
   const isMobile = (ctx) => MOBILE_HOST.test(hostOf(ctx));
   const baseUrl = (ctx) => {
     const match = MOBILE_HOST.exec(hostOf(ctx));
@@ -209,6 +210,11 @@ main{padding:12px;max-width:720px;margin:0 auto}h1{font-size:20px;font-weight:60
 <title>${escapeHtml(title)}</title><style>${STYLE}</style></head><body><main>${body}</main></body></html>`);
   }
 
+  // The More tab's catalog, inventory and settings pages (lib/mobileshop.js),
+  // and the avatar editor's API (lib/mobileavatar.js).
+  const shop = require('./mobileshop')({ page, escapeHtml, send, launcher, hostOf });
+  const avatarEditor = require('./mobileavatar')({ send, sendJson, launcher });
+
   function gameRows() {
     const list = launcher.gameList();
     list.sort((a, b) => b.playing - a.playing || a.name.localeCompare(b.name));
@@ -237,8 +243,8 @@ main{padding:12px;max-width:720px;margin:0 auto}h1{font-size:20px;font-weight:60
     page(ctx, 'Play', `<p class="note">${placeId ? `<a href="rbx2017://placeID=${placeId}">Open in the rbx2017 app</a>` : 'Which game?'}</p>`);
   }
 
-  // Tabs and links this server has no phone page for (avatar, catalog,
-  // profile, settings...).
+  // Tabs and links this server has no phone page for (groups, messages,
+  // profile...).
   function notHerePage(ctx) {
     page(ctx, 'rbx2017', '<p class="note">This part isn\'t on the phone yet. Use the launcher on a PC for it.<br><br><a href="/games">Games</a></p>');
   }
@@ -268,11 +274,13 @@ main{padding:12px;max-width:720px;margin:0 auto}h1{font-size:20px;font-weight:60
       // The game engine's report after a crash (the dump itself goes to
       // Error/Dmp.ashx), and its join statistics: nothing kept.
       [/^game\/(?:sessions\/report|joinrate\.ashx)\/?$/i, (ctx) => send(ctx, 200, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' }, 'OK')],
+      ...avatarEditor.routes,
     ],
     pageRoutes: [
       [/^(?:home)?\/?$/i, homePage],
       [/^games\/?$/i, gamesPage],
       [/^games\/start\/?$/i, startPage],
+      ...shop.pageRoutes,
     ],
   };
 };

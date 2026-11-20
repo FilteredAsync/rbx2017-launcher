@@ -23,6 +23,11 @@
 //   POST avatar/image     (session, or ?guest=1) PNG the launcher drew of the avatar
 //   GET  catalog          ?category=&keyword=&cursor= -> items (featured list without a keyword)
 //   GET  bundle/<id>      the items in a package
+//   GET  item-info/<id>   an item's page: price (null off sale), type, creator, owned
+//   POST buy              (session) {kind: "asset"|"bundle", id, price} -> {balance}
+//                         (lib/catalog.js; items must be owned to be worn)
+//   GET  inventory        ?userId=&category= what a player owns (public, like 2017)
+//   POST account/password (session) {current, password}: other sessions end
 //   GET  friends          (session) friends (and where they play), requests
 //   POST friends/request  (session) {name} or {userId}
 //   POST friends/accept | decline | cancel | remove   (session) {userId}
@@ -81,6 +86,7 @@ const badges = require('./badges');
 const ownership = require('./ownership');
 const votes = require('./votes');
 const robux = require('./robux');
+const catalog = require('./catalog');
 
 const TICKET_MS = 5 * 60 * 1000;
 const tickets = new Map();
@@ -138,6 +144,9 @@ const MAX_ACCESSORIES = 10;
 // Items Roblox released up to the end of 2017 have IDs below this; the
 // featured lists keep to them.
 const CLASSIC_MAX_ID = 1300000000;
+// The classic faces and heads above: Roblox sells none of them any more, so
+// they are free here (lib/catalog.js offSalePrice).
+const CLASSIC_IDS = new Set([...CLASSIC.faces, ...CLASSIC.heads].map(([id]) => String(id)));
 // Request bodies (ctx.body(limit), server.js): the 2017 friend and follow
 // calls send a few form fields; pictures are PNGs (lib/avatarstore.js and
 // lib/outfits.js check their own sizes), an outfit's as base64 in JSON.
@@ -624,7 +633,8 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
 
   // Checks what the editor sends: known, wearable items, at most one of each
   // kind (three hats, ten accessories in all).
-  async function cleanAvatar(body) {
+  // who: the account saving it; its items must be owned (lib/catalog.js).
+  async function cleanAvatar(body, who) {
     const wanted = Array.isArray(body.assets) ? body.assets.slice(0, 40) : [];
     const result = [];
     const counts = new Map();
@@ -642,6 +652,7 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
       if (ACCESSORY_TYPES.has(typeId) && typeId !== 8 && count > 1) return { error: `Only one accessory of each kind: "${info.name}" is the second.` };
       if (ACCESSORY_TYPES.has(typeId) && ++accessories > MAX_ACCESSORIES) return { error: `At most ${MAX_ACCESSORIES} accessories.` };
       counts.set(typeId, count);
+      if (who && !catalog.owns(who.userId, id)) return { error: `You don't own "${info.name}" yet. Buy it first.`, notOwned: id };
       result.push({ id, typeId, name: info.name });
     }
     const colors = {};
@@ -662,10 +673,88 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
     const current = await describeAvatar(who);
     const replaced = new Set(bundle.items.map((item) => item.typeId));
     const assets = current.assets.filter((asset) => !replaced.has(asset.typeId)).concat(bundle.items);
-    const cleaned = await cleanAvatar({ bodyColors: current.bodyColors, assets });
+    if (ownership.ownsBundle(who.userId, bundle.id)) ownership.grantAll(who.userId, bundle.items.map((item) => item.id));
+    const cleaned = await cleanAvatar({ bodyColors: current.bodyColors, assets }, who);
     if (cleaned.error) return cleaned;
     avatarStore.set(who.userId, cleaned.avatar, 'edited');
     return { ok: true };
+  }
+
+  // The phone's avatar editor (lib/mobileavatar.js): new body colors and/or
+  // the items worn. Items the player doesn't own, or this client can't wear,
+  // are left off rather than failing the save (the editor sends a failed save
+  // again every few seconds); one of each single kind, at most 3 hats.
+  async function saveAvatarParts(who, { bodyColors, assetIds }) {
+    const current = await describeAvatar(who);
+    const colors = Object.assign({}, current.bodyColors, bodyColors || {});
+    let assets = current.assets.map((asset) => ({ id: asset.id }));
+    if (Array.isArray(assetIds)) {
+      const kept = [];
+      const singles = new Set();
+      let hats = 0;
+      for (const raw of assetIds.slice(0, 40)) {
+        const id = core.decimal(String(raw));
+        if (!id || kept.some((asset) => asset.id === id) || !catalog.owns(who.userId, id)) continue;
+        const info = await assetDetails(id);
+        if (!info || (!ACCESSORY_TYPES.has(info.typeId) && !SINGLE_TYPES.has(info.typeId))) continue;
+        if ((SINGLE_TYPES.has(info.typeId) || (ACCESSORY_TYPES.has(info.typeId) && info.typeId !== 8)) && singles.has(info.typeId)) continue;
+        if (info.typeId === 8 && ++hats > MAX_HATS) continue;
+        if (info.typeId !== 8) singles.add(info.typeId);
+        kept.push({ id });
+      }
+      assets = kept;
+    }
+    const cleaned = await cleanAvatar({ bodyColors: colors, assets }, who);
+    if (cleaned.error) return cleaned;
+    avatarStore.set(who.userId, cleaned.avatar, 'edited');
+    return { ok: true };
+  }
+
+  // Catalog items with their price and whether the viewer owns them: the
+  // classic face/head lists come without a price, so theirs is looked up.
+  async function shopItems(items, who) {
+    return Promise.all(items.map(async (item) => {
+      const out = Object.assign({}, item);
+      if (item.kind === 'asset' && item.price === undefined) {
+        const info = await catalog.itemInfo(item.id);
+        out.price = info ? info.price : null;
+      }
+      if (out.price === null && CLASSIC_IDS.has(String(item.id))) out.price = 0;
+      if (who) {
+        out.owned = item.kind === 'bundle' ? ownership.ownsBundle(who.userId, item.id) : catalog.owns(who.userId, item.id);
+      }
+      return out;
+    }));
+  }
+
+  // GET inventory: what a player owns, by category (CATEGORIES keys, or
+  // "packages", "gear"), newest first. Game passes and other non-catalog IDs
+  // in data/ownership.json are left out.
+  async function inventory(userId, categoryKey) {
+    catalog.grantStarter(userId);
+    if (categoryKey === 'packages') {
+      const out = [];
+      for (const id of ownership.bundleIds(userId).slice(0, 200)) {
+        const bundle = await bundleItems(id);
+        if (!bundle.error) out.push({ id, kind: 'bundle', name: bundle.name, typeId: 32, typeName: 'Package' });
+      }
+      return out;
+    }
+    const types = categoryKey === 'gear' ? [19] : CATEGORIES[categoryKey] ? CATEGORIES[categoryKey].types : null;
+    const seen = new Set();
+    const ids = ownership.assetIds(userId).map((entry) => entry.id);
+    const worn = avatarStore.get(userId);
+    if (worn) for (const asset of worn.assets) ids.push(String(asset.id));
+    const out = [];
+    for (const id of ids) {
+      if (seen.has(id) || out.length >= 300) continue;
+      seen.add(id);
+      const info = await assetDetails(id);
+      if (!info || !catalog.TYPE_NAMES[info.typeId] || info.typeId === 32) continue;
+      if (types && !types.includes(info.typeId)) continue;
+      out.push({ id, kind: 'asset', name: info.name, typeId: info.typeId, typeName: catalog.TYPE_NAMES[info.typeId] });
+    }
+    return out;
   }
 
   // --- catalog ----------------------------------------------------------------------------
@@ -710,7 +799,9 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
       name: String(raw.name || ''),
       typeId: bundle ? null : Number(raw.assetType) || null,
       creator: String(raw.creatorName || ''),
-      price: Number.isInteger(raw.price) ? raw.price : null,
+      // Limited items show their resale price; they can't be bought here
+      // (yet), so they show as off sale.
+      price: Number.isInteger(raw.price) && !(Array.isArray(raw.itemRestrictions) && raw.itemRestrictions.some((r) => /limited|collectible/i.test(String(r)))) ? raw.price : null,
     };
     if (!bundle && item.typeId) rememberDetails(item.id, item.typeId, item.name);
     return item;
@@ -737,7 +828,7 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
       const part = (packageParts.get(pack.id) || []).find((entry) => PART_NAMES[typeId].test(entry.name));
       if (!part) continue;
       rememberDetails(part.id, typeId, part.name);
-      items.push({ id: part.id, kind: 'asset', name: part.name, typeId, creator: 'Roblox' });
+      items.push({ id: part.id, kind: 'asset', name: part.name, typeId, creator: 'Roblox', packageId: pack.id, packageName: pack.name, packagePrice: pack.price });
     }
     return { items, nextCursor: packages.nextCursor };
   }
@@ -1176,7 +1267,7 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
     if (action === 'avatar' && method === 'POST') {
       const who = needAccount(ctx);
       if (!who) return;
-      const cleaned = await cleanAvatar(await jsonBody(ctx));
+      const cleaned = await cleanAvatar(await jsonBody(ctx), who);
       if (cleaned.error) return sendJson(ctx, 400, { error: cleaned.error });
       avatarStore.set(who.userId, cleaned.avatar, 'edited');
       return sendJson(ctx, 200, await describeAvatar(who));
@@ -1211,7 +1302,7 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
       const keyword = String(q.keyword || '').trim();
       const result = await search(String(q.category || 'hats'), keyword, String(q.cursor || ''), !keyword);
       if (result.error) return sendJson(ctx, result.status || 502, { error: result.error });
-      return sendJson(ctx, 200, result);
+      return sendJson(ctx, 200, Object.assign({}, result, { items: await shopItems(result.items, account(ctx)) }));
     }
     if (action === 'categories' && method === 'GET') {
       return sendJson(ctx, 200, { categories: Object.entries(CATEGORIES).map(([key, value]) => ({ key, label: value.label, types: value.types || [] })) });
@@ -1221,6 +1312,43 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
       const result = await wearable(item[1]);
       if (result.error) return sendJson(ctx, result.status || 502, { error: result.error });
       return sendJson(ctx, 200, result);
+    }
+    const itemPage = /^item-info\/(\d{1,15})$/.exec(action);
+    if (itemPage && method === 'GET') {
+      const info = await catalog.itemInfo(itemPage[1]);
+      if (!info) return sendJson(ctx, 502, { error: 'Could not look this item up on Roblox. Try again in a minute.' });
+      if (!info.typeName) return sendJson(ctx, 404, { error: 'This is not a catalog item.' });
+      const who = account(ctx);
+      return sendJson(ctx, 200, Object.assign({}, info, {
+        price: info.price === null && CLASSIC_IDS.has(info.id) ? 0 : info.price,
+        owned: who ? catalog.owns(who.userId, info.id) : null,
+        balance: who ? robux.balance(who.userId) : null,
+      }));
+    }
+    if (action === 'buy' && method === 'POST') {
+      const who = needAccount(ctx);
+      if (!who) return;
+      const body = await jsonBody(ctx);
+      const result = body.kind === 'bundle'
+        ? catalog.buyBundle(who, /^\d{1,12}$/.test(String(body.id)) ? await bundleItems(String(body.id)) : null, body.price)
+        : await catalog.buyAsset(who, body.id, body.price, CLASSIC_IDS.has(String(body.id)) ? 0 : undefined);
+      if (result.error) return sendJson(ctx, result.status || 400, { error: result.error, price: result.price });
+      return sendJson(ctx, 200, { ok: true, already: Boolean(result.already), balance: result.balance });
+    }
+    if (action === 'inventory' && method === 'GET') {
+      const userId = core.decimal(String(ctx.queryLower.userid || ''));
+      const owner = userId ? accounts.byUserId(userId) : null;
+      if (!owner) return sendJson(ctx, 404, { error: 'No such player.' });
+      const categoryKey = String(ctx.queryLower.category || 'hats');
+      if (categoryKey !== 'packages' && categoryKey !== 'gear' && !CATEGORIES[categoryKey]) return sendJson(ctx, 400, { error: 'Unknown category.' });
+      return sendJson(ctx, 200, { userId: Number(owner.userId), name: owner.name, category: categoryKey, items: await inventory(owner.userId, categoryKey) });
+    }
+    if (action === 'account/password' && method === 'POST') {
+      const body = await jsonBody(ctx);
+      const token = accounts.bearerToken(ctx.req.headers.authorization) || accounts.cookieToken(ctx.req.headers.cookie);
+      const result = accounts.changePassword(token, body.current, body.password, ctx.remote);
+      if (result.error) return sendJson(ctx, result.status || 400, { error: result.error });
+      return sendJson(ctx, 200, { ok: true });
     }
     const bundle = /^bundle\/(\d{1,12})$/.exec(action);
     if (bundle && method === 'GET') {
@@ -1368,7 +1496,7 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
         return sendJson(ctx, 200, { outfits: outfits.list(who.userId), max: outfits.MAX_OUTFITS });
       }
       // Wear: checked again like an edit (items may have stopped working).
-      const cleaned = await cleanAvatar({ bodyColors: outfit.bodyColors, assets: outfit.assets });
+      const cleaned = await cleanAvatar({ bodyColors: outfit.bodyColors, assets: outfit.assets }, who);
       if (cleaned.error) return sendJson(ctx, 400, { error: cleaned.error });
       avatarStore.set(who.userId, cleaned.avatar, 'outfit');
       return sendJson(ctx, 200, Object.assign(await describeAvatar(who), { outfit: outfit.name }));
@@ -1411,5 +1539,24 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
     bundleItems: (id) => bundleItems(String(id)),
     wearBundle,
     describeAvatar,
+    saveAvatarParts,
+    assetType: async (id) => { const info = await assetDetails(String(id)); return info ? info.typeId : null; },
+    // the phone's catalog, inventory and settings pages (lib/mobileshop.js)
+    shop: {
+      categories: () => Object.entries(CATEGORIES).map(([key, value]) => ({ key, label: value.label })),
+      search: async (categoryKey, keyword, cursor, who) => {
+        const result = await search(categoryKey, keyword || '', cursor || '', !keyword);
+        return result.error ? result : Object.assign({}, result, { items: await shopItems(result.items, who) });
+      },
+      inventory,
+      owns: (userId, id) => catalog.owns(userId, id),
+      buy: async (who, body) => (body.kind === 'bundle'
+        ? catalog.buyBundle(who, /^\d{1,12}$/.test(String(body.id)) ? await bundleItems(String(body.id)) : null, body.price)
+        : catalog.buyAsset(who, body.id, body.price, CLASSIC_IDS.has(String(body.id)) ? 0 : undefined)),
+      itemInfo: async (id) => {
+        const info = await catalog.itemInfo(id);
+        return info ? Object.assign({}, info, { price: info.price === null && CLASSIC_IDS.has(info.id) ? 0 : info.price }) : null;
+      },
+    },
   };
 };

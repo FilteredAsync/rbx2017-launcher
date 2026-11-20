@@ -305,8 +305,21 @@ module.exports = function accountModule({ ROOT, lib }) {
       const query = new URLSearchParams({ category: String(category || 'hats') });
       if (keyword) query.set('keyword', String(keyword).slice(0, 50));
       if (cursor) query.set('cursor', String(cursor));
-      return open(centralUrl, 'GET', `catalog?${query}`, { timeoutMs: 60000 });
+      // With the session, items say whether you own them.
+      return maybeAuthed(centralUrl, 'GET', `catalog?${query}`, { timeoutMs: 60000 });
     },
+    // Buying (servers from 2026-11-19 on: items must be owned to be worn).
+    buy: (centralUrl, { kind, id, price }) => authed(centralUrl, 'POST', 'buy', {
+      body: { kind: kind === 'bundle' ? 'bundle' : 'asset', id: String(id || ''), price: price === null || price === undefined ? null : Number(price) },
+      timeoutMs: 30000,
+    }),
+    inventory: (centralUrl, { userId, category }) => {
+      const query = new URLSearchParams({ userId: String(userId || ''), category: String(category || 'hats') });
+      return open(centralUrl, 'GET', `inventory?${query}`, { timeoutMs: 60000 });
+    },
+    changePassword: (centralUrl, { current, password }) => authed(centralUrl, 'POST', 'account/password', {
+      body: { current: String(current || ''), password: String(password || '') },
+    }),
     bundle: (centralUrl, id) => open(centralUrl, 'GET', `bundle/${encodeURIComponent(String(id))}`, { timeoutMs: 60000 }),
     item: (centralUrl, id) => open(centralUrl, 'GET', `item/${encodeURIComponent(String(id))}`, { timeoutMs: 60000 }),
     players: (centralUrl) => open(centralUrl, 'GET', 'players', { timeoutMs: 8000 }),

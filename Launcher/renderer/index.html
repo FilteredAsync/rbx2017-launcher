@@ -135,6 +135,7 @@
                 <form class="cat-search" id="cat-search-form">
                   <input id="cat-search" placeholder="Search" spellcheck="false" maxlength="50">
                 </form>
+                <button class="ghost small hidden" id="cat-owned" aria-pressed="false" title="Only what you own">Owned</button>
               </div>
               <div class="item-grid" id="item-grid"></div>
               <div class="color-pane hidden" id="color-pane">
@@ -220,6 +221,23 @@
                 <button class="primary" id="account-signin">Sign in or sign up</button>
                 <button class="ghost" id="account-signout">Sign out</button>
               </div>
+            </div>
+            <div class="panel hidden" id="password-panel">
+              <div class="label">Password</div>
+              <form id="password-form">
+                <div class="grid two">
+                  <label>Current password
+                    <input id="password-current" type="password" autocomplete="current-password" maxlength="200">
+                  </label>
+                  <label>New password
+                    <input id="password-new" type="password" autocomplete="new-password" maxlength="200">
+                  </label>
+                </div>
+                <div class="row">
+                  <button class="primary" id="password-save" type="submit">Change password</button>
+                  <span class="status" id="password-status"></span>
+                </div>
+              </form>
             </div>
             <div class="panel" id="server-panel">
               <div class="label">Server</div>

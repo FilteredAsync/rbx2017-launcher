@@ -1,5 +1,16 @@
 [
   {
+    "version": "1.15.0",
+    "date": "2026-11-20",
+    "title": "Catalog",
+    "items": [
+      "Items cost R$ now, like in 2017. Click an item you don't own to buy it. Everything you already wore is yours.",
+      "The Owned button in the avatar editor shows only what you have.",
+      "Change your password in Settings > Account.",
+      "The website has a catalog and your inventory, and Studio's Toolbox lists your items."
+    ]
+  },
+  {
     "version": "1.14.0",
     "date": "2026-11-17",
     "title": "Robux",

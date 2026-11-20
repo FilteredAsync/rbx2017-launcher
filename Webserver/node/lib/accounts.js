@@ -339,7 +339,40 @@ function checkEditToken(token) {
   return { userId: Number(match[1]), placeId: Number(match[2]) };
 }
 
+// A new password for the account signed in with token -> { ok } or { error, status }.
+// The current password must be right; the account's other sessions end
+// (signed-in launchers, the website and phones sign in again), this one stays.
+function changePassword(token, current, next, address) {
+  current = String(current || '');
+  next = String(next || '');
+  if (tooManyFailures(address)) return { status: 429, error: 'Too many wrong passwords. Wait a few minutes and try again.' };
+  if (!token || !/^[0-9a-f]{64}$/.test(token)) return { status: 401, error: 'Sign in first.' };
+  const data = load();
+  const session = data.sessions[hashToken(token)];
+  const account = session ? data.accounts[session.name] : null;
+  if (!account) return { status: 401, error: 'Sign in first.' };
+  const expected = Buffer.from(account.hash, 'hex');
+  const actual = Buffer.from(hashPassword(current, account.salt), 'hex');
+  if (expected.length !== actual.length || !crypto.timingSafeEqual(expected, actual)) {
+    noteFailure(address);
+    return { status: 403, error: 'Your current password is wrong.' };
+  }
+  if (next.length < MIN_PASSWORD) return { status: 400, error: `Pick a new password of at least ${MIN_PASSWORD} characters.` };
+  if (next.length > MAX_PASSWORD) return { status: 400, error: 'That password is too long.' };
+  if (next === current) return { status: 400, error: 'That is your current password.' };
+  account.salt = crypto.randomBytes(16).toString('hex');
+  account.hash = hashPassword(next, account.salt);
+  account.passwordChangedAt = now();
+  const keep = hashToken(token);
+  for (const [key, other] of Object.entries(data.sessions)) {
+    if (other.name === session.name && key !== keep) delete data.sessions[key];
+  }
+  save(data);
+  return { ok: true };
+}
+
 module.exports = {
+  changePassword,
   login, logout, fromToken, fromRequest, cookieToken, bearerToken, byUserId, byName, list, setAdmin, remove,
   profile, setBio, search, MAX_BIO,
   editToken, checkEditToken, mac, checkMac, NAME_RE, MIN_PASSWORD,

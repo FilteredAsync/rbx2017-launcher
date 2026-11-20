@@ -243,6 +243,9 @@ button.link:focus-visible { outline: 2px solid #fff; }
   background: var(--good); color: #062; font-weight: 800; display: grid; place-items: center; font-size: 14px;
 }
 .item-tile.busy { opacity: .55; }
+.item-tile.unowned img { opacity: .8; }
+.item-tile .item-price { font-size: 12px; font-weight: 700; padding: 2px 7px 6px; color: #7ce07c; }
+#cat-owned.active { background: rgba(0, 162, 255, .35); }
 .cat-foot { display: flex; align-items: center; gap: 12px; min-height: 34px; margin-top: 8px; }
 .avatar-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; border-top: 1px solid var(--line); padding-top: 10px; }
 .by-id { display: flex; gap: 8px; align-items: center; }

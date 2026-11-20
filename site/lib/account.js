@@ -178,6 +178,116 @@ async function friends(context) {
   });
 }
 
+// ---- the catalog, inventories and account settings (game server lib/catalog.js) ----
+
+const CATEGORY_KEYS = new Set(['hats', 'hair', 'faces', 'heads', 'shirts', 'pants', 'tshirts', 'packages', 'face', 'neck', 'shoulder',
+  'front', 'back', 'waist', 'torsos', 'rightarms', 'leftarms', 'leftlegs', 'rightlegs', 'gear']);
+
+const price = (value) => (Number.isInteger(value) && value >= 0 ? value : null);
+
+function shopItem(item) {
+  return {
+    id: String(item.id), kind: item.kind === 'bundle' ? 'bundle' : 'asset', name: String(item.name || '').slice(0, 100),
+    typeId: Number(item.typeId) || null, price: price(item.price), owned: typeof item.owned === 'boolean' ? item.owned : null,
+    packageId: /^\d{1,12}$/.test(String(item.packageId || '')) ? String(item.packageId) : null,
+    packageName: item.packageName ? String(item.packageName).slice(0, 100) : null, packagePrice: price(item.packagePrice),
+  };
+}
+
+// GET /api/catalog?category=&keyword=&cursor=: with the session the items
+// say whether you own them (never cached then); without it, shared for 5 minutes.
+async function catalogList(context) {
+  const query = new URL(context.request.url).searchParams;
+  const category = query.get('category') || 'hats';
+  if (!CATEGORY_KEYS.has(category) || category === 'gear') return reply({ error: 'Unknown category.' }, 400);
+  const keyword = (query.get('keyword') || '').trim().slice(0, 50);
+  const cursor = (query.get('cursor') || '').slice(0, 500);
+  const asked = new URLSearchParams({ category });
+  if (keyword) asked.set('keyword', keyword);
+  if (cursor) asked.set('cursor', cursor);
+  const token = sessionOf(context.request);
+  const produce = async () => {
+    const result = await ask(context, 'GET', `catalog?${asked}`, { token });
+    if (result.status !== 200) return { status: result.status, data: { error: result.data.error || 'The catalog did not answer. Try again in a minute.' } };
+    const items = Array.isArray(result.data.items) ? result.data.items.slice(0, 60).map(shopItem) : [];
+    return { status: 200, data: { items, nextCursor: typeof result.data.nextCursor === 'string' ? result.data.nextCursor : null } };
+  };
+  if (token) {
+    const out = await produce();
+    return reply(out.data, out.status);
+  }
+  return cached(context, `/catalog?${asked}`, async () => {
+    const out = await produce();
+    return { status: out.status, type: 'application/json; charset=utf-8', body: JSON.stringify(out.data), maxAge: 300 };
+  });
+}
+
+// GET /api/item/<id>: an item's page.
+async function itemPage(context, id) {
+  const token = sessionOf(context.request);
+  const result = await ask(context, 'GET', `item-info/${id}`, { token });
+  if (result.status !== 200) return reply({ error: result.data.error || 'Could not look this item up.' }, result.status === 404 ? 404 : 502);
+  const data = result.data;
+  return reply({
+    id: String(data.id), name: String(data.name || '').slice(0, 100), description: String(data.description || '').slice(0, 1000),
+    typeId: Number(data.typeId) || null, typeName: data.typeName ? String(data.typeName) : null, price: price(data.price),
+    limited: Boolean(data.limited), creator: String(data.creator || 'Roblox').slice(0, 60),
+    created: data.created ? String(data.created).slice(0, 40) : null, updated: data.updated ? String(data.updated).slice(0, 40) : null,
+    owned: typeof data.owned === 'boolean' ? data.owned : null, balance: Number.isFinite(data.balance) ? data.balance : null,
+  });
+}
+
+// POST /api/buy {kind, id, price}
+async function buy(context) {
+  const { request } = context;
+  if (request.method !== 'POST') return reply({ error: 'Use POST.' }, 405);
+  if (!sameOrigin(request)) return reply({ error: 'Buy from this site.' }, 403);
+  const token = sessionOf(request);
+  if (!token) return reply({ error: 'Log in to buy items.' }, 401);
+  const body = await readBody(request);
+  if (!body || !/^\d{1,15}$/.test(String(body.id || ''))) return reply({ error: 'No such item.' }, 400);
+  const result = await ask(context, 'POST', 'buy', {
+    token, body: { kind: body.kind === 'bundle' ? 'bundle' : 'asset', id: String(body.id), price: price(body.price) },
+  });
+  if (result.status === 401) return reply({ error: 'Log in to buy items.' }, 401, clearedCookie());
+  if (result.status !== 200) return reply({ error: result.data.error || 'That did not work. Try again.', price: price(result.data.price) }, result.status >= 500 ? 502 : result.status);
+  return reply({ ok: true, balance: Number.isFinite(result.data.balance) ? result.data.balance : null });
+}
+
+// GET /api/inventory/<userId>?category=: public, like 2017 profiles.
+async function inventoryPage(context, userId) {
+  const category = new URL(context.request.url).searchParams.get('category') || 'hats';
+  if (!CATEGORY_KEYS.has(category)) return json({ error: 'Unknown category.' }, 400);
+  return cached(context, `/inventory/${userId}?category=${category}`, async () => {
+    const result = await ask(context, 'GET', `inventory?userId=${userId}&category=${encodeURIComponent(category)}`);
+    if (result.status !== 200) return { status: result.status === 404 ? 404 : 502, type: 'application/json; charset=utf-8', body: JSON.stringify({ error: result.data.error || 'Could not load this inventory.' }), maxAge: 60 };
+    const data = result.data;
+    const body = {
+      userId: Number(data.userId), name: String(data.name || ''), category,
+      items: (Array.isArray(data.items) ? data.items : []).slice(0, 300).map((item) => ({
+        id: String(item.id), kind: item.kind === 'bundle' ? 'bundle' : 'asset', name: String(item.name || '').slice(0, 100), typeName: item.typeName ? String(item.typeName) : null,
+      })),
+    };
+    return { status: 200, type: 'application/json; charset=utf-8', body: JSON.stringify(body), maxAge: 60 };
+  });
+}
+
+// POST /api/password {current, password}
+async function password(context) {
+  const { request } = context;
+  if (request.method !== 'POST') return reply({ error: 'Use POST.' }, 405);
+  if (!sameOrigin(request)) return reply({ error: 'Change it from this site.' }, 403);
+  const token = sessionOf(request);
+  if (!token) return reply({ error: 'Log in first.' }, 401);
+  const body = await readBody(request);
+  if (!body) return reply({ error: 'Type both passwords.' }, 400);
+  const result = await ask(context, 'POST', 'account/password', {
+    token, body: { current: typeof body.current === 'string' ? body.current : '', password: typeof body.password === 'string' ? body.password : '' },
+  });
+  if (result.status !== 200) return reply({ error: result.data.error || 'That did not work. Try again.' }, result.status >= 500 ? 502 : result.status);
+  return reply({ ok: true });
+}
+
 // Handles the account routes -> a Response, or null for other routes.
 export async function accountRoute(context, route) {
   if (route === 'login') return signIn(context, 'signin');
@@ -186,6 +296,28 @@ export async function accountRoute(context, route) {
   if (route === 'me' || route === 'friends') {
     if (context.request.method !== 'GET') return reply({ error: 'Use GET.' }, 405);
     return route === 'me' ? me(context) : friends(context);
+  }
+  if (route === 'catalog') {
+    if (context.request.method !== 'GET') return reply({ error: 'Use GET.' }, 405);
+    return catalogList(context);
+  }
+  if (route === 'buy') return buy(context);
+  if (route === 'password') return password(context);
+  let shop;
+  if ((shop = /^item\/(\d{1,15})$/.exec(route))) {
+    if (context.request.method !== 'GET') return reply({ error: 'Use GET.' }, 405);
+    return itemPage(context, shop[1]);
+  }
+  if ((shop = /^inventory\/(\d{1,15})$/.exec(route))) {
+    if (context.request.method !== 'GET') return json({ error: 'Use GET.' }, 405);
+    return inventoryPage(context, shop[1]);
+  }
+  // Item pictures (the site only shows its own images): cached for a week.
+  if ((shop = /^(asset|bundle)-thumb\/(\d{1,15})$/.exec(route))) {
+    if (context.request.method !== 'GET' && context.request.method !== 'HEAD') return json({ error: 'Use GET.' }, 405);
+    const [, kind, id] = shop;
+    const path = kind === 'asset' ? `asset-thumbnail/image?assetId=${id}&width=420&height=420` : `bundle-thumbnail/image?bundleId=${id}&width=420&height=420`;
+    return cached(context, `/${kind}-thumb/${id}`, () => image(`${gameServer(context.env)}/${path}`, 7 * 24 * 3600));
   }
   const match = /^avatar\/(\d{1,15})$/.exec(route);
   if (match) {

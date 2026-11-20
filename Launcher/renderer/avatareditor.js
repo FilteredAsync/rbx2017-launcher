@@ -8,7 +8,11 @@
 // Outfits: saved looks (with the picture drawn when saved); wearing one makes
 // it the avatar again.
 //
-//   const editor = AvatarEditor.create({ api, onSaved })
+// Items must be owned to be worn (servers from 2026-11-19 on): tiles you don't
+// own show their price, and clicking one offers to buy it (a body part buys
+// its package). "Owned" shows only your inventory in a category.
+//
+//   const editor = AvatarEditor.create({ api, onSaved, onRobux })
 //   editor.loadAccount()   editor.showGuest()   editor.activate()   editor.rotate(step)
 //   editor.pictures()  -> { full: Blob, head: Blob } of what is shown
 
@@ -61,7 +65,7 @@
     return node;
   }
 
-  function create({ api, onSaved }) {
+  function create({ api, onSaved, onRobux }) {
     const view = window.Avatar3D.create($('avatar-canvas'));
     let avatar = null; // { bodyColors, assets: [{ id, typeId, name }] }
     let mode = 'none'; // 'account' | 'guest'
@@ -72,6 +76,7 @@
     let saving = false;
     let pendingSave = false;
     let colorPart = 'all';
+    let ownedOnly = false;
     const bundles = new Map(); // bundle ID -> its body part items
 
     function setStatus(text, kind) {
@@ -114,6 +119,13 @@
         if (onSaved) onSaved(true);
       } catch (error) {
         setStatus(message(error), 'error');
+        // The server kept the avatar it had (an item not owned, say): show that.
+        try {
+          const kept = await api.getAvatar();
+          avatar = { bodyColors: kept.bodyColors, assets: kept.assets };
+          await preview();
+          renderItems(false);
+        } catch (ignored) { /* keep what is shown */ }
       } finally {
         saving = false;
         if (pendingSave) { pendingSave = false; save(); }
@@ -203,6 +215,47 @@
         : `${NET}/asset-thumbnail/image?assetId=${encodeURIComponent(item.id)}&width=150&height=150`;
     }
 
+    // What buying this tile means: the item, or the package a body part is from.
+    function purchaseOf(item) {
+      if (item.kind === 'bundle') return { kind: 'bundle', id: item.id, price: item.price, name: item.name };
+      if (item.packageId) return { kind: 'bundle', id: item.packageId, price: item.packagePrice, name: item.packageName || 'its package' };
+      return { kind: 'asset', id: item.id, price: item.price, name: item.name || `Item ${item.id}` };
+    }
+
+    function priceLabel(price) {
+      if (price === null || price === undefined) return 'Off sale';
+      return price === 0 ? 'Free' : `R$ ${Number(price).toLocaleString()}`;
+    }
+
+    async function buyThenWear(item, node) {
+      const buying = purchaseOf(item);
+      if (buying.price === null || buying.price === undefined) {
+        setCatStatus(`"${buying.name}" is off sale.`, 'error');
+        return;
+      }
+      const question = buying.price === 0
+        ? `Get "${buying.name}" for free?`
+        : `Buy "${buying.name}" for R$ ${Number(buying.price).toLocaleString()}?${item.packageId ? ' (This part comes with it.)' : ''}`;
+      if (!window.confirm(question)) return;
+      if (node) node.classList.add('busy');
+      try {
+        const result = await api.buy({ kind: buying.kind, id: buying.id, price: buying.price });
+        for (const shown of shownItems) {
+          if ((buying.kind === 'bundle' && (shown.id === buying.id || shown.packageId === buying.id)) || shown.id === buying.id) shown.owned = true;
+        }
+        item.owned = true;
+        if (onRobux && Number.isFinite(result.balance)) onRobux(result.balance);
+        setCatStatus(`You own "${buying.name}" now.`, 'good');
+        if (item.kind === 'bundle') await wearPackage(item, node);
+        else wear(item);
+      } catch (error) {
+        setCatStatus(message(error), 'error');
+        renderItems(false);
+      } finally {
+        if (node) node.classList.remove('busy');
+      }
+    }
+
     function tile(item) {
       const node = el('button', 'item-tile');
       const worn = item.kind === 'bundle' ? packageWorn(item.id) : isWorn(item.id);
@@ -214,7 +267,18 @@
       img.addEventListener('error', () => { img.style.visibility = 'hidden'; });
       node.append(img, el('div', 'item-name', item.name || `Item ${item.id}`));
       node.title = item.name || '';
-      node.addEventListener('click', () => (item.kind === 'bundle' ? wearPackage(item, node) : wear(item)));
+      // Only servers that sell items say "owned": older ones keep wearing free.
+      const forSale = mode === 'account' && item.owned === false && !worn;
+      if (forSale) {
+        const buying = purchaseOf(item);
+        node.classList.add('unowned');
+        node.append(el('div', 'item-price', priceLabel(buying.price)));
+        if (item.packageId) node.title = `${item.name || ''} (from ${buying.name})`;
+      }
+      node.addEventListener('click', () => {
+        if (item.owned === false && !(item.kind === 'bundle' ? packageWorn(item.id) : isWorn(item.id)) && mode === 'account') return buyThenWear(item, node);
+        return item.kind === 'bundle' ? wearPackage(item, node) : wear(item);
+      });
       node.dataset.id = item.id;
       return node;
     }
@@ -417,11 +481,14 @@
       setCatStatus(keyword ? `Searching for "${keyword}"…` : 'Loading…');
       $('cat-more').disabled = true;
       try {
-        const data = await api.catalog(asked);
+        const showOwned = ownedOnly && mode === 'account' && me() && !asked.keyword;
+        const data = showOwned
+          ? await api.inventory({ userId: me().userId, category: asked.category }).then((inv) => ({ items: inv.items.map((item) => Object.assign({ owned: true }, item)), nextCursor: null }))
+          : await api.catalog(asked);
         if (asked.category !== category || asked.keyword !== keyword) return;
         shownItems = append ? shownItems.concat(data.items) : data.items;
         nextCursor = data.nextCursor || null;
-        setCatStatus(shownItems.length ? '' : (keyword ? 'Nothing found.' : 'Nothing here right now.'));
+        setCatStatus(shownItems.length ? '' : (keyword ? 'Nothing found.' : ownedOnly ? 'You don\'t own anything here yet.' : 'Nothing here right now.'));
         renderItems(!append);
       } catch (error) {
         if (asked.category === category) setCatStatus(message(error), 'error');
@@ -442,6 +509,7 @@
       $('cat-title').textContent = keyword ? `${entry.label}: "${keyword}"` : entry.label;
       document.querySelectorAll('.cat-link').forEach((link) => link.classList.toggle('active', link.dataset.category === key));
       $('cat-search-form').classList.toggle('hidden', key === 'wearing' || key === 'colors' || key === 'outfits');
+      $('cat-owned').classList.toggle('hidden', mode !== 'account' || key === 'wearing' || key === 'colors' || key === 'outfits');
       setCatStatus('');
       if (key === 'outfits') {
         renderOutfits();
@@ -460,6 +528,12 @@
       openCategory(category, true);
     });
     $('cat-more').addEventListener('click', () => loadItems(true));
+    $('cat-owned').addEventListener('click', () => {
+      ownedOnly = !ownedOnly;
+      $('cat-owned').classList.toggle('active', ownedOnly);
+      $('cat-owned').setAttribute('aria-pressed', String(ownedOnly));
+      openCategory(category, true);
+    });
 
     $('by-id-form').addEventListener('submit', async (event) => {
       event.preventDefault();

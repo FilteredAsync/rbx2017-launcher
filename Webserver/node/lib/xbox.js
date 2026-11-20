@@ -18,6 +18,7 @@ const presence = require('./presence');
 const gamethumbs = require('./gamethumbs');
 const favorites = require('./favorites');
 const ownership = require('./ownership');
+const catalog = require('./catalog');
 
 const crypto = require('crypto');
 
@@ -442,21 +443,12 @@ module.exports = function xboxApi({ send, sendUtf8, sendJson, launcher, sessionC
     const fail = (status) => sendJson(ctx, 200, { success: false, status, balanceAfterSale: who ? robux.balance(who.userId) : 0 });
     if (!who) return fail('NotAuthorized');
     if (q(ctx, 'rqtype').toLowerCase() !== 'purchase' || !/^\d{1,12}$/.test(bundleId)) return fail('InvalidArguments');
-    if (ownership.ownsBundle(who.userId, bundleId)) {
-      return sendJson(ctx, 200, { success: true, TransactionVerb: 'bought', balanceAfterSale: robux.balance(who.userId) });
+    // lib/catalog.js: charges, and grants the package and its parts.
+    const result = catalog.buyBundle(who, await launcher.bundleItems(bundleId), q(ctx, 'expectedPrice'));
+    if (result.error) {
+      return fail(result.status === 402 ? 'InsufficientFunds' : result.status === 409 ? 'PriceChanged' : result.status === 500 ? 'InternalError' : 'NotForSale');
     }
-    const bundle = await launcher.bundleItems(bundleId);
-    if (bundle.error || bundle.price === null) return fail('NotForSale');
-    if (String(bundle.price) !== q(ctx, 'expectedPrice')) return fail('PriceChanged');
-    const paid = robux.charge(who.userId, bundle.price, bundle.name);
-    if (!paid.ok) return fail('InsufficientFunds');
-    try {
-      ownership.grantBundle(who.userId, bundleId);
-    } catch (error) {
-      if (bundle.price > 0) robux.credit(who.userId, bundle.price, `Refund: ${bundle.name}`);
-      return fail('InternalError');
-    }
-    sendJson(ctx, 200, { success: true, TransactionVerb: 'bought', AssetName: bundle.name, balanceAfterSale: robux.balance(who.userId) });
+    sendJson(ctx, 200, { success: true, TransactionVerb: 'bought', balanceAfterSale: result.balance });
   }
 
   // --- Robux store --------------------------------------------------------------------------
