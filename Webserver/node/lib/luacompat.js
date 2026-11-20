@@ -1177,7 +1177,8 @@ function convertSource(source, options = {}) {
   // through the CFrame stand-in too (Bloxburg's build teleport).
   const cframeNames = new Set();
   for (const m of source.matchAll(/\.CFrame\s*=\s*([A-Za-z_]\w*)\s*(?:$|[\r\n;]|--)/gm)) cframeNames.add(m[1]);
-  for (const m of source.matchAll(/\blocal\s+([A-Za-z_]\w*)\s*=\s*(?:CFrame\.\w+\s*\(|[\w.:[\]"]*(?:\.CFrame|:GetPivot\(\)|:GetModelCFrame\(\)|:GetPrimaryPartCFrame\(\))\s*(?:$|[\r\n;*]|--))/gm)) cframeNames.add(m[1]);
+  for (const m of source.matchAll(/\blocal\s+([A-Za-z_]\w*)\s*=\s*(?:CFrame\.\w+\s*\(|[\w.:[\]"]*(?:\.CFrame|:GetPivot\(\)|:GetModelCFrame\(\)|:GetPrimaryPartCFrame\(\)|:\w*CFrame\([^()\r\n]*\))\s*(?:$|[\r\n;*]|--))/gm)) cframeNames.add(m[1]);
+  // (also local x = VRService:GetUserCFrame(...), Cube Cavern's VR hands)
   for (const name of ['self', 'script', 'game', 'workspace', 'Workspace']) cframeNames.delete(name);
   let text = source;
   const changes = new Set();
