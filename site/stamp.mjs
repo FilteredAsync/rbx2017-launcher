@@ -1,4 +1,4 @@
-// Stamps the stylesheet and script links in public/*.html with a hash of
+// Stamps the stylesheet and script links in public/**/*.html with a hash of
 // their contents (?v=...). Cloudflare lets browsers keep those files for
 // 4 hours; a new address after each change makes them fetch the new one at
 // once. The pages themselves are never kept, so they always name the
@@ -18,7 +18,9 @@ const versions = Object.fromEntries(ASSETS.map((asset) => [
 ]));
 
 let changed = 0;
-for (const name of fs.readdirSync(PUBLIC).filter((file) => file.endsWith('.html'))) {
+// Every page, subfolders too (public/my/account.html).
+const pages = fs.readdirSync(PUBLIC, { recursive: true }).filter((file) => String(file).endsWith('.html'));
+for (const name of pages) {
   const file = path.join(PUBLIC, name);
   const before = fs.readFileSync(file, 'utf8');
   let after = before;
