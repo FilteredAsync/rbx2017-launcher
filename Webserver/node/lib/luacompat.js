@@ -80,6 +80,8 @@ const ENUM_NEAREST = new Map([
     RoofShingles: 'Slate', Leather: 'Fabric', Plaster: 'Concrete', Rubber: 'Plastic', Asphalt: 'Concrete', Basalt: 'Slate', Ground: 'Grass', Mud: 'Grass', Salt: 'Sand', Sandstone: 'Slate', Limestone: 'Slate', Pavement: 'Concrete', Rock: 'Slate', Snow: 'Ice', LeafyGrass: 'Grass', Glacier: 'Ice', CrackedLava: 'Slate' }],
   ['EasingStyle', { Cubic: 'Quad', Exponential: 'Quint', Circular: 'Sine' }],
   ['AnimationPriority', { Action2: 'Action', Action3: 'Action', Action4: 'Action' }],
+  // GetUserCFrame(Enum.UserCFrame.Floor) (Cube Cavern): a string can't be passed; without VR both give CFrame.new()
+  ['UserCFrame', { Floor: 'Head' }],
 ]);
 
 // Classes the 2017 engine has (for GetService of newer services).
@@ -1204,6 +1206,12 @@ function convertSource(source, options = {}) {
     text = split.text;
     changes.add('newer properties set with others');
   }
+  // GetUserCFrame(("Floor")) from earlier conversions (a string can't be passed
+  // for an enum): Head, as Enum.UserCFrame.Floor now becomes (see ENUM_NEAREST).
+  text = text.replace(/(:GetUserCFrame(?:Enabled)?\(\s*)\(\s*"Floor"\s*\)(\s*\))/g, (match, open, close) => {
+    changes.add('newer Enum items');
+    return `${open}Enum.UserCFrame.Head${close}`;
+  });
   // BasePart.AssemblyLinearVelocity/AssemblyAngularVelocity (2020) are the
   // part's Velocity/RotVelocity in 2017.
   text = text.replace(/\.Assembly(Linear|Angular)Velocity\b/g, (match, kind) => {
