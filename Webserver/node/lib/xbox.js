@@ -16,6 +16,8 @@ const votes = require('./votes');
 const friends = require('./friends');
 const presence = require('./presence');
 const gamethumbs = require('./gamethumbs');
+const favorites = require('./favorites');
+const ownership = require('./ownership');
 
 const crypto = require('crypto');
 
@@ -168,6 +170,30 @@ module.exports = function xboxApi({ send, sendUtf8, sendJson, launcher, sessionC
     sendJson(ctx, 200, page(ctx, items));
   }
 
+  // games/moreresultsuncached-json: the home screen's "My Favorites" row
+  // (sortFilter=MyFavorite). "My Recent" stays empty.
+  function moreResults(ctx) {
+    const viewer = accounts.fromRequest(ctx.req);
+    if (!viewer || q(ctx, 'sortFilter').toLowerCase() !== 'myfavorite') return sendJson(ctx, 200, []);
+    const games = new Map(launcher.gameList().map((game) => [game.placeId, game]));
+    const items = favorites.list(viewer.userId).map((placeId) => games.get(placeId)).filter(Boolean).map((game) => tile(game, viewer));
+    sendJson(ctx, 200, page(ctx, items));
+  }
+
+  // The heart on a game's page. The app shows "slow down" for any answer with a
+  // message, so a refusal (guests) has none.
+  function toggleFavorite(ctx) {
+    const viewer = accounts.fromRequest(ctx.req);
+    const placeId = q(ctx, 'assetId');
+    if (!viewer || !findGame(placeId)) return sendJson(ctx, 200, { success: false });
+    try {
+      favorites.toggle(placeId, viewer.userId);
+    } catch (error) {
+      return sendJson(ctx, 200, { success: false });
+    }
+    sendJson(ctx, 200, { success: true });
+  }
+
   function usersGames(ctx) {
     const owner = accounts.byUserId(q(ctx, 'userid'));
     const viewer = accounts.fromRequest(ctx.req);
@@ -184,8 +210,8 @@ module.exports = function xboxApi({ send, sendUtf8, sendJson, launcher, sessionC
     const builderId = creatorId(game.creator);
     sendJson(ctx, 200, {
       AssetId: Number(game.placeId), Name: game.name, Description: game.description || '',
-      Created: '1/1/2017', Updated: '1/1/2017', FavoritedCount: 0,
-      Url: `/games/${game.placeId}/`, ReportAbuseUrl: '', IsFavoritedByUser: false,
+      Created: '1/1/2017', Updated: '1/1/2017', FavoritedCount: favorites.count(game.placeId),
+      Url: `/games/${game.placeId}/`, ReportAbuseUrl: '', IsFavoritedByUser: Boolean(viewer && favorites.isFavorite(game.placeId, viewer.userId)),
       IsCreatedByUser: Boolean(viewer && builderId && viewer.userId === builderId), VisitedCount: 0,
       MaxPlayers: game.maxPlayers || 0, Builder: game.creator || '', BuilderId: builderId, BuilderUrl: '',
       IsPlayable: Boolean(game.canStart || game.servers.length), ReasonProhibited: 'None', ReasonProhibitedMessage: '',
@@ -329,6 +355,137 @@ module.exports = function xboxApi({ send, sendUtf8, sendJson, launcher, sessionC
     sendJson(ctx, 200, { UserPresences: ids.slice(0, 200).map((id) => Object.assign({ VisitorId: Number(id) || 0 }, onlineStatus(id))) });
   }
 
+  // --- avatar store -----------------------------------------------------------------------
+  // Packages are Roblox's own classic body bundles (the launcher's Packages
+  // list), for Robux. A package's "AssetId" and "ProductId" in the app are its
+  // bundle ID; its picture comes from bundle-thumbnail/image.
+  const STORE_PAGES = 4; // 30 packages a page
+  const STORE_TTL_MS = 30 * 60 * 1000;
+  let storeCache = null; // { at, packages: [{ id, name, price }] }
+  async function storePackages() {
+    if (storeCache && storeCache.at > Date.now() - STORE_TTL_MS) return storeCache.packages;
+    const packages = [];
+    let cursor = '';
+    for (let i = 0; i < STORE_PAGES; i++) {
+      const page = await launcher.packagePage(cursor);
+      if (page.error) break;
+      for (const item of page.items) if (item.price !== null && !packages.some((pack) => pack.id === item.id)) packages.push(item);
+      cursor = page.nextCursor;
+      if (!cursor) break;
+    }
+    if (packages.length > 0) storeCache = { at: Date.now(), packages };
+    return packages;
+  }
+
+  const packageImage = (ctx, bundleId) => `${baseOf(ctx)}bundle-thumbnail/image?bundleId=${encodeURIComponent(bundleId)}&width=420&height=420`;
+  const product = (ctx, pack) => ({
+    AssetId: Number(pack.id), ProductId: Number(pack.id), Name: pack.name, Description: '',
+    PriceInRobux: pack.price, IsPublicDomain: pack.price === 0, Creator: { Id: 1, Name: 'Roblox' },
+    ImageUrl: packageImage(ctx, pack.id),
+  });
+
+  async function storeContents(ctx) {
+    const start = Math.max(0, int(ctx, 'startIndex'));
+    const count = Math.min(100, Math.max(1, int(ctx, 'count', 20)));
+    const packages = await storePackages();
+    sendJson(ctx, 200, { Products: packages.slice(start, start + count).map((pack) => product(ctx, pack)) });
+  }
+
+  // users/inventory/list-json?assetTypeId=32: the packages the player bought.
+  async function ownedPackages(ctx) {
+    const who = accounts.fromRequest(ctx.req);
+    const empty = { IsValid: true, Data: { TotalItems: 0, Start: 0, End: 0, Page: 1, Items: [] } };
+    if (!who || q(ctx, 'assetTypeId') !== '32') return sendJson(ctx, 200, empty);
+    const items = [];
+    for (const bundleId of ownership.bundleIds(who.userId).slice(0, 100)) {
+      const bundle = await launcher.bundleItems(bundleId);
+      if (bundle.error) continue;
+      items.push({
+        Item: { AssetId: Number(bundleId), Name: bundle.name, AssetType: 32 },
+        Product: { PriceInRobux: bundle.price, IsPublicDomain: bundle.price === 0 },
+        ProductId: Number(bundleId), Creator: { Id: 1, Name: 'Roblox' }, ImageUrl: packageImage(ctx, bundleId),
+      });
+    }
+    sendJson(ctx, 200, { IsValid: true, Data: { TotalItems: items.length, Start: 0, End: items.length, Page: 1, Items: items } });
+  }
+
+  // The package whose parts the saved avatar wears, if the player owns it.
+  async function wornPackage(who) {
+    const saved = await launcher.describeAvatar(who);
+    const worn = new Set(saved.assets.map((asset) => asset.id));
+    for (const bundleId of ownership.bundleIds(who.userId).slice(0, 100)) {
+      const bundle = await launcher.bundleItems(bundleId);
+      if (!bundle.error && bundle.items.length > 0 && bundle.items.every((item) => worn.has(item.id))) return Number(bundleId);
+    }
+    return null;
+  }
+
+  async function currentlyWearing(ctx) {
+    const who = accounts.fromRequest(ctx.req);
+    sendJson(ctx, 200, { AssetId: who ? await wornPackage(who) : null });
+  }
+
+  // POST appearance/set-clothing?assetIds=<bundle>
+  async function wearPackage(ctx) {
+    const who = accounts.fromRequest(ctx.req);
+    const bundleId = q(ctx, 'assetIds').split(',')[0];
+    if (!who || !ownership.ownsBundle(who.userId, bundleId)) return sendJson(ctx, 200, { success: false });
+    const result = await launcher.wearBundle(who, bundleId);
+    sendJson(ctx, 200, { success: Boolean(result.ok) });
+  }
+
+  // POST API/Item.ashx?rqtype=purchase&productID=<bundle>&expectedPrice=&expectedSellerID=
+  // The app counts TransactionVerb "bought" as owned.
+  async function buyPackage(ctx) {
+    const who = accounts.fromRequest(ctx.req);
+    const bundleId = q(ctx, 'productID');
+    const fail = (status) => sendJson(ctx, 200, { success: false, status, balanceAfterSale: who ? robux.balance(who.userId) : 0 });
+    if (!who) return fail('NotAuthorized');
+    if (q(ctx, 'rqtype').toLowerCase() !== 'purchase' || !/^\d{1,12}$/.test(bundleId)) return fail('InvalidArguments');
+    if (ownership.ownsBundle(who.userId, bundleId)) {
+      return sendJson(ctx, 200, { success: true, TransactionVerb: 'bought', balanceAfterSale: robux.balance(who.userId) });
+    }
+    const bundle = await launcher.bundleItems(bundleId);
+    if (bundle.error || bundle.price === null) return fail('NotForSale');
+    if (String(bundle.price) !== q(ctx, 'expectedPrice')) return fail('PriceChanged');
+    const paid = robux.charge(who.userId, bundle.price, bundle.name);
+    if (!paid.ok) return fail('InsufficientFunds');
+    try {
+      ownership.grantBundle(who.userId, bundleId);
+    } catch (error) {
+      if (bundle.price > 0) robux.credit(who.userId, bundle.price, `Refund: ${bundle.name}`);
+      return fail('InternalError');
+    }
+    sendJson(ctx, 200, { success: true, TransactionVerb: 'bought', AssetName: bundle.name, balanceAfterSale: robux.balance(who.userId) });
+  }
+
+  // --- Robux store --------------------------------------------------------------------------
+  // The console store's packs, free here: "buying" one adds its Robux, up to
+  // robux.storeDaily a day (lib/robux.js). The app reads the amount from the
+  // digits in Name and shows DisplayPrice.
+  const ROBUX_PACKS = [400, 800, 1700, 4500, 10000];
+  const packName = (amount) => `${amount.toLocaleString('en-US')} ROBUX`;
+  // Only packs that fit in a day's limit (none when the store is off).
+  function robuxProducts(ctx) {
+    const limit = robux.rules().storeDaily;
+    sendJson(ctx, 200, ROBUX_PACKS.filter((amount) => amount <= limit).map((amount) => ({
+      ProductId: `robux-${amount}`, Name: packName(amount), ReducedName: packName(amount), Description: '',
+      DisplayPrice: '$0.00', DisplayListPrice: '$0.00', IsBundle: false, IsPartOfAnyBundle: false, TitleId: 0,
+    })));
+  }
+
+  // POST xbox/robux-purchase?productId=robux-<amount>
+  function robuxPurchase(ctx) {
+    const who = accounts.fromRequest(ctx.req);
+    const match = /^robux-(\d{1,6})$/.exec(q(ctx, 'productId'));
+    const amount = match ? Number(match[1]) : 0;
+    if (!who) return sendJson(ctx, 200, { success: false, message: 'Sign in to an account to get Robux.' });
+    if (!ROBUX_PACKS.includes(amount)) return sendJson(ctx, 200, { success: false, message: 'Unknown pack.' });
+    const result = robux.storePack(who.userId, amount, packName(amount));
+    if (result.error) return sendJson(ctx, 200, { success: false, message: result.error, balance: robux.balance(who.userId) });
+    sendJson(ctx, 200, { success: true, balance: result.balance });
+  }
+
   function balance(ctx) {
     const who = viewerOf(ctx);
     // The store reads "Robux" from my/platform-currency-budget and "robux" from currency/balance.
@@ -351,8 +508,9 @@ module.exports = function xboxApi({ send, sendUtf8, sendJson, launcher, sessionC
       [/^xbox\/translate\/?$/i, json([])],
       [/^xbox\/get-login-consecutive-days\/?$/i, json({ count: 1 })],
       // The avatar store pages until a page has fewer than its count of Products.
-      [/^xbox\/catalog\/contents\/?$/i, json({ Products: [] })],
-      [/^xbox\/currently-wearing\/?$/i, json({ assetIds: [] })],
+      [/^xbox\/catalog\/contents\/?$/i, storeContents],
+      [/^xbox\/currently-wearing\/?$/i, currentlyWearing],
+      [/^appearance\/set-clothing\/?$/i, wearPackage],
       [/^appearance\/get-my-user-outfits\/?$/i, json({ data: [], total: 0 })],
       [/^appearance\/wear-user-outfit\/?$/i, json({ success: false })],
       [/^user\/get-vote-count\/?$/i, json({ VoteCount: 0 })],
@@ -360,16 +518,18 @@ module.exports = function xboxApi({ send, sendUtf8, sendJson, launcher, sessionC
       [/^users\/online-status\/?$/i, onlineStatuses],
       [/^my\/friendsonline\/?$/i, friendsOnline],
       [/^(?:my\/platform-currency-budget|currency\/balance)\/?$/i, balance],
+      [/^xbox\/robux-products\/?$/i, robuxProducts],
+      [/^xbox\/robux-purchase\/?$/i, robuxPurchase],
       // the Lua screens (assetgame.)
       [/^games\/default-sorts\/?$/i, json(SORTS.map((sort) => Object.assign({ TimeOptionsAvailable: false, DefaultTimeOption: 0, GenresOptionsAvailable: false }, sort)))],
       [/^games\/list-json\/?$/i, listJson],
-      [/^games\/moreresultsuncached-json\/?$/i, json([])],
+      [/^games\/moreresultsuncached-json\/?$/i, moreResults],
       [/^games\/list-users-games-json\/?$/i, usersGames],
       [/^places\/api-get-details\/?$/i, details],
       [/^places\/icons\/json\/?$/i, icon],
       [/^placeitem\/gamedetailsvotingpaneljson\/?$/i, votingPanel],
       [/^voting\/vote\/?$/i, vote],
-      [/^favorite\/toggle\/?$/i, json({ success: false, message: 'Favorites are not on this server yet.' })],
+      [/^favorite\/toggle\/?$/i, toggleFavorite],
       [/^games\/getrecommendedgamesjson\/?$/i, recommended],
       [/^thumbnail\/place-thumbnails\/?$/i, placeThumbnails],
       [/^badges\/list-badges-for-place\/json\/?$/i, (ctx) => sendJson(ctx, 200, { PlaceId: Number(q(ctx, 'placeId')) || 0, GameBadges: [] })],
@@ -380,8 +540,8 @@ module.exports = function xboxApi({ send, sendUtf8, sendJson, launcher, sessionC
       [/^avatar-thumbnail\/json\/?$/i, avatarThumbnail],
       [/^avatar-thumbnails\/?$/i, json({ Url: '', Final: true })],
       [/^friends\/json\/?$/i, friendsJson],
-      [/^users\/inventory\/list-json\/?$/i, json({ IsValid: true, Data: { TotalItems: 0, Start: 0, End: 0, Page: 1, Items: [] } })],
-      [/^api\/item\.ashx$/i, json({ success: false, status: 'Purchases from the Xbox app are not on this server yet.' })],
+      [/^users\/inventory\/list-json\/?$/i, ownedPackages],
+      [/^api\/item\.ashx$/i, buyPackage],
     ],
   };
 };

@@ -8,15 +8,17 @@
 //   - time in games: an amount every few minutes, up to a cap a day
 //     (counted from the game servers' own player lists)
 //   - each badge a game awards them (only the game's own Roblox badges)
+//   - the Xbox app's Robux store: its packs cost nothing and add Robux, up to
+//     storeDaily R$ a day per account (0 turns the store off)
 // and spend it on game passes, items and developer products in games
 // (lib/marketplace.js). Admins can give or take some on /manage.
 //
 // The amounts can be changed in config/server.json, for example
-//   "robux": { "start": 200, "daily": 25, "playEvery": 10, "playAmount": 5, "playDailyMax": 60, "badge": 10 }
+//   "robux": { "start": 200, "daily": 25, "playEvery": 10, "playAmount": 5, "playDailyMax": 60, "badge": 10, "storeDaily": 1000 }
 // (playEvery in minutes; playDailyMax in R$).
 //
 // data/robux.json: { "<userId>": { balance, dailyDay, playDay, playMinutes,
-//   playPaid, history: [{ at, amount, reason, balance }] } }
+//   playPaid, storeDay, storePaid, history: [{ at, amount, reason, balance }] } }
 
 const fs = require('fs');
 const path = require('path');
@@ -24,7 +26,7 @@ const core = require('./core');
 
 const DATA = core.rootPath('Webserver', 'node', 'data');
 const FILE = path.join(DATA, 'robux.json');
-const DEFAULTS = { start: 200, daily: 25, playEvery: 10, playAmount: 5, playDailyMax: 60, badge: 10 };
+const DEFAULTS = { start: 200, daily: 25, playEvery: 10, playAmount: 5, playDailyMax: 60, badge: 10, storeDaily: 1000 };
 const HISTORY = 30;
 const MAX_AMOUNT = 1000000000;
 
@@ -135,6 +137,30 @@ function charge(userId, amount, reason) {
   return { ok: true, balance: entry.balance };
 }
 
+// A Robux pack from the Xbox app's store -> { balance, added } or { error, left }.
+// A pack bigger than what is left today is refused (not cut down), so a player
+// can always see what a pack gives.
+function storePack(userId, amount, packName) {
+  const entry = entryFor(userId);
+  const add = Math.floor(Number(amount));
+  if (!entry) return { error: 'Sign in to an account to get Robux.', left: 0 };
+  if (!(add > 0)) return { error: 'Unknown pack.', left: 0 };
+  const limit = rules().storeDaily;
+  const day = today();
+  const paid = entry.storeDay === day ? Number(entry.storePaid) || 0 : 0;
+  const left = Math.max(0, limit - paid);
+  if (add > left) {
+    if (entry.fresh) commit(entry);
+    return { error: limit === 0 ? 'The Robux store is off on this server.' : `That's more than today's limit. You can get ${left} more R$ today.`, left };
+  }
+  entry.balance = Math.min(entry.balance + add, MAX_AMOUNT);
+  entry.storeDay = day;
+  entry.storePaid = paid + add;
+  note(entry, add, `Xbox store: ${packName}`);
+  commit(entry);
+  return { balance: entry.balance, added: add };
+}
+
 // An admin's change (+ or -) -> { balance } or { error }.
 function adjust(userId, amount, reason) {
   const change = Math.trunc(Number(amount));
@@ -220,4 +246,4 @@ function balances() {
   return out;
 }
 
-module.exports = { rules, balance, credit, charge, adjust, checkIn, playMinute, badgeEarned, summary, balances, DEFAULTS };
+module.exports = { rules, balance, credit, charge, adjust, storePack, checkIn, playMinute, badgeEarned, summary, balances, DEFAULTS };

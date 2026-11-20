@@ -653,6 +653,21 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
     return { avatar: { bodyColors: colors, assets: result } };
   }
 
+  // Wear a package (bundle): its body parts, head and face replace those the
+  // account's saved avatar wears; hats, clothes and colors stay.
+  async function wearBundle(who, bundleId) {
+    const bundle = await bundleItems(String(bundleId));
+    if (bundle.error) return bundle;
+    if (bundle.items.length === 0) return { error: 'This package has nothing to wear.' };
+    const current = await describeAvatar(who);
+    const replaced = new Set(bundle.items.map((item) => item.typeId));
+    const assets = current.assets.filter((asset) => !replaced.has(asset.typeId)).concat(bundle.items);
+    const cleaned = await cleanAvatar({ bodyColors: current.bodyColors, assets });
+    if (cleaned.error) return cleaned;
+    avatarStore.set(who.userId, cleaned.avatar, 'edited');
+    return { ok: true };
+  }
+
   // --- catalog ----------------------------------------------------------------------------
 
   // Roblox's catalog search answers "429 Too Many Requests" after a few quick
@@ -695,6 +710,7 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
       name: String(raw.name || ''),
       typeId: bundle ? null : Number(raw.assetType) || null,
       creator: String(raw.creatorName || ''),
+      price: Number.isInteger(raw.price) ? raw.price : null,
     };
     if (!bundle && item.typeId) rememberDetails(item.id, item.typeId, item.name);
     return item;
@@ -775,7 +791,10 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
       .map((item) => ({ id: String(item.id), name: String(item.name || ''), typeId: Number(item.assetType) || null }))
       .filter((item) => item.typeId && (BODY_PART_TYPES.has(item.typeId) || item.typeId === 17 || item.typeId === 18));
     for (const item of items) rememberDetails(item.id, item.typeId, item.name);
-    const result = { id: String(id), name: String(data.name || ''), items };
+    // price: Robux, 0 when free, null when not for sale.
+    const product = data.product || {};
+    const price = product.isFree ? 0 : product.isForSale && Number.isInteger(product.priceInRobux) ? product.priceInRobux : null;
+    const result = { id: String(id), name: String(data.name || ''), description: String(data.description || ''), price, items };
     bundleCache.set(id, result);
     return result;
   }
@@ -1387,5 +1406,10 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
     guestIdentity,
     mobileJoin,
     gameList,
+    // the Xbox app's avatar store (lib/xbox.js)
+    packagePage: (cursor) => search('packages', '', cursor || '', true),
+    bundleItems: (id) => bundleItems(String(id)),
+    wearBundle,
+    describeAvatar,
   };
 };

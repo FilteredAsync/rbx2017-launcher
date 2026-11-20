@@ -49,4 +49,40 @@ function grant(userId, assetId) {
   return true;
 }
 
-module.exports = { owns, grant };
+// Packages (Roblox bundles) bought in the Xbox app's avatar store, kept as
+// "bundle:<id>" next to the assets.
+const bundleKey = (bundleId) => (id(bundleId) ? `bundle:${id(bundleId)}` : null);
+
+function ownsBundle(userId, bundleId) {
+  const user = id(userId);
+  const key = bundleKey(bundleId);
+  const owned = user && key ? load()[user] : null;
+  return Boolean(owned && typeof owned === 'object' && owned[key]);
+}
+
+// -> true when the package is new for the player.
+function grantBundle(userId, bundleId) {
+  const user = id(userId);
+  const key = bundleKey(bundleId);
+  if (!user || !key) return false;
+  const data = load();
+  if (!data[user] || typeof data[user] !== 'object') data[user] = {};
+  if (data[user][key]) return false;
+  data[user][key] = core.isoDate();
+  fs.mkdirSync(DATA, { recursive: true });
+  if (!core.writeFileAtomic(FILE, `${JSON.stringify(data, null, 2)}\n`)) throw new Error('could not save what players own');
+  return true;
+}
+
+// -> the package IDs a player owns, newest first.
+function bundleIds(userId) {
+  const user = id(userId);
+  const owned = user ? load()[user] : null;
+  if (!owned || typeof owned !== 'object') return [];
+  return Object.entries(owned)
+    .filter(([key]) => key.startsWith('bundle:'))
+    .sort((a, b) => String(b[1]).localeCompare(String(a[1])))
+    .map(([key]) => key.slice('bundle:'.length));
+}
+
+module.exports = { owns, grant, ownsBundle, grantBundle, bundleIds };

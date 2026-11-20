@@ -393,6 +393,16 @@ function convertProperties(className, props, options, counts) {
     return '';
   });
 
+  // UIAspectRatioConstraint.AspectRatio must be above 0 in 2017: one at 0
+  // stops the whole file from loading, in Studio and on the game server
+  // ("AspectRatio set to a non-positive value"; Build A Boat for Treasure has
+  // 102). 1 is Roblox's default.
+  if (className === 'UIAspectRatioConstraint') {
+    const before = out;
+    out = out.replace(/(<float\s+name="AspectRatio">)([^<]*)(<\/float>)/, (match, open, value, close) => (Number(value) > 0 ? match : `${open}1${close}`));
+    if (out !== before) counts.aspectRatios++;
+  }
+
   if (SCRIPT_CLASSES.has(className)) {
     const name = xmlUnescape((/<string\s+name="Name">([^<]*)<\/string>/.exec(out) || [])[1] || className);
     out = out.replace(/(<ProtectedString\s+name="Source">)([\s\S]*?)(<\/ProtectedString>)/, (match, open, body, close) => {
@@ -696,7 +706,7 @@ function convertPlace(input, options) {
   }
   const counts = {
     robloxLinks: 0, thumbnails: 0, gameAssets: 0, contentIds: 0, fonts: 0, droppedProperties: 0, intValues: 0,
-    attributes: 0, attributeSets: 0, attributeValues: 0, attributesInUse: false, wrappingLists: 0, sharedStrings: 0, newCsg: 0, compoundAssignments: 0, materials: 0, unionCollision: 0, unionShapes: 0, filteringEnabled: 0, pgsSolver: 0, streaming: 0, gamePatches: new Set(),
+    attributes: 0, attributeSets: 0, attributeValues: 0, attributesInUse: false, wrappingLists: 0, sharedStrings: 0, newCsg: 0, compoundAssignments: 0, materials: 0, unionCollision: 0, unionShapes: 0, filteringEnabled: 0, aspectRatios: 0, pgsSolver: 0, streaming: 0, gamePatches: new Set(),
     compatScripts: 0, compatChanges: new Map(), madeFolders: new Map(), standIns: new Map(), chatSetAside: 0, coreGuiSetAside: 0, localizationTables: 0, playerModule: false,
     gameAssetNames: new Set(), unsupportedThumbnails: new Set(), luauScripts: [], unknownClasses: new Map(),
   };
@@ -918,6 +928,7 @@ function summarize(counts, options) {
   if (counts.madeFolders.size > 0) {
     lines.push(`  ${[...counts.madeFolders].map(([name, n]) => `${n} ${name}${n === 1 ? '' : 's'}`).join(', ')} where the 2017 engine does not allow them (it would refuse the whole place) -> folders of the same name`);
   }
+  if (counts.aspectRatios > 0) lines.push(`  ${counts.aspectRatios} UIAspectRatioConstraint AspectRatio set to 1 (0 stops 2017 from loading the file)`);
   if (counts.filteringEnabled > 0) lines.push('  FilteringEnabled turned on (the file leaves it out, and the 2017 engine would run the game with it off)');
   if (counts.pgsSolver > 0) lines.push('  the PGS physics solver turned on (the file leaves it out; with the older 2017 solver, forces and newer constraints do nothing)');
   if (counts.streaming > 0) lines.push('  StreamingEnabled turned off (with 2017 streaming, newer games wait for parts that never arrive)');
