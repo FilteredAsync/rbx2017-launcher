@@ -10,6 +10,15 @@
 //   GET  /api/me        -> {account|null, robux|null, turnstile: site key|null}
 //   GET  /api/friends   -> {friends: [{userId, name, presence, placeId, gameName, gameId}], requests}
 //   GET  /api/avatar/<userId>   an account's avatar picture (cached 5 minutes)
+//   GET  /api/friends/all       friends, requests to you and from you
+//   POST /api/friends/<request|accept|decline|cancel|remove>  {userId} or {name}
+//   GET  /api/people?search=    players; GET /api/profile/<userId> a profile
+//   GET|POST /api/groups...     groups (pages public; POST groups/<id>/emblem takes PNG/JPG bytes)
+//   GET  /api/group-emblem/<id>?v=  a group's picture (cached at the edge)
+//   GET|POST /api/membership..., /api/limiteds..., /api/trades...   Builders Club, limiteds, trades
+//   GET|POST /api/forum...      the forums (reading needs no sign-in)
+//   GET|POST /api/talk/<counts|chat...|messages...>  chat and private messages
+//                               (the game server's lib/talkapi.js, passed on as is)
 //
 // The session is the game server's own token, in an HttpOnly cookie page
 // scripts can't read. The game server limits wrong passwords per address;
@@ -21,7 +30,8 @@ import { cached, gameServer, image, json, SECURITY_HEADERS } from './edge.js';
 
 const COOKIE = '__Host-rbx2017';
 const MAX_AGE = 30 * 24 * 3600;
-const MAX_BODY = 4096;
+// Forum posts are up to 4000 characters.
+const MAX_BODY = 16 * 1024;
 
 function sessionOf(request) {
   const match = new RegExp(`(?:^|;\\s*)${COOKIE}=([0-9a-f]{64})(?:;|$)`).exec(request.headers.get('Cookie') || '');
@@ -181,7 +191,7 @@ async function friends(context) {
 // ---- the catalog, inventories and account settings (game server lib/catalog.js) ----
 
 const CATEGORY_KEYS = new Set(['hats', 'hair', 'faces', 'heads', 'shirts', 'pants', 'tshirts', 'packages', 'face', 'neck', 'shoulder',
-  'front', 'back', 'waist', 'torsos', 'rightarms', 'leftarms', 'leftlegs', 'rightlegs', 'gear']);
+  'front', 'back', 'waist', 'torsos', 'rightarms', 'leftarms', 'leftlegs', 'rightlegs', 'gear', 'limiteds']);
 
 const price = (value) => (Number.isInteger(value) && value >= 0 ? value : null);
 
@@ -191,7 +201,15 @@ function shopItem(item) {
     typeId: Number(item.typeId) || null, price: price(item.price), owned: typeof item.owned === 'boolean' ? item.owned : null,
     packageId: /^\d{1,12}$/.test(String(item.packageId || '')) ? String(item.packageId) : null,
     packageName: item.packageName ? String(item.packageName).slice(0, 100) : null, packagePrice: price(item.packagePrice),
+    limited: Boolean(item.limited), limitedInfo: limitedInfo(item.limitedInfo),
   };
+}
+
+// A limited's stock here: { remaining, stock, rap, from } (lib/limiteds.js on the game server).
+function limitedInfo(info) {
+  if (!info || typeof info !== 'object') return null;
+  const n = (value) => (Number.isFinite(value) && value >= 0 ? Math.floor(value) : null);
+  return { remaining: n(info.remaining), stock: n(info.stock), rap: n(info.rap), from: info.from === 'stock' || info.from === 'resale' ? info.from : null };
 }
 
 // GET /api/catalog?category=&keyword=&cursor=: with the session the items
@@ -199,7 +217,7 @@ function shopItem(item) {
 async function catalogList(context) {
   const query = new URL(context.request.url).searchParams;
   const category = query.get('category') || 'hats';
-  if (!CATEGORY_KEYS.has(category) || category === 'gear') return reply({ error: 'Unknown category.' }, 400);
+  if (!CATEGORY_KEYS.has(category)) return reply({ error: 'Unknown category.' }, 400);
   const keyword = (query.get('keyword') || '').trim().slice(0, 50);
   const cursor = (query.get('cursor') || '').slice(0, 500);
   const asked = new URLSearchParams({ category });
@@ -231,7 +249,8 @@ async function itemPage(context, id) {
   return reply({
     id: String(data.id), name: String(data.name || '').slice(0, 100), description: String(data.description || '').slice(0, 1000),
     typeId: Number(data.typeId) || null, typeName: data.typeName ? String(data.typeName) : null, price: price(data.price),
-    limited: Boolean(data.limited), creator: String(data.creator || 'Roblox').slice(0, 60),
+    limited: Boolean(data.limited), limitedInfo: limitedInfo(data.limitedInfo), classic: Boolean(data.classic),
+    creator: String(data.creator || 'Roblox').slice(0, 60),
     created: data.created ? String(data.created).slice(0, 40) : null, updated: data.updated ? String(data.updated).slice(0, 40) : null,
     owned: typeof data.owned === 'boolean' ? data.owned : null, balance: Number.isFinite(data.balance) ? data.balance : null,
   });
@@ -288,8 +307,105 @@ async function password(context) {
   return reply({ ok: true });
 }
 
+// ---- friends, people, chat and messages (the visitor's own data, passed on) ----
+
+const TALK_ROUTE = /^(?:counts|chat|chat\/(?:start|group)|chat\/\d{1,12}(?:\/(?:send|read|typing|add|remove|leave|rename))?|messages|messages\/\d{1,12}(?:\/(?:read|archive))?)$/;
+const QUERY_KEYS = new Set(['after', 'before', 'folder', 'page', 'search', 'role', 'kind']);
+
+function queryOf(request) {
+  const params = new URL(request.url).searchParams;
+  const kept = new URLSearchParams();
+  for (const [key, value] of params) {
+    const ok = key === 'search' ? /^[0-9A-Za-z_ '.&!-]{0,50}$/.test(value) : /^[0-9A-Za-z_]{0,20}$/.test(value);
+    if (QUERY_KEYS.has(key) && ok) kept.set(key, value);
+  }
+  const text = kept.toString();
+  return text ? `?${text}` : '';
+}
+
+async function passOn(context, method, route, { needsSession = true } = {}) {
+  const { request } = context;
+  if (request.method !== method) return reply({ error: `Use ${method}.` }, 405);
+  if (method === 'POST' && !sameOrigin(request)) return reply({ error: 'Do this from this site.' }, 403);
+  const token = sessionOf(request);
+  if (!token && needsSession) return reply({ error: 'Log in first.' }, 401);
+  let body = null;
+  if (method === 'POST') {
+    body = await readBody(request);
+    if (!body) return reply({ error: 'That was too long.' }, 400);
+  }
+  const result = await ask(context, method, `${route}${method === 'GET' ? queryOf(request) : ''}`, { token, body });
+  if (result.status === 401) return reply({ error: 'Log in first.' }, 401, token ? clearedCookie() : null);
+  if (result.status === 404 && /unknown launcher request/i.test(String(result.data.error || ''))) {
+    return reply({ error: "The game server doesn't have this yet." }, 404);
+  }
+  return reply(result.data, result.status >= 500 ? 502 : result.status);
+}
+
+const ECONOMY_ROUTE = /^(?:membership(?:\/buy|\/renew)?|limiteds\/(?:of|item)\/\d{1,15}|limiteds\/\d{1,12}\/sell|trades|trades\/\d{1,12}(?:\/(?:accept|decline))?)$/;
+const FORUM_ROUTE = /^forum(?:\/\d{1,3}(?:\/threads)?|\/thread\/\d{1,12}(?:\/(?:reply|moderate|delete))?|\/post\/\d{1,12}\/(?:edit|delete|report))?$/;
+const GROUP_ROUTE = /^groups(?:\/mine|\/of\/\d{1,15}|\/\d{1,15}(?:\/(?:members|wall|requests|join|leave|settings|roles|transfer|emblem|emblem\/remove|shout|delete|requests\/\d{1,15}\/(?:accept|decline)|members\/\d{1,15}\/(?:rank|kick)|wall\/\d{1,12}\/delete))?)?$/;
+const MAX_EMBLEM = 1024 * 1024;
+
+// A group picture: PNG or JPG bytes, passed on as they are.
+async function groupEmblemUpload(context, route) {
+  const { request } = context;
+  if (!sameOrigin(request)) return reply({ error: 'Do this from this site.' }, 403);
+  const token = sessionOf(request);
+  if (!token) return reply({ error: 'Log in first.' }, 401);
+  const type = String(request.headers.get('Content-Type') || '');
+  if (!/^image\/(?:png|jpeg)$/i.test(type)) return reply({ error: 'Use a PNG or JPG picture.' }, 415);
+  if (Number(request.headers.get('Content-Length') || 0) > MAX_EMBLEM) return reply({ error: 'Pictures can be up to 1 MB.' }, 413);
+  const bytes = await request.arrayBuffer();
+  if (bytes.byteLength > MAX_EMBLEM) return reply({ error: 'Pictures can be up to 1 MB.' }, 413);
+  const headers = { Accept: 'application/json', 'User-Agent': 'rbx2017-site', Authorization: `Bearer ${token}`, 'Content-Type': type };
+  const visitor = request.headers.get('CF-Connecting-IP');
+  if (context.env.SITE_KEY && visitor) {
+    headers['X-Rbx-Site-Key'] = context.env.SITE_KEY;
+    headers['X-Rbx-Client-Ip'] = visitor;
+  }
+  try {
+    const response = await fetch(`${gameServer(context.env)}/api/launcher/${route}`, { method: 'POST', headers, body: bytes, signal: AbortSignal.timeout(20000) });
+    let data = {};
+    try { data = await response.json(); } catch (error) { data = {}; }
+    return reply(data, response.status >= 500 ? 502 : response.status);
+  } catch (error) {
+    return reply({ error: 'The game server did not answer. Try again in a minute.' }, 502);
+  }
+}
+
+function socialRoute(context, route) {
+  const method = context.request.method === 'POST' ? 'POST' : 'GET';
+  if (route === 'friends/all') return passOn(context, 'GET', 'friends');
+  let match;
+  if ((match = /^friends\/(request|accept|decline|cancel|remove)$/.exec(route))) return passOn(context, 'POST', `friends/${match[1]}`);
+  if (route === 'people') return passOn(context, 'GET', 'people', { needsSession: false });
+  // The forums: reading is open, posting needs the session (lib/forumapi.js on the game server).
+  if (FORUM_ROUTE.test(route)) return passOn(context, method, route, { needsSession: method === 'POST' });
+  // Builders Club, limiteds and trades (lib/economyapi.js on the game server).
+  if (ECONOMY_ROUTE.test(route)) {
+    const open = method === 'GET' && /^limiteds\/(?:of|item)\//.test(route);
+    return passOn(context, method, route, { needsSession: !open });
+  }
+  // Groups: pages are public, changes need the session (lib/groupapi.js on the game server).
+  if (GROUP_ROUTE.test(route)) {
+    if (method === 'POST' && /^groups\/\d{1,15}\/emblem$/.test(route)) return groupEmblemUpload(context, route);
+    return passOn(context, method, route, { needsSession: method === 'POST' || route === 'groups/mine' });
+  }
+  if ((match = /^group-emblem\/(\d{1,15})$/.exec(route))) {
+    if (method !== 'GET') return reply({ error: 'Use GET.' }, 405);
+    const version = (new URL(context.request.url).searchParams.get('v') || '').replace(/[^0-9a-z]/g, '').slice(0, 16);
+    return cached(context, `/group-emblem/${match[1]}?v=${version}`, () => image(`${gameServer(context.env)}/group-thumbnail/image?groupId=${match[1]}`, version ? 7 * 24 * 3600 : 300));
+  }
+  if ((match = /^profile\/(\d{1,15})$/.exec(route))) return passOn(context, 'GET', `profile/${match[1]}`, { needsSession: false });
+  if ((match = /^talk\/(.+)$/.exec(route)) && TALK_ROUTE.test(match[1])) return passOn(context, method, match[1]);
+  return null;
+}
+
 // Handles the account routes -> a Response, or null for other routes.
 export async function accountRoute(context, route) {
+  const social = socialRoute(context, route);
+  if (social) return social;
   if (route === 'login') return signIn(context, 'signin');
   if (route === 'signup') return signIn(context, 'signup');
   if (route === 'logout') return signOut(context);

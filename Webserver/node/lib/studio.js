@@ -903,8 +903,9 @@ pcall(function() history:SetEnabled(true) end)
     [/^teamtest\/(\d{1,15})\/runninggames\/?$/i, (ctx) => sendJson(ctx, 200, { games: [] })],
     [/^teamtest\/(\d{1,15})\/stopgame\/?$/i, (ctx) => sendJson(ctx, 200, {})],
     [/^badges\/list-badges-for-place\/json\/?$/i, (ctx) => sendJson(ctx, 200, { GameBadges: [], FinalPage: true })],
-    // Team Create chat needs a chat service; off for now.
-    [/^v2\/chat-settings\/?$/i, (ctx) => sendJson(ctx, 200, { chatEnabled: false })],
+    // Team Create chat (Studio, on the localhost. names): off. The phone's
+    // chat (chat.<domain>, lib/mobilechat.js) is on.
+    [/^v2\/chat-settings\/?$/i, (ctx) => sendJson(ctx, 200, { chatEnabled: /^chat\.(?!localhost\.?$)[a-z0-9-]+\./i.test(String(ctx.req.headers['x-forwarded-host'] || ctx.publicHost || ctx.req.headers.host || '').replace(/:\d+$/, '')) })],
     [/^universes\/get-universe-places\/?$/i, universePlaces],
     [/^universes\/get-aliases\/?$/i, (ctx) => sendJson(ctx, 200, { FinalPage: true, Aliases: [], PageSize: 50 })],
     [/^developerproducts\/list\/?$/i, (ctx) => sendJson(ctx, 200, { DeveloperProducts: [], FinalPage: true, PageSize: 50 })],

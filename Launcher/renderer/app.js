@@ -283,6 +283,8 @@ async function signedIn(current, created) {
   updateIdentity();
   enterShell();
   friendData = null;
+  chatView.reset();
+  groupsView.reset();
   refreshOnlinePlayers(true);
   const data = await editor.loadAccount(current.account);
   if (created) setStatus('play-status', `Welcome, ${current.account.name}!`, 'good');
@@ -292,6 +294,8 @@ async function signedIn(current, created) {
 async function playAsGuest() {
   me = null;
   guest = true;
+  chatView.reset();
+  groupsView.reset();
   updateIdentity();
   enterShell();
   const data = await editor.showGuest();
@@ -304,6 +308,8 @@ async function signOut() {
   guest = false;
   friendData = null;
   updateFriendsBadge();
+  chatView.reset();
+  groupsView.reset();
   editor.clear();
   $('avatar-img').classList.add('hidden');
   $('avatar-silhouette').classList.remove('hidden');
@@ -326,6 +332,7 @@ function updateIdentity() {
   $('account-signin').classList.toggle('hidden', Boolean(me));
   $('account-signout').classList.toggle('hidden', !me);
   $('password-panel').classList.toggle('hidden', !me || Boolean(me.offline));
+  renderMembership();
   // Managing the server is for its admins (set on its Manage games page).
   $('play-manage').classList.toggle('hidden', !(me && me.account.admin));
   robux = null;
@@ -471,9 +478,85 @@ const editor = window.AvatarEditor.create({
   onRobux: (balance) => { if (robux) showRobux(Object.assign({}, robux, { balance })); else refreshRobux(); },
 });
 
+// The Chat tab (chat.js): its badge counts unread chats and messages.
+function updateChatBadge(counts) {
+  const count = me && counts ? (counts.chat || 0) + (counts.messages || 0) : 0;
+  $('chat-badge').textContent = String(count);
+  $('chat-badge').classList.toggle('hidden', count === 0);
+}
+
+const chatView = window.ChatView.create({
+  api, el, message, personPicture, openProfile, sfx: window.sfx, getMe: () => me, onCounts: updateChatBadge,
+  onTrades: () => tradesView.activate(),
+});
+
+// Trades, in the Chat tab (trades.js).
+const tradesView = window.TradesView.create({
+  api, el, message, openProfile, getMe: () => me,
+  onRobux: (balance) => { if (robux) showRobux(Object.assign({}, robux, { balance })); else refreshRobux(); },
+});
+
+// Settings > Account: Builders Club (servers from 2026-11-21 on).
+async function renderMembership() {
+  const panel = $('bc-panel');
+  if (!me || me.offline) {
+    panel.classList.add('hidden');
+    return;
+  }
+  let data;
+  try {
+    data = await api.economy('GET', 'membership');
+  } catch (error) {
+    panel.classList.add('hidden');
+    return;
+  }
+  panel.classList.remove('hidden');
+  $('bc-status').textContent = data.tier
+    ? `${data.name} until ${new Date(data.until).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}.`
+    : 'Not a member. Members get daily R$, can trade limiteds and join more groups.';
+  const box = $('bc-tiers');
+  box.textContent = '';
+  for (const tier of data.tiers) {
+    const card = el('div', `bc-tier${data.tier === tier.key ? ' current' : ''}`);
+    card.append(el('b', '', tier.name), el('span', '', `R$ ${tier.price.toLocaleString()} for ${tier.days} days`), el('span', '', `+R$ ${tier.daily} every day`));
+    const buy = el('button', data.tier === tier.key ? 'ghost small' : 'primary small', data.tier === tier.key ? 'Add 30 days' : 'Join');
+    buy.addEventListener('click', async () => {
+      if (!window.confirm(`${tier.name} for R$ ${tier.price.toLocaleString()}?`)) return;
+      setStatus('bc-message', '');
+      try {
+        const result = await api.economy('POST', 'membership/buy', { tier: tier.key });
+        if (robux) showRobux(Object.assign({}, robux, { balance: result.balance }));
+        setStatus('bc-message', `You're in ${result.name}!`, 'good');
+        renderMembership();
+      } catch (error) {
+        setStatus('bc-message', message(error), 'error');
+      }
+    });
+    card.append(buy);
+    box.append(card);
+  }
+  $('bc-renew-row').classList.toggle('hidden', !data.tier);
+  $('bc-renew').checked = data.autoRenew;
+}
+$('bc-renew').addEventListener('change', async () => {
+  try {
+    await api.economy('POST', 'membership/renew', { on: $('bc-renew').checked });
+    setStatus('bc-message', $('bc-renew').checked ? 'It renews by itself while you have the R$.' : 'It ends when the time runs out.', 'good');
+  } catch (error) {
+    setStatus('bc-message', message(error), 'error');
+  }
+});
+api.onTalkNews((counts) => { if (me && counts) chatView.setCounts(counts); });
+
+// The Groups tab (groups.js).
+const groupsView = window.GroupsView.create({
+  api, el, message, personPicture, openProfile, getMe: () => me, sfx: window.sfx,
+  onRobux: (balance) => { if (robux) showRobux(Object.assign({}, robux, { balance })); else refreshRobux(); },
+});
+
 // --- views and navigation -----------------------------------------------------------
 
-let VIEWS = ['home', 'avatar', 'games', 'players', 'settings'];
+let VIEWS = ['home', 'avatar', 'games', 'players', 'groups', 'chat', 'settings'];
 let SETTINGS = ['account', 'storage', 'menu', 'host', 'server', 'setup', 'about'];
 
 // A player install (no server files) cannot host or run the web server.
@@ -502,6 +585,9 @@ function showView(name, focusContent) {
   document.querySelectorAll('.view').forEach((section) => section.classList.toggle('active', section.id === `view-${name}`));
   document.body.classList.toggle('on-avatar', name === 'avatar');
   if (name === 'avatar') editor.activate();
+  if (name === 'chat') chatView.activate();
+  else chatView.deactivate();
+  if (name === 'groups') groupsView.activate();
   if (name === 'players') refreshOnlinePlayers();
   if (name === 'settings') showSettings(settingsPanel);
   if (name === 'games' || name === 'home') findGames(true);
@@ -1752,6 +1838,7 @@ $('people-search-form').addEventListener('submit', (event) => {
 $('people-everyone').addEventListener('click', () => { $('people-search').value = ''; searchPeople(''); });
 $('people-following').addEventListener('click', () => { $('people-search').value = ''; searchPeople('', false, 'following'); });
 $('friends-signin').addEventListener('click', () => { setAccountMode('signup'); showScreen('account'); });
+$('chat-signin').addEventListener('click', () => { setAccountMode('signup'); showScreen('account'); });
 
 function renderPlayers() {
   const focusedName = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.player : null;
@@ -1894,6 +1981,8 @@ function renderProfileGame(person) {
 function renderProfile(person) {
   $('profile-name').textContent = person.name;
   $('profile-admin').classList.toggle('hidden', !person.admin);
+  $('profile-bc').textContent = { BC: 'BC', TBC: 'TBC', OBC: 'OBC' }[person.membership] || '';
+  $('profile-bc').classList.toggle('hidden', !person.membership);
   const presence = presenceOf(person);
   $('profile-where').textContent = whereText(person);
   $('profile-where').className = `profile-where p-${presence}`;
@@ -1930,6 +2019,22 @@ function renderProfile(person) {
     else if (status === 'FriendRequestReceived') {
       actions.append(profileButton('Accept friend request', 'primary', act('accept')), profileButton('Decline', 'ghost', act('decline')));
     } else actions.append(profileButton('Add friend', 'primary', act('request')));
+    const talkTo = (how) => () => {
+      closeProfile();
+      showView('chat');
+      if (how === 'chat') chatView.openWith(person);
+      else chatView.writeTo(person);
+    };
+    if (status === 'Friend') actions.append(profileButton('Chat', 'ghost', talkTo('chat')));
+    actions.append(profileButton('Message', 'ghost', talkTo('message')));
+    if (person.membership) {
+      actions.append(profileButton('Trade', 'ghost', () => {
+        closeProfile();
+        showView('chat');
+        chatView.showTrades();
+        tradesView.compose(person);
+      }));
+    }
     if (person.following !== undefined) {
       actions.append(profileButton(person.following ? 'Unfollow' : 'Follow', 'ghost', async () => {
         const updated = await setFollow(person, !person.following, 'profile-status');
@@ -1964,6 +2069,41 @@ async function setBlock(person, on) {
   }
 }
 
+// The groups a profile's player is in (servers from 2026-11-21 on).
+async function loadProfileGroups(person) {
+  const box = $('profile-groups');
+  box.textContent = '';
+  box.classList.add('hidden');
+  let data;
+  try {
+    data = await api.groups('GET', `groups/of/${person.userId}`);
+  } catch (error) {
+    return;
+  }
+  if (profilePerson !== person || !data.groups || !data.groups.length) return;
+  box.append(el('div', 'profile-groups-title', `Groups (${data.groups.length})`));
+  const row = el('div', 'profile-groups-row');
+  for (const group of data.groups.slice(0, 12)) {
+    const chip = el('button', 'profile-group nav-target');
+    const pic = el('span', 'profile-group-pic');
+    if (group.emblem) {
+      const img = el('img');
+      img.alt = '';
+      img.src = `launcher-net://server/${group.emblem}`;
+      pic.append(img);
+    } else pic.textContent = group.name.charAt(0).toUpperCase();
+    chip.append(pic, el('span', 'profile-group-name', group.name), el('span', 'profile-group-role', group.role));
+    chip.addEventListener('click', () => {
+      closeProfile();
+      showView('groups');
+      groupsView.open(group.id);
+    });
+    row.append(chip);
+  }
+  box.append(row);
+  box.classList.remove('hidden');
+}
+
 async function openProfile(person, keepStatus) {
   if (!person || !(Number(person.userId) > 0)) {
     setStatus('friends-status', `${person ? person.name : 'That player'} is a guest: guests have no profile.`, 'error');
@@ -1978,6 +2118,7 @@ async function openProfile(person, keepStatus) {
     $('profile-overlay').classList.remove('hidden');
     focusEl($('profile-back'));
   }
+  loadProfileGroups(person);
   try {
     const full = await api.profile(person.userId);
     if (profilePerson !== person) return;

@@ -459,6 +459,7 @@ function settingsForm(place) {
   const avatar = h('select', {}, h('option', { value: 'R6', text: 'R6' }), h('option', { value: 'R15', text: 'R15' }));
   avatar.value = place.avatarType === 'R15' ? 'R15' : 'R6';
   const keepRunning = input({ type: 'checkbox', class: 'switch', checked: place.keepRunning });
+  const allowGear = input({ type: 'checkbox', class: 'switch', checked: place.allowGear });
   const teamCreate = input({ type: 'checkbox', class: 'switch', checked: place.teamCreate });
   const universe = input({ value: place.universeId || '', inputmode: 'numeric', placeholder: 'None' });
   const creator = input({
@@ -492,7 +493,8 @@ function settingsForm(place) {
     h('div', { class: 'pair' }, field('Players per server', maxPlayers), field('Avatars', avatar, 'Used by servers started after saving.')),
     h('div', { class: 'switches' },
       toggle('Keep a server running', 'Otherwise one starts on join and stops when empty.', keepRunning),
-      toggle('Team Create', 'The owner and editors build it together in Studio.', teamCreate)),
+      toggle('Team Create', 'The owner and editors build it together in Studio.', teamCreate),
+      toggle('Gear', 'Players bring the gear they equipped. Joins after saving.', allowGear)),
     h('h3', { text: 'Studio access' }),
     h('div', { class: 'pair' }, field('Owner', owner), field('Editors', editors)),
     h('h3', { text: 'Credit' }),
@@ -504,6 +506,7 @@ function settingsForm(place) {
       const fields = {
         name: name.value, description: description.value, universeId: universe.value.trim(), teamCreate: teamCreate.checked,
         keepRunning: keepRunning.checked, maxPlayers: Number(maxPlayers.value) || undefined, avatarType: avatar.value,
+        allowGear: allowGear.checked,
       };
       if (!ownedHere) fields.creator = creator.value.trim();
       await change('POST', `/api/places/${id}`, JSON.stringify(fields));

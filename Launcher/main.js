@@ -420,7 +420,7 @@ function sendPresence(state) {
 function startPresence() {
   if (presenceTimer) return;
   sendPresence();
-  presenceTimer = setInterval(() => { sendPresence(); checkFriendNews(); }, 30000);
+  presenceTimer = setInterval(() => { sendPresence(); checkFriendNews(); checkTalkNews(); }, 30000);
 }
 
 // --- friend notifications -------------------------------------------------------------------
@@ -449,14 +449,44 @@ async function checkFriendNews() {
   }
 }
 
-function notify(title, body) {
+// New chat lines and messages (same beat): a notification when you're not
+// looking, and the counts for the Chat tab's badge either way.
+let talkSnapshot = null; // { url, last: Map(conversation id -> seq), newest: message id }
+
+async function checkTalkNews() {
+  let url;
+  try { url = account.serverUrl(); } catch (error) { return; }
+  let chats;
+  let inbox;
+  try {
+    [chats, inbox] = await Promise.all([account.talk(url, 'GET', 'chat'), account.talk(url, 'GET', 'messages')]);
+  } catch (error) { talkSnapshot = null; return; } // signed out, or a server without chat
+  send('talk-news', chats.counts || null);
+  const now = { url, last: new Map(), newest: 0 };
+  for (const c of chats.conversations || []) now.last.set(c.id, c.last ? c.last.seq : 0);
+  for (const m of inbox.messages || []) now.newest = Math.max(now.newest, m.id);
+  const before = talkSnapshot && talkSnapshot.url === url ? talkSnapshot : null;
+  talkSnapshot = now;
+  if (!before) return;
+  const looking = win && !win.isDestroyed() && win.isFocused() && !win.isMinimized() && embedState !== 'embedded';
+  if (looking || !Notification.isSupported()) return;
+  const fresh = (chats.conversations || []).filter((c) => c.last && !c.last.mine && c.unread > 0 && c.last.seq > (before.last.get(c.id) || 0));
+  for (const c of fresh.slice(0, 3)) {
+    const who = c.type === 'group' ? `${c.last.name} in ${c.title}` : c.last.name;
+    notify(who, c.last.text.slice(0, 120), 'chat');
+  }
+  const letters = (inbox.messages || []).filter((m) => m.id > before.newest && !m.read && !m.mine);
+  for (const m of letters.slice(0, 2)) notify(`Message from ${m.from.name}`, m.subject, 'chat');
+}
+
+function notify(title, body, viewName = 'players') {
   const note = new Notification({ title, body, silent: false });
   note.on('click', () => {
     if (!win || win.isDestroyed()) return;
     if (win.isMinimized()) win.restore();
     win.show();
     win.focus();
-    if (embedState !== 'embedded') send('open-view', 'players');
+    if (embedState !== 'embedded') send('open-view', viewName);
   });
   note.show();
 }
@@ -1169,6 +1199,10 @@ function registerIpc() {
   ipcMain.handle('profile:bio', (event, bio) => account.saveBio(undefined, bio));
   ipcMain.handle('follows:list', () => account.following());
   ipcMain.handle('follows:set', async (event, { userId, on }) => account.follow(undefined, userId, Boolean(on)));
+  ipcMain.handle('talk:call', (event, { method, route, body }) => account.talk(undefined, method, route, body));
+  ipcMain.handle('groups:call', (event, { method, route, body }) => account.groups(undefined, method, route, body));
+  ipcMain.handle('groups:emblem', (event, { groupId, bytes }) => account.groupEmblem(undefined, groupId, bytes));
+  ipcMain.handle('economy:call', (event, { method, route, body }) => account.economy(undefined, method, route, body));
   ipcMain.handle('players:report', (event, body) => account.report(undefined, body || {}));
   ipcMain.handle('players:block', (event, { userId, on }) => account.block(undefined, userId, Boolean(on)));
   // A game's page opened: the server starts one for it if none runs (older servers: 404, ignored).

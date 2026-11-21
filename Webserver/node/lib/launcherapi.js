@@ -51,6 +51,10 @@
 //   GET  robux            (session) your Robux: {balance, earn, history}
 //                         (lib/robux.js); also gives the daily bonus
 //   GET  picture/<userId> an account's saved avatar picture (PNG), for the website
+//   GET  counts, chat..., messages...   chat and private messages (lib/talkapi.js)
+//   GET|POST groups...   groups (lib/groupapi.js)
+//   GET|POST membership..., limiteds..., trades...   Builders Club, limiteds, trades (lib/economyapi.js)
+//   GET|POST forum...    the forums (lib/forumapi.js)
 //
 // The session is the token from login, sent as "Authorization: Bearer ...",
 // the same accounts and sessions Studio uses (lib/accounts.js).
@@ -78,6 +82,7 @@ const places = require('./places');
 const privateservers = require('./privateservers');
 const gamethumbs = require('./gamethumbs');
 const creators = require('./creators');
+const limiteds = require('./limiteds');
 const outfits = require('./outfits');
 const announcements = require('./announcements');
 const wearables = require('./wearables');
@@ -107,6 +112,9 @@ const CATEGORIES = {
   pants: { types: [12], label: 'Pants' },
   tshirts: { types: [2], label: 'T-Shirts' },
   packages: { bundles: true, label: 'Packages' },
+  gear: { types: [19], label: 'Gear' },
+  // Limited items Roblox made before 2018 (hats, accessories, faces, gear).
+  limiteds: { types: [8, 41, 42, 43, 44, 45, 46, 47, 18, 19], limiteds: true, label: 'Limiteds' },
   // Roblox's catalog does not list body parts on their own: these come out of
   // its packages, so parts of different packages can be mixed.
   torsos: { types: [27], fromPackages: true, label: 'Torsos' },
@@ -141,6 +149,9 @@ const SINGLE_TYPES = new Set([2, 11, 12, 17, 18, 27, 28, 29, 30, 31]);
 const BODY_PART_TYPES = new Set([27, 28, 29, 30, 31]);
 const MAX_HATS = 3;
 const MAX_ACCESSORIES = 10;
+// Gear: equipped gear goes into the backpack in games that allow it (/manage).
+const GEAR_TYPE = 19;
+const MAX_GEAR = 3;
 // Items Roblox released up to the end of 2017 have IDs below this; the
 // featured lists keep to them.
 const CLASSIC_MAX_ID = 1300000000;
@@ -155,6 +166,10 @@ const AVATAR_IMAGE_LIMIT = 2 * 1024 * 1024;
 const OUTFIT_JSON_LIMIT = 3 * 1024 * 1024;
 
 module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) {
+  const talk = require('./talkapi')({ sendJson, jsonBody, presenceOf, presenceContext });
+  const groupApi = require('./groupapi')({ send, sendJson, jsonBody, presenceOf, presenceContext });
+  const economyApi = require('./economyapi')({ sendJson, jsonBody });
+  const forumApi = require('./forumapi')({ sendJson, jsonBody });
   function account(ctx) {
     return accounts.fromRequest(ctx.req);
   }
@@ -476,6 +491,7 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
   function gameList() {
     const library = libraryPlaces();
     creators.fillMissing();
+    require('./groupimport').fillMissing();
     const status = runner();
     const servers = runnerServers(status);
     const result = new Map();
@@ -645,8 +661,9 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
       const info = await assetDetails(id);
       if (!info) return { error: `Could not look up item ${id} on Roblox. Try again in a minute.` };
       const typeId = info.typeId;
-      if (!ACCESSORY_TYPES.has(typeId) && !SINGLE_TYPES.has(typeId)) return { error: `"${info.name}" cannot be worn in this version of Roblox.` };
+      if (!ACCESSORY_TYPES.has(typeId) && !SINGLE_TYPES.has(typeId) && typeId !== GEAR_TYPE) return { error: `"${info.name}" cannot be worn in this version of Roblox.` };
       const count = (counts.get(typeId) || 0) + 1;
+      if (typeId === GEAR_TYPE && count > MAX_GEAR) return { error: `At most ${MAX_GEAR} gear.` };
       if (SINGLE_TYPES.has(typeId) && count > 1) return { error: `Only one item of each kind: "${info.name}" is the second.` };
       if (typeId === 8 && count > MAX_HATS) return { error: `At most ${MAX_HATS} hats.` };
       if (ACCESSORY_TYPES.has(typeId) && typeId !== 8 && count > 1) return { error: `Only one accessory of each kind: "${info.name}" is the second.` };
@@ -692,14 +709,16 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
       const kept = [];
       const singles = new Set();
       let hats = 0;
+      let gear = 0;
       for (const raw of assetIds.slice(0, 40)) {
         const id = core.decimal(String(raw));
         if (!id || kept.some((asset) => asset.id === id) || !catalog.owns(who.userId, id)) continue;
         const info = await assetDetails(id);
-        if (!info || (!ACCESSORY_TYPES.has(info.typeId) && !SINGLE_TYPES.has(info.typeId))) continue;
+        if (!info || (!ACCESSORY_TYPES.has(info.typeId) && !SINGLE_TYPES.has(info.typeId) && info.typeId !== GEAR_TYPE)) continue;
         if ((SINGLE_TYPES.has(info.typeId) || (ACCESSORY_TYPES.has(info.typeId) && info.typeId !== 8)) && singles.has(info.typeId)) continue;
         if (info.typeId === 8 && ++hats > MAX_HATS) continue;
-        if (info.typeId !== 8) singles.add(info.typeId);
+        if (info.typeId === GEAR_TYPE && ++gear > MAX_GEAR) continue;
+        if (info.typeId !== 8 && info.typeId !== GEAR_TYPE) singles.add(info.typeId);
         kept.push({ id });
       }
       assets = kept;
@@ -743,6 +762,7 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
     const types = categoryKey === 'gear' ? [19] : CATEGORIES[categoryKey] ? CATEGORIES[categoryKey].types : null;
     const seen = new Set();
     const ids = ownership.assetIds(userId).map((entry) => entry.id);
+    for (const copy of limiteds.inventory(userId)) ids.push(String(copy.assetId));
     const worn = avatarStore.get(userId);
     if (worn) for (const asset of worn.assets) ids.push(String(asset.id));
     const out = [];
@@ -791,18 +811,41 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
     }
   }
 
+  // A search result with its price here (lib/catalog.js rules): Roblox's
+  // price; off-sale items made before 2018 at a fixed price by type; limiteds
+  // made before 2018 from the stock here or the cheapest seller (lib/limiteds.js).
   function itemFrom(raw) {
     const bundle = raw.itemType === 'Bundle';
+    const restrictions = Array.isArray(raw.itemRestrictions) ? raw.itemRestrictions.map(String) : [];
+    const limited = restrictions.some((r) => /^limited/i.test(r));
+    const collectible = restrictions.some((r) => /collectible/i.test(r));
+    const created = typeof raw.itemCreatedUtc === 'string' ? raw.itemCreatedUtc : null;
+    const classic = catalog.isClassic(created);
+    const offSale = raw.priceStatus === 'Off Sale' || raw.isOffSale === true || !Number.isInteger(raw.price);
     const item = {
       id: String(raw.id),
       kind: bundle ? 'bundle' : 'asset',
       name: String(raw.name || ''),
       typeId: bundle ? null : Number(raw.assetType) || null,
       creator: String(raw.creatorName || ''),
-      // Limited items show their resale price; they can't be bought here
-      // (yet), so they show as off sale.
-      price: Number.isInteger(raw.price) && !(Array.isArray(raw.itemRestrictions) && raw.itemRestrictions.some((r) => /limited|collectible/i.test(String(r)))) ? raw.price : null,
+      created,
+      price: null,
     };
+    if (limited && classic && !bundle) {
+      const seed = Number(raw.lowestResalePrice) || Number(raw.lowestPrice) || Number(raw.price) || 0;
+      limiteds.ensure(item.id, { price: seed, name: item.name, typeId: item.typeId });
+      const next = limiteds.next(item.id);
+      const record = limiteds.summary(item.id);
+      item.price = next ? next.price : null;
+      item.limited = true;
+      item.limitedInfo = record ? { remaining: record.remaining, stock: record.stock, rap: record.rap, from: next ? next.from : null } : { remaining: 0 };
+    } else if (limited || collectible) {
+      item.price = null;
+    } else if (!offSale) {
+      item.price = raw.price;
+    } else if (classic && !bundle) {
+      item.price = catalog.offSalePrice(item.typeId);
+    }
     if (!bundle && item.typeId) rememberDetails(item.id, item.typeId, item.name);
     return item;
   }
@@ -833,6 +876,19 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
     return { items, nextCursor: packages.nextCursor };
   }
 
+  // Kept search results with each limited's price and stock as they are now.
+  function freshLimiteds(result) {
+    if (!result.items || !result.items.some((item) => item.limited)) return result;
+    return Object.assign({}, result, {
+      items: result.items.map((item) => {
+        if (!item.limited) return item;
+        const next = limiteds.next(item.id);
+        const record = limiteds.summary(item.id);
+        return Object.assign({}, item, { price: next ? next.price : null, limitedInfo: record ? { remaining: record.remaining, stock: record.stock, rap: record.rap, from: next ? next.from : null } : item.limitedInfo });
+      }),
+    });
+  }
+
   async function search(categoryKey, keyword, cursor, classicOnly) {
     const category = CATEGORIES[categoryKey];
     if (!category) return { error: 'Unknown category.', status: 400 };
@@ -850,13 +906,15 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
     }
     const params = new URLSearchParams({ Limit: '30', SortType: keyword ? '0' : '1' });
     if (category.bundles) params.set('bundleTypeIds', '1');
-    else params.set('assetTypeIds', String(category.types[0]));
+    else params.set('assetTypeIds', category.types.join(','));
+    if (category.limiteds) params.set('SalesTypeFilter', '2');
     if (keyword) params.set('Keyword', keyword.slice(0, 50));
-    if (!keyword) params.set('CreatorName', 'Roblox');
+    if (!keyword && !category.limiteds) params.set('CreatorName', 'Roblox');
     if (cursor) params.set('Cursor', cursor);
     const key = `${categoryKey}|${params.toString()}|${classicOnly}`;
+    // Limiteds' prices move with each sale here: only Roblox's answer is kept.
     const hit = searchCache.get(key);
-    if (hit && hit.at > Date.now() - SEARCH_TTL_MS) return hit.result;
+    if (hit && hit.at > Date.now() - SEARCH_TTL_MS) return freshLimiteds(hit.result);
     const answer = await queued(() => robloxJson(`https://catalog.roblox.com/v2/search/items/details?${params}`));
     if (answer.error) return answer;
     const data = answer.data || {};
@@ -865,6 +923,7 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
     // Featured lists stay with classic items (packages: Roblox's own bundles,
     // which all date from 2017 or later but carry classic R6 parts).
     if (classicOnly && !category.bundles) items = items.filter((item) => Number(item.id) < CLASSIC_MAX_ID);
+    if (category.limiteds) items = items.filter((item) => item.limited && catalog.isClassic(item.created));
     const result = { items, nextCursor: data.nextPageCursor || null };
     searchCache.set(key, { at: Date.now(), result });
     if (searchCache.size > 500) searchCache.delete(searchCache.keys().next().value);
@@ -1185,6 +1244,14 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
       if (who) await privateRoute(ctx, who, action, method);
       return;
     }
+    if (groupApi.handles(action)) return groupApi.route(ctx, account(ctx), action, method);
+    if (economyApi.handles(action)) return economyApi.route(ctx, account(ctx), action, method);
+    if (forumApi.handles(action)) return forumApi.route(ctx, account(ctx), action, method);
+    if (talk.handles(action)) {
+      const who = needAccount(ctx);
+      if (who) await talk.route(ctx, who, action, method);
+      return;
+    }
     const friendsMatch = /^friends(?:\/(request|accept|decline|cancel|remove))?$/.exec(action);
     if (friendsMatch && (friendsMatch[1] ? method === 'POST' : method === 'GET')) {
       const who = needAccount(ctx);
@@ -1319,8 +1386,9 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
       if (!info) return sendJson(ctx, 502, { error: 'Could not look this item up on Roblox. Try again in a minute.' });
       if (!info.typeName) return sendJson(ctx, 404, { error: 'This is not a catalog item.' });
       const who = account(ctx);
-      return sendJson(ctx, 200, Object.assign({}, info, {
-        price: info.price === null && CLASSIC_IDS.has(info.id) ? 0 : info.price,
+      const mine = info.limited && who ? catalog.priced(info, who.userId) : null;
+      return sendJson(ctx, 200, Object.assign({}, info, mine || {}, {
+        price: (mine ? mine.price : info.price) === null && CLASSIC_IDS.has(info.id) ? 0 : (mine ? mine.price : info.price),
         owned: who ? catalog.owns(who.userId, info.id) : null,
         balance: who ? robux.balance(who.userId) : null,
       }));
@@ -1426,6 +1494,7 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
       followingCount: live(follows.following(found.userId, data)),
       followsYou: Boolean(viewer && viewer.userId !== found.userId && follows.isFollowing(found.userId, viewer.userId, data)),
       blocked: Boolean(viewer && viewer.userId !== found.userId && blocks.hasBlocked(viewer.userId, found.userId)),
+      membership: require('./membership').tierOf(found.userId),
     });
   }
 
@@ -1507,6 +1576,7 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
   return {
     routes: [
       [/^api\/launcher\/([a-z0-9/-]+?)\/?$/i, route],
+      ...groupApi.routes,
       [/^user\/request-friendship\/?$/i, gameFriendRoute('request')],
       [/^user\/accept-friend-request\/?$/i, gameFriendRoute('accept')],
       [/^user\/decline-friend-request\/?$/i, gameFriendRoute('decline')],
@@ -1534,6 +1604,10 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
     guestIdentity,
     mobileJoin,
     gameList,
+    talk,
+    groupApi,
+    // where a player is: {presence, online?} (lib/mobilechat.js presence/users)
+    presence: (userId, name) => presenceOf(Number(userId), name, presenceContext()),
     // the Xbox app's avatar store (lib/xbox.js)
     packagePage: (cursor) => search('packages', '', cursor || '', true),
     bundleItems: (id) => bundleItems(String(id)),

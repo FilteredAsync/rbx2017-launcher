@@ -296,6 +296,13 @@ function remove(name) {
   try { require('./privateservers').forget(data.accounts[key].userId); } catch (error) { /* no private servers file */ }
   try { require('./follows').forget(data.accounts[key].userId); } catch (error) { /* no follows file */ }
   try { require('./blocks').forget(data.accounts[key].userId); } catch (error) { /* no blocks file */ }
+  try { require('./chat').forget(data.accounts[key].userId); } catch (error) { /* no chat file */ }
+  try { require('./messages').forget(data.accounts[key].userId); } catch (error) { /* no messages file */ }
+  try { require('./groups').forget(data.accounts[key].userId); } catch (error) { /* no groups file */ }
+  try { require('./trades').forget(data.accounts[key].userId); } catch (error) { /* no trades file */ }
+  try { require('./limiteds').forget(data.accounts[key].userId); } catch (error) { /* no limiteds file */ }
+  try { require('./membership').forget(data.accounts[key].userId); } catch (error) { /* no membership file */ }
+  try { require('./forums').forget(data.accounts[key].userId); } catch (error) { /* no forums file */ }
   delete data.accounts[key];
   for (const [hash, session] of Object.entries(data.sessions)) {
     if (session.name === key) delete data.sessions[hash];

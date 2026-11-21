@@ -1,5 +1,17 @@
 [
   {
+    "version": "1.16.0",
+    "date": "2026-11-21",
+    "title": "Chat, groups and trading",
+    "items": [
+      "Chat with friends, one to one or in groups of up to 10. Send messages to anyone in the new Chat tab.",
+      "Groups: join one or make your own for 100 R$. The groups behind our games are here too, run by the Website.",
+      "Builders Club costs R$ and gives you R$ every day, more groups and trading.",
+      "Gear and limiteds are in the catalog. Gear works in games that allow it. Trade items with other Builders Club members.",
+      "The website has all of this, plus forums."
+    ]
+  },
+  {
     "version": "1.15.0",
     "date": "2026-11-20",
     "title": "Catalog",

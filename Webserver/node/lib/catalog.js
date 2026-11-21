@@ -4,8 +4,10 @@
 // buying items and packages with Robux, and the starting inventory.
 //
 // Since 2026-11-19 an item must be owned to be worn (lib/launcherapi.js
-// cleanAvatar), as in 2017. Prices are Roblox's own: an item Roblox does not
-// sell (off sale) cannot be bought, and limited items wait for trading.
+// cleanAvatar), as in 2017. Prices are Roblox's own. Items Roblox made before
+// 2018 that it no longer sells (off sale) cost a fixed price by type here
+// (OFF_SALE_PRICES); newer off-sale items can't be bought. Limited items made
+// before 2018 sell a small stock here, then between players (lib/limiteds.js).
 // Packages (bundles) give their parts too, so a bought package can be worn
 // part by part.
 //
@@ -22,6 +24,18 @@ const avatarStore = require('./avatarstore');
 const outfits = require('./outfits');
 
 const FRESH_MS = 24 * 3600 * 1000;
+// "Made before 2018": Roblox's creation date of the item.
+const CLASSIC_BEFORE = '2018-01-01';
+// What off-sale classic items cost here, by asset type.
+const OFF_SALE_PRICES = {
+  2: 10, 8: 150, 11: 50, 12: 50, 17: 75, 18: 100, 19: 200,
+  27: 50, 28: 50, 29: 50, 30: 50, 31: 50,
+  41: 150, 42: 150, 43: 150, 44: 150, 45: 150, 46: 150, 47: 150,
+};
+const limitedsOf = () => require('./limiteds');
+
+const isClassic = (created) => typeof created === 'string' && created !== '' && created < CLASSIC_BEFORE;
+const offSalePrice = (typeId) => (Number.isInteger(OFF_SALE_PRICES[typeId]) ? OFF_SALE_PRICES[typeId] : null);
 const RETRY_MS = 5 * 60 * 1000;
 const LOOKUP_TIMEOUT_MS = 10000;
 
@@ -66,9 +80,35 @@ function trim(id, data) {
   const price = data.IsForSale && !limited ? (data.IsPublicDomain ? 0 : listed) : null;
   return {
     id, name: String(data.Name || ''), description: String(data.Description || '').slice(0, 1000),
-    typeId: Number(data.AssetTypeId) || 0, price, limited,
+    typeId: Number(data.AssetTypeId) || 0, price, robloxPrice: price, limited,
+    originalPrice: listed,
     creator: String(creator.Name || 'Roblox'), created: data.Created || null, updated: data.Updated || null,
   };
+}
+
+// Roblox's resale price of a limited (its RAP), for the stock here.
+const resaleTried = new Map();
+async function robloxResalePrice(id) {
+  if (Date.now() - (resaleTried.get(id) || 0) < RETRY_MS) return null;
+  resaleTried.set(id, Date.now());
+  const data = await assets.httpGetJson(`https://economy.roblox.com/v1/assets/${id}/resale-data`, LOOKUP_TIMEOUT_MS).catch(() => null);
+  return data && Number(data.recentAveragePrice) > 0 ? Number(data.recentAveragePrice) : null;
+}
+
+// What an item costs here now: { price, classic, limitedInfo: { remaining, stock, from, rap } | null }.
+function priced(info, viewer) {
+  const robloxPrice = info.robloxPrice !== undefined ? info.robloxPrice : info.price;
+  const classic = isClassic(info.created);
+  if (info.limited) {
+    const next = classic ? limitedsOf().next(info.id, viewer) : null;
+    const record = classic ? limitedsOf().summary(info.id) : null;
+    return {
+      price: next ? next.price : null, classic,
+      limitedInfo: record ? { remaining: record.remaining, stock: record.stock, from: next ? next.from : null, rap: record.rap } : null,
+    };
+  }
+  if (robloxPrice !== null && robloxPrice !== undefined) return { price: robloxPrice, classic, limitedInfo: null };
+  return { price: classic ? offSalePrice(info.typeId) : null, classic, limitedInfo: null };
 }
 
 // The catalog info of an asset -> { id, name, description, typeId, typeName,
@@ -78,7 +118,7 @@ async function itemInfo(assetId) {
   const id = decimalId(assetId);
   if (!id) return null;
   const cached = loadCache()[id] || null;
-  const withName = (info) => (info ? Object.assign({ typeName: TYPE_NAMES[info.typeId] || null }, info) : null);
+  const withName = (info) => (info ? Object.assign({ typeName: TYPE_NAMES[info.typeId] || null }, info, priced(info)) : null);
   if (cached && Date.now() - cached.at < FRESH_MS) return withName(cached.info);
   if (Date.now() - (failedAt.get(id) || 0) < RETRY_MS) return withName(cached && cached.info);
   let pending = inFlight.get(id);
@@ -96,7 +136,13 @@ async function itemInfo(assetId) {
     });
     inFlight.set(id, pending);
   }
-  return withName(await pending);
+  const info = await pending;
+  // A classic limited seen for the first time: its stock here gets Roblox's resale price.
+  if (info && info.limited && isClassic(info.created) && !limitedsOf().tracked(id)) {
+    const price = (await robloxResalePrice(id)) || info.originalPrice;
+    if (price) limitedsOf().ensure(id, { price, name: info.name, typeId: info.typeId });
+  }
+  return withName(info);
 }
 
 // Everything the player wore or kept in an outfit counts as owned, once.
@@ -113,6 +159,7 @@ function grantStarter(userId) {
 
 function owns(userId, assetId) {
   grantStarter(userId);
+  if (limitedsOf().count(userId, assetId) > 0) return true;
   return ownership.owns(userId, assetId);
 }
 
@@ -124,12 +171,16 @@ async function buyAsset(who, assetId, expected, offSalePrice) {
   const id = decimalId(assetId);
   if (!who || !(who.userId > 0)) return { error: 'Sign in to buy items.', status: 401 };
   if (!id) return { error: 'No such item.', status: 400 };
-  if (owns(who.userId, id)) return { ok: true, already: true, balance: robux.balance(who.userId) };
   const info = await itemInfo(id);
   if (!info) return { error: 'Could not look this item up on Roblox. Try again in a minute.', status: 502 };
   if (!TYPE_NAMES[info.typeId] || info.typeId === 32) return { error: 'This item is not sold here.', status: 400 };
-  if (info.limited) return { error: 'Limited items can\'t be bought yet.', status: 400 };
-  const price = info.price === null && Number.isInteger(offSalePrice) ? offSalePrice : info.price;
+  // Limiteds: another copy can always be bought (from the stock, then the cheapest seller).
+  if (info.limited) {
+    if (!info.classic) return { error: 'Only limiteds made before 2018 are sold here.', status: 400 };
+    return limitedsOf().buy(who.userId, id, expected);
+  }
+  if (owns(who.userId, id)) return { ok: true, already: true, balance: robux.balance(who.userId) };
+  const price = Number.isInteger(offSalePrice) && info.robloxPrice === null ? offSalePrice : info.price;
   if (price === null) return { error: 'This item is off sale.', status: 400 };
   if (expected !== undefined && expected !== null && Number(expected) !== price) {
     return { error: `The price is now R$ ${price}.`, status: 409, price };
@@ -171,5 +222,5 @@ function buyBundle(who, bundle, expected) {
   return { ok: true, balance: paid.balance };
 }
 
-module.exports = { itemInfo, owns, grantStarter, buyAsset, buyBundle, TYPE_NAMES };
+module.exports = { itemInfo, owns, grantStarter, buyAsset, buyBundle, TYPE_NAMES, OFF_SALE_PRICES, CLASSIC_BEFORE, isClassic, offSalePrice, priced };
 

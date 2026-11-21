@@ -522,7 +522,8 @@ function characterParams(ctx) {
 // www/v1.1/avatar-fetch/index.php
 async function avatarFetch(ctx) {
   const { userId, username } = characterParams(ctx);
-  const character = await avatar.characterFor(userId, username);
+  const placeId = /^\d{1,15}$/.test(String(ctx.queryLower.placeid || '')) ? String(ctx.queryLower.placeid) : null;
+  const character = await avatar.characterFor(userId, username, { placeId });
   const json = avatar.avatarFetchJson(character, userId, username);
   const headers = { 'Cache-Control': 'no-store', 'Content-Type': 'application/json; charset=utf-8' };
   if (ctx.queryLower.debug !== undefined) {
@@ -670,6 +671,8 @@ function join(ctx) {
   // was once forced to 1818 here, so any other place ID gave the client and
   // RCC different place IDs and the client crashed right after loading.
   payload = payload.replace(/"IsRobloxPlace":(?:true|false)/, '"IsRobloxPlace":true');
+  // Player.MembershipType: the account's Builders Club (lib/membership.js).
+  payload = payload.replace('"MembershipType":"None"', `"MembershipType":"${require('./membership').membershipType(id)}"`);
   // game.CreatorId and CreatorType, the same as on the game server (hosting.js).
   const creator = places.exists() ? places.creatorOf(places.load().places[placeid]) : null;
   payload = payload.replace(/"CreatorId":\d+,"CreatorTypeEnum":"\w+"/,
@@ -1203,6 +1206,8 @@ const FEATURE_FLAGS = [
   'EnableParticleSpreadAngle', 'BillboardGuiMaxDistance', 'PaddingComponentEnabled', 'UIScaleComponentEnabled',
   'GridLayoutCellSizeConstraints', 'SizeFromContentsEnabled', 'EnableImageTilingInGUI', 'Motor6DTransformPropEnabled',
   'HumanoidHealthDisplayTypeEnabled',
+  // GroupService:GetGroupsAsync (this server's groups, lib/groupapi.js).
+  'GetGroupsAsyncEnabled',
   // Not EmojiEnabled2: it turns emoji on, but the sheets in
   // content/textures/emoji are from a 2018 build and draw the wrong slices.
 ];
@@ -1564,7 +1569,7 @@ async function placesApi(ctx, match) {
     const place = places.update(placeId, {
       name: body.name, description: body.description, enabled: body.enabled, universeId: body.universeId,
       teamCreate: body.teamCreate, creator: body.creator, keepRunning: body.keepRunning, maxPlayers: body.maxPlayers,
-      avatarType: body.avatarType,
+      avatarType: body.avatarType, allowGear: body.allowGear,
     });
     return sendJson(ctx, 200, { place });
   }
@@ -2116,4 +2121,4 @@ const ROUTES = [
 // page for anything else it opens there.
 const MOBILE_ROUTES = mobile.pageRoutes;
 
-module.exports = { ROUTES, MOBILE_ROUTES, isMobile: mobile.isMobile, mobileNotHere: mobile.notHerePage, send, sendFile, sign };
+module.exports = { ROUTES, MOBILE_ROUTES, NEXT: mobile.NEXT, upgrade: mobile.upgrade, isMobile: mobile.isMobile, mobileNotHere: mobile.notHerePage, send, sendFile, sign };

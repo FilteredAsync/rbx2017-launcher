@@ -32,6 +32,8 @@
     { key: 'pants', label: 'Pants' },
     { key: 'tshirts', label: 'T-Shirts' },
     { key: 'packages', label: 'Packages' },
+    { key: 'gear', label: 'Gear' },
+    { key: 'limiteds', label: 'Limiteds' },
     // Single parts out of packages, to mix (servers from 1.8.0 on).
     { key: 'torsos', label: 'Torsos', gap: true },
     { key: 'rightarms', label: 'Right arms' },
@@ -48,7 +50,9 @@
   const SINGLE = new Set([2, 11, 12, 17, 18, 27, 28, 29, 30, 31]);
   const ACCESSORIES = new Set([8, 41, 42, 43, 44, 45, 46, 47]);
   const BODY_PARTS = new Set([27, 28, 29, 30, 31]);
-  const WEARABLE = new Set([...SINGLE, ...ACCESSORIES]);
+  const GEAR = 19;
+  const MAX_GEAR = 3;
+  const WEARABLE = new Set([...SINGLE, ...ACCESSORIES, GEAR]);
   const PARTS = [
     ['all', 'Whole body'], ['HeadColor', 'Head'], ['TorsoColor', 'Torso'], ['LeftArmColor', 'Left arm'],
     ['RightArmColor', 'Right arm'], ['LeftLegColor', 'Left leg'], ['RightLegColor', 'Right leg'],
@@ -151,6 +155,9 @@
         if (hats.length >= 3) list = list.filter((asset) => asset !== hats[0]);
       } else if (ACCESSORIES.has(item.typeId)) {
         list = list.filter((asset) => asset.typeId !== item.typeId);
+      } else if (item.typeId === GEAR) {
+        const gear = list.filter((asset) => asset.typeId === GEAR);
+        if (gear.length >= MAX_GEAR) list = list.filter((asset) => asset !== gear[0]);
       }
       const accessories = list.filter((asset) => ACCESSORIES.has(asset.typeId));
       if (ACCESSORIES.has(item.typeId) && accessories.length >= 10) list = list.filter((asset) => asset !== accessories[0]);
@@ -233,9 +240,11 @@
         setCatStatus(`"${buying.name}" is off sale.`, 'error');
         return;
       }
+      const stock = item.limitedInfo;
+      const limitedNote = item.limited && stock ? (stock.from === 'stock' ? ` (limited: ${stock.remaining} of ${stock.stock} left)` : ' (limited, from the cheapest seller)') : '';
       const question = buying.price === 0
         ? `Get "${buying.name}" for free?`
-        : `Buy "${buying.name}" for R$ ${Number(buying.price).toLocaleString()}?${item.packageId ? ' (This part comes with it.)' : ''}`;
+        : `Buy "${buying.name}" for R$ ${Number(buying.price).toLocaleString()}?${item.packageId ? ' (This part comes with it.)' : ''}${limitedNote}`;
       if (!window.confirm(question)) return;
       if (node) node.classList.add('busy');
       try {
@@ -266,6 +275,10 @@
       img.src = thumbUrl(item);
       img.addEventListener('error', () => { img.style.visibility = 'hidden'; });
       node.append(img, el('div', 'item-name', item.name || `Item ${item.id}`));
+      if (item.limited) {
+        const stock = item.limitedInfo;
+        node.append(el('div', 'item-limited', stock && stock.from === 'stock' ? `Limited · ${stock.remaining} left` : 'Limited'));
+      }
       node.title = item.name || '';
       // Only servers that sell items say "owned": older ones keep wearing free.
       const forSale = mode === 'account' && item.owned === false && !worn;

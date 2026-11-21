@@ -154,6 +154,8 @@ function describe(placeId, place) {
     description: place.description || '',
     enabled: Boolean(place.enabled),
     keepRunning: place.keepRunning === true,
+    // Players' gear loads into this game's backpacks (lib/avatar.js).
+    allowGear: place.allowGear === true,
     avatarType: avatarTypeOf(place),
     maxPlayers: maxPlayersOf(place),
     file: place.file,
@@ -339,6 +341,7 @@ function update(placeId, fields) {
   if (fields.description !== undefined) place.description = cleanText(fields.description, 1000);
   if (fields.enabled !== undefined) place.enabled = Boolean(fields.enabled);
   if (fields.keepRunning !== undefined && fields.keepRunning !== null) place.keepRunning = Boolean(fields.keepRunning);
+  if (fields.allowGear !== undefined && fields.allowGear !== null) place.allowGear = Boolean(fields.allowGear);
   if (fields.avatarType === 'R6' || fields.avatarType === 'R15') place.avatarType = fields.avatarType;
   if (fields.maxPlayers !== undefined && fields.maxPlayers !== null && fields.maxPlayers !== '') {
     const n = Math.round(Number(fields.maxPlayers));

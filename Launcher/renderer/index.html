@@ -73,6 +73,8 @@
       <button class="tab-link" data-view="avatar">Avatar</button>
       <button class="tab-link" data-view="games">Games</button>
       <button class="tab-link" data-view="players">People<span class="tab-badge hidden" id="friends-badge"></span></button>
+      <button class="tab-link" data-view="groups">Groups</button>
+      <button class="tab-link" data-view="chat">Chat<span class="tab-badge hidden" id="chat-badge"></span></button>
       <button class="tab-link" data-view="settings">Settings</button>
     </nav>
 
@@ -198,6 +200,106 @@
       <span class="hidden" id="players-status"></span>
     </section>
 
+    <!-- GROUPS (groups.js) -->
+    <section class="view" id="view-groups">
+      <div class="chat-layout">
+        <aside class="chat-side">
+          <form class="groups-search" id="groups-search-form" autocomplete="off">
+            <input id="groups-search" placeholder="Find groups" maxlength="50" spellcheck="false">
+            <button class="ghost small" type="submit">Search</button>
+          </form>
+          <div class="chat-side-actions"><button class="ghost small" id="groups-create">Create Group</button></div>
+          <div class="groups-list-title" id="groups-list-title">MY GROUPS</div>
+          <div class="chat-list" id="groups-list"></div>
+        </aside>
+        <div class="chat-main">
+          <div class="group-pane" id="group-pane"></div>
+          <span class="status groups-status" id="groups-status"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- CHAT (chat.js) -->
+    <section class="view" id="view-chat">
+      <div class="friends-guest hidden" id="chat-guest">
+        <div class="guest-title">Chat needs an account</div>
+        <p class="lead">Sign up to chat with friends and send messages.</p>
+        <button class="primary" id="chat-signin">Sign in or sign up</button>
+      </div>
+      <div class="chat-layout" id="chat-layout">
+        <aside class="chat-side">
+          <div class="chat-modes">
+            <button class="chat-mode active nav-target" id="chat-mode-chat">Chat<span class="tab-badge hidden" id="chat-badge-chat"></span></button>
+            <button class="chat-mode nav-target" id="chat-mode-mail">Messages<span class="tab-badge hidden" id="chat-badge-mail"></span></button>
+            <button class="chat-mode nav-target" id="chat-mode-trade">Trades<span class="tab-badge hidden" id="trade-badge"></span></button>
+          </div>
+          <div class="chat-side-body" id="chat-side-chat">
+            <div class="chat-side-actions">
+              <button class="ghost small" id="chat-new">New chat</button>
+              <button class="ghost small" id="chat-new-group">New group</button>
+            </div>
+            <div class="chat-list" id="chat-list"></div>
+          </div>
+          <div class="chat-side-body hidden" id="chat-side-mail">
+            <div class="chat-side-actions">
+              <button class="ghost small" id="mail-new">Write</button>
+              <span class="mail-folders" id="mail-folders">
+                <button class="active" data-folder="inbox">Inbox</button><button data-folder="sent">Sent</button><button data-folder="archive">Archive</button>
+              </span>
+            </div>
+            <div class="chat-list" id="mail-list"></div>
+            <div class="mail-pages" id="mail-pages"></div>
+          </div>
+          <div class="chat-side-body hidden" id="chat-side-trade">
+            <div class="chat-side-actions">
+              <button class="ghost small" id="trade-mine">Your limiteds</button>
+              <span class="mail-folders" id="trade-kinds"></span>
+            </div>
+            <div class="trade-bc-note hidden" id="trade-bc-note">Trading needs Builders Club (Settings &gt; Account).</div>
+            <div class="chat-list" id="trade-list"></div>
+          </div>
+        </aside>
+        <div class="chat-main">
+          <div class="chat-empty" id="chat-empty"><span id="chat-empty-text">Pick a chat, or start one with a friend.</span></div>
+          <div class="chat-convo hidden" id="chat-convo">
+            <header class="chat-head">
+              <div id="chat-head-pic"></div>
+              <div class="chat-head-text"><b id="chat-title"></b><div class="chat-sub" id="chat-sub"></div></div>
+              <div class="chat-head-actions" id="chat-head-actions"></div>
+            </header>
+            <div class="chat-messages" id="chat-messages"></div>
+            <div class="chat-typing" id="chat-typing"></div>
+            <form class="chat-form" id="chat-form" autocomplete="off">
+              <input id="chat-text" maxlength="200" placeholder="Say something" spellcheck="true">
+              <button class="primary" id="chat-send">Send</button>
+            </form>
+            <div class="chat-closed hidden" id="chat-closed"></div>
+          </div>
+          <div class="chat-picker hidden" id="chat-picker">
+            <header class="chat-head"><b id="picker-title">New group</b></header>
+            <input id="picker-name" placeholder="Group name (optional)" maxlength="50">
+            <div class="picker-grid" id="picker-grid"></div>
+            <div class="picker-actions">
+              <button class="primary" id="picker-go">Start</button>
+              <button class="ghost" id="picker-cancel">Cancel</button>
+            </div>
+          </div>
+          <div class="mail-read hidden" id="mail-read">
+            <header class="chat-head"><div class="chat-head-text"><b id="mail-subject"></b><div class="chat-sub" id="mail-who"></div></div><div class="chat-head-actions" id="mail-actions"></div></header>
+            <div class="mail-body" id="mail-body"></div>
+          </div>
+          <form class="mail-write hidden" id="mail-write" autocomplete="off">
+            <label>To<input id="mail-to" maxlength="20" spellcheck="false" placeholder="Player name"></label>
+            <label>Subject<input id="mail-to-subject" maxlength="64"></label>
+            <label class="grow">Message<textarea id="mail-to-body" maxlength="1000"></textarea></label>
+            <div class="picker-actions"><button class="primary">Send</button><button type="button" class="ghost" id="mail-cancel">Cancel</button></div>
+          </form>
+          <div class="trade-pane hidden" id="trade-pane"></div>
+          <span class="status chat-status" id="chat-status"></span>
+        </div>
+      </div>
+    </section>
+
     <!-- SETTINGS -->
     <section class="view" id="view-settings">
       <div class="settings-layout">
@@ -221,6 +323,13 @@
                 <button class="primary" id="account-signin">Sign in or sign up</button>
                 <button class="ghost" id="account-signout">Sign out</button>
               </div>
+            </div>
+            <div class="panel hidden" id="bc-panel">
+              <div class="label">Builders Club</div>
+              <p class="lead" id="bc-status">Not a member.</p>
+              <div class="bc-tiers" id="bc-tiers"></div>
+              <label class="bc-renew hidden" id="bc-renew-row"><input type="checkbox" id="bc-renew"> Renew every 30 days with R$</label>
+              <span class="status" id="bc-message"></span>
             </div>
             <div class="panel hidden" id="password-panel">
               <div class="label">Password</div>
@@ -484,7 +593,7 @@
     <div class="profile">
       <div class="profile-pic" id="profile-pic"></div>
       <div class="profile-info">
-        <div class="profile-name"><span id="profile-name"></span><span class="profile-badge hidden" id="profile-admin">ADMIN</span></div>
+        <div class="profile-name"><span id="profile-name"></span><span class="profile-badge hidden" id="profile-admin">ADMIN</span><span class="profile-badge bc hidden" id="profile-bc"></span></div>
         <div class="profile-line">
           <span class="profile-where" id="profile-where"></span>
           <span class="profile-tag hidden" id="profile-follows-you">Follows you</span>
@@ -518,6 +627,7 @@
           </div>
         </form>
         <div class="status" id="profile-status"></div>
+        <div class="profile-groups hidden" id="profile-groups"></div>
         <div class="profile-joined" id="profile-joined"></div>
       </div>
       <button class="ghost profile-back" id="profile-back">Back</button>
@@ -628,6 +738,9 @@
   <script src="avatar3d.js"></script>
   <script src="background.js"></script>
   <script src="avatareditor.js"></script>
+  <script src="chat.js"></script>
+  <script src="groups.js"></script>
+  <script src="trades.js"></script>
   <script src="sfx.js"></script>
   <script src="app.js"></script>
 </body>

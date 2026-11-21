@@ -182,7 +182,8 @@ async function handle(req, res) {
     for (const [pattern, handler] of mobile ? routes.MOBILE_ROUTES.concat(routes.ROUTES) : routes.ROUTES) {
       const match = pattern.exec(ctx.path);
       if (match) {
-        await handler(ctx, match);
+        // A handler may pass a request on to the next route that matches.
+        if ((await handler(ctx, match)) === routes.NEXT) continue;
         return;
       }
     }
@@ -244,6 +245,17 @@ function resolveHosts(hosts) {
   return [...new Set(resolved)];
 }
 
+// WebSocket upgrades: only the phone app's realtime connection (lib/mobilechat.js).
+function upgrade(req, socket, head) {
+  socket.on('error', () => {});
+  try {
+    if (routes.upgrade(req, socket, head)) return;
+  } catch (error) {
+    log(`websocket upgrade failed: ${error.message}`);
+  }
+  socket.destroy();
+}
+
 async function main() {
   const config = settings();
   config.hosts = resolveHosts(config.hosts);
@@ -253,6 +265,7 @@ async function main() {
   for (const host of config.hosts) {
     const server = http.createServer(handle);
     server.keepAliveTimeout = 5000;
+    server.on('upgrade', upgrade);
     const error = await listen(server, config.port, host, 'http');
     if (error) {
       const hint = error.code === 'EADDRINUSE'
@@ -275,6 +288,7 @@ async function main() {
     if (core.isFile(certFile) && core.isFile(keyFile)) {
       for (const host of config.hosts) {
         const server = https.createServer({ cert: fs.readFileSync(certFile), key: fs.readFileSync(keyFile) }, handle);
+        server.on('upgrade', upgrade);
         // A client that rejects the certificate never sends a request, so
         // log failed handshakes (with the host name it asked for).
         server.on('tlsClientError', (error, socket) => {

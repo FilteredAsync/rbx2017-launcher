@@ -121,13 +121,30 @@ function emptyCharacter() {
 
 // A saved look (an account's avatar from the launcher's editor, or the guest
 // look) as a character.
-function storedCharacter(username, stored, source) {
+// Gear loads in a game whose /manage settings allow it (place.allowGear), or
+// everywhere with loadGear in config/assets.json.
+function gearAllowed(placeId) {
+  if (core.assetConfig().loadGear) return true;
+  if (!placeId) return false;
+  try {
+    const places = require('./places');
+    const place = places.exists() ? places.load().places[String(placeId)] : null;
+    return Boolean(place && place.allowGear === true);
+  } catch (error) {
+    return false;
+  }
+}
+
+function storedCharacter(username, stored, source, placeId = null) {
   const character = emptyCharacter();
   character.username = username;
   character.source = source;
   character.bodyColors = Object.assign({}, character.bodyColors, stored.bodyColors);
+  const gear = gearAllowed(placeId);
   for (const asset of stored.assets) {
     if (KEPT.has(asset.typeId) || BODY_PARTS.has(asset.typeId)) character.assets.push({ id: asset.id, typeId: asset.typeId, name: asset.name });
+    else if (asset.typeId === 19 && gear) character.gear.push({ id: asset.id, typeId: 19, name: asset.name });
+    else if (asset.typeId === 19) character.dropped.push(Object.assign({}, asset, { reason: 'gear is off in this game (/manage)' }));
     else character.dropped.push(Object.assign({}, asset, { reason: `asset type ${asset.typeId} is not worn by this client` }));
   }
   return character;
@@ -137,14 +154,14 @@ function storedCharacter(username, stored, source) {
 // the launcher, or, until they save one, a copy of the Roblox account with
 // the same name (kept as their avatar from then on). Other names (playGame.bat
 // and older launchers) get the Roblox account's current look.
-async function characterFor(localUserId, usernameParam) {
+async function characterFor(localUserId, usernameParam, { placeId = null } = {}) {
   if (localUserId !== null && avatarStore.isGuestId(localUserId)) {
     return storedCharacter(validUsername(usernameParam) ? usernameParam : 'Guest', avatarStore.guest(), 'guest');
   }
   const account = localUserId !== null ? accounts.byUserId(localUserId) : null;
   if (account) {
     const saved = avatarStore.get(account.userId);
-    if (saved) return storedCharacter(account.name, saved, 'account');
+    if (saved) return storedCharacter(account.name, saved, 'account', placeId);
     const copied = await robloxCharacter(account.name);
     if (['live', 'cache', 'stale-cache'].includes(copied.source)) {
       try {

@@ -174,6 +174,8 @@ function adjust(userId, amount, reason) {
 function checkIn(userId) {
   const entry = entryFor(userId);
   if (!entry) return 0;
+  // Builders Club's daily R$ (lib/membership.js), on the same beat.
+  try { require('./membership').checkIn(userId); } catch (error) { /* next time */ }
   const day = today();
   const { daily } = rules();
   if (entry.dailyDay === day || daily <= 0) {

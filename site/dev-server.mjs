@@ -68,6 +68,8 @@ const ROUTES = [
   [/^\/games\/(.+)$/, 'functions/games/[[path]].js'],
   [/^\/catalog\/(.+)$/, 'functions/catalog/[[path]].js'],
   [/^\/users\/(.+)$/, 'functions/users/[[path]].js'],
+  [/^\/groups\/(.+)$/, 'functions/groups/[[path]].js'],
+  [/^\/forum\/(.+)$/, 'functions/forum/[[path]].js'],
   [/^\/download\/latest$/, 'functions/download/latest.js'],
   [/^\/download\/win7$/, 'functions/download/win7.js'],
 ];

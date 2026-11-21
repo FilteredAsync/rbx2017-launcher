@@ -273,6 +273,8 @@ def main():
         print(f'Patching for m.{domain} and api.{domain}...')
         replace_strings(src, {
             'www.roblox.com/': f'm.{domain}/',
+            # More > Forum (hard-coded in RobloxSettings.forumUrl): our forums (lib/mobileforum.js).
+            'https://www.roblox.com/Forum/default.aspx': f'https://m.{domain}/Forum/default.aspx',
             'https://ecsv2.roblox.com/pe.png?t=mobile&lt=': f'https://m.{domain}/pe.png?t=mobile&lt=',
             'https://ephemeralcounters.api.': 'https://api.',
             'https://clientsettings.api.': 'https://api.',

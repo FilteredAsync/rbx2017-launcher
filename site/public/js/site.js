@@ -806,18 +806,42 @@
     button.setAttribute('aria-haspopup', 'true');
     button.setAttribute('aria-expanded', 'false');
     button.appendChild(el('span', 'user-menu-name', me.account.name));
+    button.appendChild(el('span', 'user-menu-count hidden'));
     button.appendChild(icon('caret'));
     var list = el('div', 'user-menu-list hidden');
     var home = el('a', null, 'Home');
     home.href = '/home';
     var inventory = el('a', null, 'Inventory');
     inventory.href = '/users/' + me.account.userId + '/inventory';
+    function counted(label, href, id) {
+      var link = el('a', null, label);
+      link.href = href;
+      var count = el('span', 'menu-count hidden');
+      count.id = id;
+      link.appendChild(count);
+      return link;
+    }
+    var profile = el('a', null, 'Profile');
+    profile.href = '/users/' + me.account.userId + '/profile';
+    var friendsLink = counted('Friends', '/users/friends', 'menu-friends');
+    var messagesLink = counted('Messages', '/my/messages', 'menu-messages');
+    var chatLink = counted('Chat', '/chat', 'menu-chat');
+    var groupsLink = el('a', null, 'Groups');
+    groupsLink.href = '/groups';
+    var tradesLink = el('a', null, 'Trades');
+    tradesLink.href = '/my/trades';
     var settings = el('a', null, 'Settings');
     settings.href = '/my/account';
     var out = el('button', null, 'Log Out');
     out.type = 'button';
     out.addEventListener('click', logOut);
     list.appendChild(home);
+    list.appendChild(profile);
+    list.appendChild(friendsLink);
+    list.appendChild(messagesLink);
+    list.appendChild(chatLink);
+    list.appendChild(groupsLink);
+    list.appendChild(tradesLink);
     list.appendChild(inventory);
     list.appendChild(settings);
     list.appendChild(out);
@@ -995,10 +1019,12 @@
 
   function friendCard(friend) {
     var playing = friend.presence === 'game' && friend.placeId;
-    var card = el(playing ? 'a' : 'div', 'friend p-' + friend.presence);
+    var card = el('a', 'friend p-' + friend.presence);
     if (playing) {
       card.href = gameUrl({ placeId: friend.placeId, name: friend.gameName || '' });
       card.title = 'Playing ' + (friend.gameName || 'a game');
+    } else {
+      card.href = profileUrl(friend.userId);
     }
     var picture = avatarPicture(friend.userId, friend.name, 'friend-picture');
     picture.appendChild(el('span', 'presence-dot'));
@@ -1028,11 +1054,11 @@
       $('friends-title').textContent = 'Friends (' + data.friends.length + ')';
       if (online) $('hello-sub').textContent = plural(online, 'friend', 'friends') + ' online';
       if (!data.friends.length) {
-        row.appendChild(emptyState("No friends yet. Add some in the launcher's People tab."));
+        row.appendChild(emptyState('No friends yet. Find players on the Friends page.'));
         return;
       }
       data.friends.slice(0, 30).forEach(function (friend) { row.appendChild(friendCard(friend)); });
-      if (data.requests > 0) $('friends-title').textContent += ' · ' + plural(data.requests, 'request', 'requests') + ' in the launcher';
+      if (data.requests > 0) $('friends-title').textContent += ' · ' + plural(data.requests, 'request', 'requests');
     });
   }
 
@@ -1068,9 +1094,9 @@
     ['hats', 'Hats'], ['hair', 'Hair'], ['faces', 'Faces'], ['heads', 'Heads'], ['shirts', 'Shirts'], ['pants', 'Pants'],
     ['tshirts', 'T-Shirts'], ['packages', 'Packages'], ['face', 'Face Accessories'], ['neck', 'Neck'], ['shoulder', 'Shoulder'],
     ['front', 'Front'], ['back', 'Back'], ['waist', 'Waist'], ['torsos', 'Torsos'], ['rightarms', 'Right Arms'],
-    ['leftarms', 'Left Arms'], ['rightlegs', 'Right Legs'], ['leftlegs', 'Left Legs'],
+    ['leftarms', 'Left Arms'], ['rightlegs', 'Right Legs'], ['leftlegs', 'Left Legs'], ['gear', 'Gear'], ['limiteds', 'Limiteds'],
   ];
-  var INVENTORY_CATEGORIES = SHOP_CATEGORIES.concat([['gear', 'Gear']]);
+  var INVENTORY_CATEGORIES = SHOP_CATEGORIES.filter(function (entry) { return entry[0] !== 'limiteds'; });
 
   function categoryKnown(list, key) {
     return list.some(function (entry) { return entry[0] === key; });
@@ -1132,12 +1158,16 @@
     card.appendChild(thumb);
     card.appendChild(el('div', 'item-card-name', item.name || 'Item ' + item.id));
     if (item.typeName) card.appendChild(el('div', 'item-card-type', item.typeName));
+    if (item.limited) {
+      var stock = item.limitedInfo;
+      card.appendChild(el('div', 'item-limited', stock && stock.from === 'stock' ? 'Limited · ' + stock.remaining + ' left' : 'Limited'));
+    }
     var buying = purchaseOf(item);
     var priceEl = null;
-    if (item.owned === true) card.appendChild(el('div', 'item-owned', 'Owned'));
+    if (item.owned === true && !item.limited) card.appendChild(el('div', 'item-owned', 'Owned'));
     else if (item.price !== undefined || item.packageId) priceEl = card.appendChild(priceNode(buying.price));
     if (item.packageId) card.title = (item.name || '') + ' (from ' + buying.name + ')';
-    if (signedIn && item.owned === false && buying.price !== null && buying.price !== undefined && !link) {
+    if (signedIn && (item.owned === false || item.limited) && buying.price !== null && buying.price !== undefined && !link) {
       var button = el('button', 'btn btn-green btn-xs item-card-buy', buying.price === 0 ? 'Get' : 'Buy');
       button.type = 'button';
       button.addEventListener('click', function (event) {
@@ -1241,18 +1271,18 @@
       if (item.typeName) by.appendChild(document.createTextNode(' · ' + item.typeName));
       info.appendChild(by);
       var box = el('div', 'item-buy');
-      box.appendChild(el('div', 'item-buy-label', 'Price'));
-      box.appendChild(priceNode(item.limited ? null : item.price));
+      box.appendChild(el('div', 'item-buy-label', item.limited ? 'Limited' : 'Price'));
+      box.appendChild(priceNode(item.price));
       var status = el('p', 'catalog-status');
       var balanceNote = null;
-      if (item.owned) {
+      if (item.limited) {
+        limitedBox(box, item, me, status);
+      } else if (item.owned) {
         box.appendChild(el('div', 'item-owned big', 'You own this item'));
       } else if (!me || !me.account) {
         var login = el('a', 'btn btn-primary btn-sm', 'Log in to buy');
         login.href = '/login?next=' + encodeURIComponent(location.pathname);
         box.appendChild(login);
-      } else if (item.limited) {
-        box.appendChild(el('p', 'item-note', 'Limited items can\'t be bought yet.'));
       } else if (item.price !== null) {
         var button = el('button', 'btn btn-green', item.price === 0 ? 'Get' : 'Buy');
         button.type = 'button';
@@ -1267,7 +1297,7 @@
         });
         box.appendChild(button);
       }
-      if (me && me.account && item.balance !== null && !item.owned) balanceNote = box.appendChild(el('p', 'item-note', 'You have R$ ' + number(item.balance) + '.'));
+      if (me && me.account && item.balance !== null && (!item.owned || item.limited)) balanceNote = box.appendChild(el('p', 'item-note', 'You have R$ ' + number(item.balance) + '.'));
       box.appendChild(status);
       info.appendChild(box);
       if (item.description) info.appendChild(el('p', 'item-description', item.description));
@@ -1278,6 +1308,90 @@
       page.appendChild(info);
       root.appendChild(page);
     });
+  }
+
+  // A limited's stock, sellers and your copies (lib/limiteds.js on the game server).
+  function limitedBox(box, item, me, status) {
+    var info = item.limitedInfo;
+    if (!item.classic) {
+      box.appendChild(el('p', 'item-note', 'Only limiteds made before 2018 are sold here.'));
+      return;
+    }
+    if (info) {
+      box.appendChild(el('p', 'item-note', (info.remaining > 0 ? info.remaining + ' of ' + info.stock + ' left here' : 'Sold out here') + ' · RAP R$ ' + number(info.rap)));
+    }
+    if (me && me.account && item.price !== null) {
+      var button = el('button', 'btn btn-green', info && info.from === 'resale' ? 'Buy from the cheapest seller' : 'Buy');
+      button.type = 'button';
+      button.addEventListener('click', function () {
+        button.disabled = true;
+        buyFlow({ kind: 'asset', id: item.id, price: item.price, name: item.name }, status).then(function (bought) {
+          button.disabled = false;
+          if (bought) setTimeout(function () { location.reload(); }, 900);
+        });
+      });
+      box.appendChild(button);
+    } else if (!me || !me.account) {
+      var login = el('a', 'btn btn-primary btn-sm', 'Log in to buy');
+      login.href = '/login?next=' + encodeURIComponent(location.pathname);
+      box.appendChild(login);
+    } else {
+      box.appendChild(el('p', 'item-note', 'Nobody is selling one right now.'));
+    }
+    var more = el('div', 'limited-more');
+    box.appendChild(more);
+    call('GET', 'limiteds/item/' + item.id).then(function (result) {
+      if (!result.ok) return;
+      var data = result.data;
+      if (data.listings.length) {
+        more.appendChild(el('div', 'item-buy-label', 'Sellers'));
+        var sellers = el('div', 'limited-list');
+        data.listings.forEach(function (listing) {
+          var row = el('div', 'limited-row');
+          var who = el('a', null, listing.seller.name);
+          who.href = profileUrl(listing.seller.userId);
+          row.appendChild(who);
+          row.appendChild(el('span', null, '#' + listing.serial));
+          row.appendChild(el('span', 'limited-price', 'R$ ' + number(listing.price)));
+          sellers.appendChild(row);
+        });
+        more.appendChild(sellers);
+      }
+      if (data.owned && data.owned.length) {
+        more.appendChild(el('div', 'item-buy-label', 'Your copies'));
+        var mine = el('div', 'limited-list');
+        data.owned.forEach(function (copy) {
+          var row = el('div', 'limited-row');
+          row.appendChild(el('span', null, '#' + copy.serial));
+          var price = el('input');
+          price.type = 'number';
+          price.min = '1';
+          price.placeholder = 'Price';
+          if (copy.listed) price.value = String(copy.listed);
+          row.appendChild(price);
+          row.appendChild(button2(copy.listed ? 'Change' : 'Sell', 'btn-secondary btn-xs', function () {
+            call('POST', 'limiteds/' + copy.uaid + '/sell', { price: Number(price.value) }).then(function (r) {
+              status.textContent = r.ok ? 'On sale for R$ ' + number(price.value) + '. You get 70%.' : (r.data.error || 'That did not work.');
+              status.className = 'catalog-status' + (r.ok ? ' good' : ' error');
+            });
+          }));
+          if (copy.listed) {
+            row.appendChild(button2('Take off sale', 'btn-secondary btn-xs', function () {
+              call('POST', 'limiteds/' + copy.uaid + '/sell', { price: null }).then(function () { location.reload(); });
+            }));
+          }
+          mine.appendChild(row);
+        });
+        more.appendChild(mine);
+      }
+    });
+  }
+
+  function button2(label, className, onClick) {
+    var node = el('button', 'btn ' + className, label);
+    node.type = 'button';
+    node.addEventListener('click', onClick);
+    return node;
   }
 
   function inventoryPage() {
@@ -1315,6 +1429,7 @@
       inv.href = '/users/' + me.account.userId + '/inventory';
       account.appendChild(inv);
       root.appendChild(account);
+      membershipSection(root);
 
       var section = el('div', 'settings-section');
       section.appendChild(el('h2', null, 'Change password'));
@@ -1358,15 +1473,1682 @@
     });
   }
 
+  // ---- friends, profiles, messages and chat (lib/account.js social routes) ----
+
+  function call(method, path, body) {
+    if (method === 'POST') return post(path, body);
+    return fetch('/api/' + path, { headers: { Accept: 'application/json' }, credentials: 'same-origin', cache: 'no-store' }).then(function (response) {
+      return response.json().catch(function () { return {}; }).then(function (data) { return { ok: response.ok, status: response.status, data: data || {} }; });
+    }, function () { return { ok: false, status: 0, data: { error: "Couldn't reach the site. Check your connection." } }; });
+  }
+
+  // -> Promise of me (signed in), or null after sending the visitor to log in.
+  function signedInOnly(root) {
+    return loadMe().then(function (me) {
+      if (me && me.account) return me;
+      if (me && me.offline) {
+        if (root) { root.textContent = ''; root.appendChild(emptyState("The game server isn't answering. Try again in a minute.")); }
+        return null;
+      }
+      location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search);
+      return null;
+    });
+  }
+
+  function profileUrl(userId) { return '/users/' + userId + '/profile'; }
+
+  function whenText(iso, long) {
+    var date = new Date(iso);
+    if (isNaN(date.getTime())) return '';
+    var now = new Date();
+    var time = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    if (date.toDateString() === now.toDateString()) return time;
+    var day = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric' });
+    return long ? day + ', ' + time : day;
+  }
+
+  function setLine(node, text, good) {
+    node.textContent = text || '';
+    node.className = 'social-status' + (text ? (good ? ' good' : ' error') : '');
+  }
+
+  function presenceWord(person) {
+    if (person.presence === 'game') return person.online && person.online.gameName ? person.online.gameName : 'In a game';
+    return PRESENCE_TEXT[person.presence] || 'Offline';
+  }
+
+  function button(label, className, onClick) {
+    var node = el('button', 'btn ' + className, label);
+    node.type = 'button';
+    node.addEventListener('click', onClick);
+    return node;
+  }
+
+  // A person in a grid: picture and name (to their profile), where they are, buttons.
+  function personTile(person, buttons) {
+    var tile = el('div', 'person p-' + (person.presence || 'offline'));
+    var link = el('a', 'person-link');
+    link.href = profileUrl(person.userId);
+    var picture = avatarPicture(person.userId, person.name, 'friend-picture');
+    picture.appendChild(el('span', 'presence-dot'));
+    link.appendChild(picture);
+    link.appendChild(el('span', 'friend-name', person.name));
+    tile.appendChild(link);
+    tile.appendChild(el('span', 'friend-status', presenceWord(person)));
+    if (buttons && buttons.length) {
+      var row = el('div', 'person-buttons');
+      buttons.forEach(function (node) { row.appendChild(node); });
+      tile.appendChild(row);
+    }
+    return tile;
+  }
+
+  var FRIEND_DONE = {
+    request: function (r) { return r.became === 'friends' ? 'You and ' + r.name + ' are now friends!' : 'Friend request sent to ' + r.name + '.'; },
+    accept: function (r) { return 'You and ' + r.name + ' are now friends!'; },
+    decline: function (r) { return 'Declined ' + r.name + '’s request.'; },
+    cancel: function (r) { return 'Took back your request to ' + r.name + '.'; },
+    remove: function (r) { return r.name + ' is no longer your friend.'; },
+  };
+
+  // -> Promise of the server's answer ({ok, data})
+  function friendAction(verb, person, line) {
+    if (verb === 'remove' && !window.confirm('Remove ' + person.name + ' from your friends?')) return Promise.resolve({ ok: false, data: {} });
+    return call('POST', 'friends/' + verb, { userId: String(person.userId) }).then(function (result) {
+      if (line) setLine(line, result.ok ? FRIEND_DONE[verb](result.data) : (result.data.error || 'That did not work.'), result.ok);
+      return result;
+    });
+  }
+
+  function friendsPage() {
+    var line = $('friends-status');
+    signedInOnly($('friends-root')).then(function (me) {
+      if (!me) return;
+      function load() {
+        call('GET', 'friends/all').then(function (result) {
+          if (!result.ok) { setLine(line, result.data.error || 'Could not load your friends.'); return; }
+          var data = result.data;
+          fill('requests', data.incoming || [], function (person) {
+            return [
+              button('Accept', 'btn-green btn-xs', function () { friendAction('accept', person, line).then(load); }),
+              button('Decline', 'btn-secondary btn-xs', function () { friendAction('decline', person, line).then(load); }),
+            ];
+          }, 'Friend Requests');
+          fill('friends', data.friends || [], function (person) {
+            return [
+              button('Chat', 'btn-secondary btn-xs', function () { location.href = '/chat?with=' + person.userId; }),
+              button('Message', 'btn-secondary btn-xs', function () { location.href = '/my/messages?to=' + encodeURIComponent(person.name); }),
+            ];
+          }, 'Friends', true);
+          fill('sent', data.outgoing || [], function (person) {
+            return [button('Take back', 'btn-secondary btn-xs', function () { friendAction('cancel', person, line).then(load); })];
+          }, 'Sent Requests');
+        });
+      }
+      function fill(key, list, buttonsFor, title, always) {
+        var head = $(key + '-head');
+        var grid = $(key + '-grid');
+        head.textContent = title + ' (' + list.length + ')';
+        head.classList.toggle('hidden', !list.length && !always);
+        grid.textContent = '';
+        if (!list.length && always) grid.appendChild(emptyState('No friends yet. Find players above and add them.'));
+        list.forEach(function (person) { grid.appendChild(personTile(person, buttonsFor(person))); });
+      }
+      load();
+
+      var form = $('people-form');
+      form.addEventListener('submit', function (event) {
+        event.preventDefault();
+        var q = $('people-q').value.trim();
+        var grid = $('people-grid');
+        $('people-results').classList.remove('hidden');
+        grid.textContent = '';
+        grid.appendChild(emptyState('Looking…'));
+        call('GET', 'people?search=' + encodeURIComponent(q.replace(/[^A-Za-z0-9_]/g, ''))).then(function (result) {
+          grid.textContent = '';
+          var people = (result.data.people || []).filter(function (person) { return !person.self; });
+          if (!result.ok) { grid.appendChild(emptyState(result.data.error || 'Could not search.')); return; }
+          if (!people.length) { grid.appendChild(emptyState('Nobody found.')); return; }
+          people.slice(0, 40).forEach(function (person) {
+            var buttons = [];
+            if (person.friendStatus === 'NotFriend') {
+              buttons.push(button('Add Friend', 'btn-green btn-xs', function (event) {
+                var node = event.currentTarget;
+                friendAction('request', person, line).then(function (r) { if (r.ok) { node.disabled = true; node.textContent = r.data.became === 'friends' ? 'Friends' : 'Sent'; load(); } });
+              }));
+            } else if (person.friendStatus === 'FriendRequestReceived') {
+              buttons.push(button('Accept', 'btn-green btn-xs', function () { friendAction('accept', person, line).then(load); }));
+            }
+            grid.appendChild(personTile(person, buttons));
+          });
+        });
+      });
+    });
+  }
+
+  function profilePage() {
+    var match = /^\/users\/(\d{1,15})\/profile/.exec(location.pathname);
+    var root = $('profile-root');
+    if (!match) { location.href = '/'; return; }
+    var userId = match[1];
+    var line = $('profile-status');
+    function load() {
+      Promise.all([call('GET', 'profile/' + userId), loadMe()]).then(function (both) {
+        var result = both[0];
+        var me = both[1] && both[1].account ? both[1] : null;
+        root.textContent = '';
+        if (!result.ok) { root.appendChild(emptyState(result.data.error || 'Could not load this profile.')); return; }
+        var person = result.data;
+        document.title = person.name + ' - rbx2017';
+        var head = el('div', 'profile-head p-' + (person.presence || 'offline'));
+        var picture = avatarPicture(person.userId, person.name, 'hello-avatar');
+        picture.appendChild(el('span', 'presence-dot'));
+        head.appendChild(picture);
+        var text = el('div', 'profile-text');
+        var name = el('h1', null, person.name);
+        if (person.admin) name.appendChild(el('span', 'admin-tag', 'Admin'));
+        if (person.membership) name.appendChild(el('span', 'admin-tag bc-tag', BC_SHORT[person.membership] || 'BC'));
+        text.appendChild(name);
+        var where = el('p', 'profile-where', presenceWord(person));
+        if (person.presence === 'game' && person.online && person.online.placeId) {
+          where.textContent = '';
+          var game = el('a', null, person.online.gameName || 'a game');
+          game.href = gameUrl({ placeId: person.online.placeId, name: person.online.gameName || '' });
+          where.appendChild(document.createTextNode('Playing '));
+          where.appendChild(game);
+        }
+        text.appendChild(where);
+        var stats = el('div', 'profile-stats');
+        [[person.friendCount, 'Friends'], [person.followerCount, 'Followers'], [person.followingCount, 'Following']].forEach(function (pair) {
+          if (typeof pair[0] !== 'number') return;
+          var stat = el('div');
+          stat.appendChild(el('b', null, number(pair[0])));
+          stat.appendChild(el('span', null, pair[1]));
+          stats.appendChild(stat);
+        });
+        text.appendChild(stats);
+        var actions = el('div', 'profile-actions');
+        if (me && !person.self && !person.blocked) {
+          var again = function () { load(); };
+          var status = person.friendStatus;
+          if (status === 'Friend') {
+            actions.appendChild(button('Chat', 'btn-primary btn-sm', function () { location.href = '/chat?with=' + person.userId; }));
+          } else if (status === 'FriendRequestSent') {
+            actions.appendChild(button('Request Sent', 'btn-secondary btn-sm', function () { friendAction('cancel', person, line).then(again); }));
+          } else if (status === 'FriendRequestReceived') {
+            actions.appendChild(button('Accept Request', 'btn-green btn-sm', function () { friendAction('accept', person, line).then(again); }));
+            actions.appendChild(button('Decline', 'btn-secondary btn-sm', function () { friendAction('decline', person, line).then(again); }));
+          } else {
+            actions.appendChild(button('Add Friend', 'btn-green btn-sm', function () { friendAction('request', person, line).then(again); }));
+          }
+          actions.appendChild(button('Message', 'btn-secondary btn-sm', function () { location.href = '/my/messages?to=' + encodeURIComponent(person.name); }));
+          if (person.membership) actions.appendChild(button('Trade', 'btn-secondary btn-sm', function () { location.href = '/my/trades?with=' + person.userId; }));
+          if (status === 'Friend') actions.appendChild(button('Unfriend', 'btn-secondary btn-sm', function () { friendAction('remove', person, line).then(again); }));
+        } else if (!me) {
+          var login = el('a', 'btn btn-green btn-sm', 'Log in to add friends');
+          login.href = '/login?next=' + encodeURIComponent(location.pathname);
+          actions.appendChild(login);
+        }
+        var inventory = el('a', 'btn btn-secondary btn-sm', 'Inventory');
+        inventory.href = '/users/' + person.userId + '/inventory';
+        actions.appendChild(inventory);
+        text.appendChild(actions);
+        head.appendChild(text);
+        root.appendChild(head);
+        var about = el('section', 'settings-section');
+        about.appendChild(el('h2', null, 'About'));
+        about.appendChild(el('p', 'profile-bio' + (person.bio ? '' : ' empty'), person.bio || 'No bio yet.'));
+        if (person.joinedAt) about.appendChild(el('p', 'profile-joined', 'Joined ' + new Date(person.joinedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })));
+        root.appendChild(about);
+        profileGroups(root, person.userId);
+      });
+    }
+    load();
+  }
+
+  function profileGroups(root, userId) {
+    call('GET', 'groups/of/' + userId).then(function (result) {
+      if (!result.ok || !result.data.groups || !result.data.groups.length) return;
+      var box = el('section', 'settings-section');
+      box.appendChild(el('h2', null, 'Groups (' + result.data.groups.length + ')'));
+      var grid = el('div', 'group-grid');
+      result.data.groups.slice(0, 24).forEach(function (group) { grid.appendChild(groupCard(group, group.role)); });
+      box.appendChild(grid);
+      root.appendChild(box);
+    });
+  }
+
+  function messagesPage() {
+    var root = $('messages-main');
+    var line = $('messages-status');
+    var params = new URLSearchParams(location.search);
+    var folder = ['inbox', 'sent', 'archive'].indexOf(params.get('folder')) >= 0 ? params.get('folder') : 'inbox';
+    var page = 1;
+    signedInOnly(root).then(function (me) {
+      if (!me) return;
+      var nav = $('message-folders');
+      function folderNav() {
+        nav.textContent = '';
+        [['inbox', 'Inbox'], ['sent', 'Sent'], ['archive', 'Archive']].forEach(function (pair) {
+          var link = el('a', 'catalog-cat' + (pair[0] === folder ? ' active' : ''), pair[1]);
+          link.href = '/my/messages?folder=' + pair[0];
+          link.addEventListener('click', function (event) {
+            event.preventDefault();
+            folder = pair[0];
+            page = 1;
+            history.replaceState(null, '', '/my/messages?folder=' + folder);
+            list();
+          });
+          nav.appendChild(link);
+        });
+      }
+      function list() {
+        folderNav();
+        setLine(line, '');
+        root.textContent = '';
+        root.appendChild(emptyState('Loading…'));
+        call('GET', 'talk/messages?folder=' + folder + '&page=' + page).then(function (result) {
+          root.textContent = '';
+          if (!result.ok) { root.appendChild(emptyState(result.data.error || 'Could not load messages.')); return; }
+          var data = result.data;
+          if (!data.messages.length) { root.appendChild(emptyState(folder === 'inbox' ? 'No messages.' : folder === 'sent' ? 'Nothing sent yet.' : 'Nothing archived.')); return; }
+          var table = el('div', 'message-list');
+          data.messages.forEach(function (m) {
+            var other = m.mine ? m.to : m.from;
+            var row = el('button', 'message-row' + (m.read ? '' : ' unread'));
+            row.type = 'button';
+            row.appendChild(avatarPicture(other.userId, other.name, 'message-picture'));
+            var text = el('span', 'message-text');
+            text.appendChild(el('span', 'message-who', (m.mine ? 'To ' : '') + other.name));
+            text.appendChild(el('span', 'message-subject', m.subject));
+            text.appendChild(el('span', 'message-preview', m.body.slice(0, 120)));
+            row.appendChild(text);
+            row.appendChild(el('span', 'message-when', whenText(m.at)));
+            row.addEventListener('click', function () { read(m.id); });
+            table.appendChild(row);
+          });
+          root.appendChild(table);
+          if (data.pages > 1) {
+            var pager = el('div', 'pager');
+            var back = button('‹ Newer', 'btn-secondary btn-xs', function () { page -= 1; list(); });
+            var next = button('Older ›', 'btn-secondary btn-xs', function () { page += 1; list(); });
+            back.disabled = data.page <= 1;
+            next.disabled = data.page >= data.pages;
+            pager.appendChild(back);
+            pager.appendChild(el('span', null, 'Page ' + data.page + ' of ' + data.pages));
+            pager.appendChild(next);
+            root.appendChild(pager);
+          }
+        });
+      }
+      function read(id) {
+        setLine(line, '');
+        call('GET', 'talk/messages/' + id).then(function (result) {
+          if (!result.ok) { setLine(line, result.data.error || 'Could not open it.'); return; }
+          var m = result.data.message;
+          var other = m.mine ? m.to : m.from;
+          root.textContent = '';
+          var box = el('article', 'settings-section message-open');
+          box.appendChild(el('h2', null, m.subject));
+          var who = el('p', 'message-meta');
+          who.appendChild(document.createTextNode(m.mine ? 'To ' : 'From '));
+          var link = el('a', null, other.name);
+          link.href = profileUrl(other.userId);
+          who.appendChild(link);
+          who.appendChild(document.createTextNode(' · ' + whenText(m.at, true)));
+          box.appendChild(who);
+          box.appendChild(el('div', 'message-body', m.body));
+          var actions = el('div', 'profile-actions');
+          actions.appendChild(button('Back', 'btn-secondary btn-sm', list));
+          if (!m.mine) {
+            actions.appendChild(button('Reply', 'btn-primary btn-sm', function () { write(other.name, m.subject.indexOf('RE: ') === 0 ? m.subject : 'RE: ' + m.subject, m.id); }));
+            actions.appendChild(button(m.archived ? 'Move to Inbox' : 'Archive', 'btn-secondary btn-sm', function () {
+              call('POST', 'talk/messages/' + m.id + '/archive', { archived: !m.archived }).then(function (r) {
+                if (!r.ok) { setLine(line, r.data.error || 'That did not work.'); return; }
+                list();
+              });
+            }));
+          }
+          box.appendChild(actions);
+          root.appendChild(box);
+          refreshCounts();
+        });
+      }
+      function write(to, subject, replyTo) {
+        setLine(line, '');
+        root.textContent = '';
+        var form = el('form', 'settings-section auth-form message-write');
+        form.noValidate = true;
+        form.appendChild(el('h2', null, 'New Message'));
+        function field(label, node) {
+          var wrap = el('label', 'field');
+          wrap.appendChild(el('span', null, label));
+          wrap.appendChild(node);
+          form.appendChild(wrap);
+          return node;
+        }
+        var toInput = el('input');
+        toInput.maxLength = 20;
+        toInput.value = to || '';
+        toInput.autocomplete = 'off';
+        field('To', toInput);
+        var subjectInput = el('input');
+        subjectInput.maxLength = 64;
+        subjectInput.value = subject || '';
+        field('Subject', subjectInput);
+        var bodyInput = el('textarea');
+        bodyInput.maxLength = 1000;
+        bodyInput.rows = 8;
+        field('Message', bodyInput);
+        var actions = el('div', 'profile-actions');
+        var send = el('button', 'btn btn-primary btn-sm', 'Send');
+        send.type = 'submit';
+        actions.appendChild(send);
+        actions.appendChild(button('Cancel', 'btn-secondary btn-sm', list));
+        form.appendChild(actions);
+        form.addEventListener('submit', function (event) {
+          event.preventDefault();
+          send.disabled = true;
+          call('POST', 'talk/messages', { to: toInput.value.trim(), subject: subjectInput.value, body: bodyInput.value, replyTo: replyTo || null }).then(function (result) {
+            send.disabled = false;
+            if (!result.ok) { setLine(line, result.data.error || 'That did not work.'); return; }
+            folder = 'sent';
+            page = 1;
+            history.replaceState(null, '', '/my/messages?folder=sent');
+            list();
+            setLine(line, 'Sent.', true);
+          });
+        });
+        root.appendChild(form);
+        (to ? bodyInput : toInput).focus();
+      }
+      $('compose-button').addEventListener('click', function (event) {
+        event.preventDefault();
+        write('', '', null);
+      });
+      if (params.get('to')) write(params.get('to'), '', null);
+      else list();
+    });
+  }
+
+  function chatPage() {
+    var main = $('chat-main');
+    var listBox = $('chat-list');
+    var line = $('chat-status');
+    var convos = [];
+    var open = null; // { id, convo, lastSeq }
+    var shown = [];
+    var timer = null;
+    var sending = false;
+    signedInOnly(main).then(function (me) {
+      if (!me) return;
+      function renderList() {
+        listBox.textContent = '';
+        if (!convos.length) { listBox.appendChild(el('p', 'chat-none', 'No chats yet.')); return; }
+        convos.forEach(function (c) {
+          var item = el('button', 'chat-item' + (open && open.id === c.id ? ' active' : '') + (c.unread ? ' unread' : ''));
+          item.type = 'button';
+          var other = c.members.filter(function (m) { return !m.self; })[0] || c.members[0];
+          item.appendChild(avatarPicture(other.userId, other.name, 'message-picture'));
+          var text = el('span', 'message-text');
+          text.appendChild(el('span', 'message-who', c.title));
+          var last = c.last ? (c.last.mine ? 'You: ' : c.type === 'group' ? c.last.name + ': ' : '') + c.last.text : 'No messages yet';
+          text.appendChild(el('span', 'message-preview', last));
+          item.appendChild(text);
+          if (c.unread) item.appendChild(el('span', 'count-badge', String(c.unread)));
+          item.addEventListener('click', function () { openChat(c.id); });
+          listBox.appendChild(item);
+        });
+      }
+      function loadList() {
+        return call('GET', 'talk/chat').then(function (result) {
+          if (!result.ok) { setLine(line, result.data.error || 'Could not load chats.'); return; }
+          convos = result.data.conversations || [];
+          renderList();
+          if (result.data.counts) showCounts(result.data.counts);
+        });
+      }
+      function messageNode(m, previous) {
+        var run = previous && previous.from === m.from && new Date(m.at) - new Date(previous.at) < 300000;
+        var row = el('div', 'chat-msg ' + (m.mine ? 'mine' : 'theirs') + (run ? ' run' : ''));
+        if (!run && !m.mine && open.convo.type === 'group') row.appendChild(el('span', 'chat-msg-name', m.name));
+        var bubble = el('span', 'chat-msg-text', m.text);
+        bubble.title = whenText(m.at, true);
+        row.appendChild(bubble);
+        return row;
+      }
+      function renderMessages(stick) {
+        var box = $('chat-messages');
+        if (!box) return;
+        var near = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+        box.textContent = '';
+        if (!shown.length) box.appendChild(el('p', 'chat-none', 'Say hi!'));
+        shown.forEach(function (m, index) { box.appendChild(messageNode(m, shown[index - 1])); });
+        if (stick || near) box.scrollTop = box.scrollHeight;
+      }
+      function renderOpen() {
+        var c = open.convo;
+        main.textContent = '';
+        var head = el('div', 'chat-head');
+        var title = el('div', 'chat-title');
+        title.appendChild(el('h2', null, c.title));
+        var members = el('div', 'chat-members');
+        c.members.forEach(function (m) {
+          var link = el('a', 'p-' + (m.presence || 'offline'), m.self ? m.name + ' (you)' : m.name);
+          link.href = profileUrl(m.userId);
+          members.appendChild(link);
+        });
+        title.appendChild(members);
+        head.appendChild(title);
+        if (c.type === 'group') {
+          head.appendChild(button('Add', 'btn-secondary btn-xs', function () { pick('add'); }));
+          head.appendChild(button('Rename', 'btn-secondary btn-xs', function () {
+            var name = window.prompt('Group name', c.customTitle || '');
+            if (name === null) return;
+            call('POST', 'talk/chat/' + c.id + '/rename', { title: name }).then(function (r) { if (!r.ok) setLine(line, r.data.error); refreshOpen(); loadList(); });
+          }));
+          head.appendChild(button('Leave', 'btn-secondary btn-xs', function () {
+            if (!window.confirm('Leave "' + c.title + '"?')) return;
+            call('POST', 'talk/chat/' + c.id + '/leave', {}).then(function () { open = null; showEmpty(); loadList(); });
+          }));
+        }
+        main.appendChild(head);
+        main.appendChild(el('div', 'chat-messages')).id = 'chat-messages';
+        var typing = el('div', 'chat-typing');
+        typing.id = 'chat-typing';
+        main.appendChild(typing);
+        if (c.canSend) {
+          var form = el('form', 'chat-form');
+          var input = el('input');
+          input.maxLength = 200;
+          input.placeholder = 'Say something';
+          input.autocomplete = 'off';
+          var send = el('button', 'btn btn-primary btn-sm', 'Send');
+          send.type = 'submit';
+          form.appendChild(input);
+          form.appendChild(send);
+          var typedAt = 0;
+          input.addEventListener('input', function () {
+            if (!input.value.trim() || Date.now() - typedAt < 3000) return;
+            typedAt = Date.now();
+            call('POST', 'talk/chat/' + c.id + '/typing', { on: true });
+          });
+          form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            var text = input.value.trim();
+            if (!text || sending) return;
+            sending = true;
+            call('POST', 'talk/chat/' + c.id + '/send', { text: text }).then(function (r) {
+              sending = false;
+              if (!r.ok) { setLine(line, r.data.error || 'Not sent.'); return; }
+              setLine(line, '');
+              input.value = '';
+              typedAt = 0;
+              if (r.data.message && r.data.message.seq > open.lastSeq) {
+                shown.push(r.data.message);
+                open.lastSeq = r.data.message.seq;
+                renderMessages(true);
+              }
+              loadList();
+              input.focus();
+            });
+          });
+          main.appendChild(form);
+          input.focus();
+        } else {
+          main.appendChild(el('p', 'chat-closed', c.reason || ''));
+        }
+        renderMessages(true);
+      }
+      function showEmpty() {
+        clearInterval(timer);
+        main.textContent = '';
+        main.appendChild(el('p', 'chat-empty', 'Pick a chat, or start one with a friend.'));
+        renderList();
+      }
+      function openChat(id) {
+        clearInterval(timer);
+        setLine(line, '');
+        call('GET', 'talk/chat/' + id).then(function (result) {
+          if (!result.ok) { setLine(line, result.data.error || 'Could not open it.'); return; }
+          open = { id: id, convo: result.data.conversation, lastSeq: 0 };
+          shown = result.data.messages || [];
+          open.lastSeq = shown.length ? shown[shown.length - 1].seq : 0;
+          renderOpen();
+          history.replaceState(null, '', '/chat?c=' + id);
+          if (open.convo.unread) call('POST', 'talk/chat/' + id + '/read', {}).then(loadList);
+          else renderList();
+          timer = setInterval(refreshOpen, 3000);
+        });
+      }
+      function refreshOpen() {
+        if (!open || document.hidden) return;
+        var id = open.id;
+        call('GET', 'talk/chat/' + id + '?after=' + open.lastSeq).then(function (result) {
+          if (!open || open.id !== id) return;
+          if (!result.ok) { if (result.status === 404) { open = null; showEmpty(); loadList(); } return; }
+          var fresh = (result.data.messages || []).filter(function (m) { return m.seq > open.lastSeq; });
+          var changed = JSON.stringify([open.convo.canSend, open.convo.title, open.convo.members.length]) !== JSON.stringify([result.data.conversation.canSend, result.data.conversation.title, result.data.conversation.members.length]);
+          open.convo = result.data.conversation;
+          if (changed) renderOpen();
+          if (fresh.length) {
+            shown = shown.concat(fresh);
+            open.lastSeq = fresh[fresh.length - 1].seq;
+            renderMessages(false);
+            call('POST', 'talk/chat/' + id + '/read', {}).then(loadList);
+          }
+          var typing = $('chat-typing');
+          var names = result.data.typing || [];
+          if (typing) typing.textContent = names.length ? names.join(', ') + (names.length === 1 ? ' is' : ' are') + ' typing…' : '';
+        });
+      }
+      // Picking friends: a new chat (one), a new group, or adding to the open group.
+      function pick(kind) {
+        clearInterval(timer);
+        main.textContent = '';
+        var box = el('div', 'chat-picker');
+        box.appendChild(el('h2', null, kind === 'one' ? 'New Chat' : kind === 'group' ? 'New Group' : 'Add to Group'));
+        var name = null;
+        if (kind === 'group') {
+          name = el('input', 'chat-group-name');
+          name.placeholder = 'Group name (optional)';
+          name.maxLength = 50;
+          box.appendChild(name);
+        }
+        var grid = el('div', 'picker-grid');
+        grid.appendChild(el('p', 'chat-none', 'Loading friends…'));
+        box.appendChild(grid);
+        var chosen = {};
+        var actions = el('div', 'profile-actions');
+        if (kind !== 'one') {
+          actions.appendChild(button(kind === 'group' ? 'Start' : 'Add', 'btn-primary btn-sm', function () {
+            var ids = Object.keys(chosen).map(Number);
+            if (!ids.length) { setLine(line, 'Pick at least one friend.'); return; }
+            var request = kind === 'group' ? call('POST', 'talk/chat/group', { userIds: ids, title: name.value }) : call('POST', 'talk/chat/' + open.id + '/add', { userIds: ids });
+            request.then(function (r) {
+              if (!r.ok) { setLine(line, r.data.error || 'That did not work.'); return; }
+              if (r.data.rejected && r.data.rejected.length) setLine(line, 'Couldn’t add ' + r.data.rejected.join(', ') + '.');
+              loadList().then(function () { openChat(kind === 'group' ? r.data.conversation.id : open.id); });
+            });
+          }));
+        }
+        actions.appendChild(button('Cancel', 'btn-secondary btn-sm', function () { if (open) openChat(open.id); else showEmpty(); }));
+        box.appendChild(actions);
+        main.appendChild(box);
+        call('GET', 'friends/all').then(function (result) {
+          grid.textContent = '';
+          var inIt = {};
+          if (kind === 'add' && open) open.convo.members.forEach(function (m) { inIt[m.userId] = true; });
+          var list = (result.data.friends || []).filter(function (f) { return !inIt[f.userId]; });
+          if (!list.length) { grid.appendChild(el('p', 'chat-none', kind === 'add' ? 'All your friends are in it already.' : 'No friends yet. Add some on the Friends page.')); return; }
+          list.forEach(function (friend) {
+            var chip = el('button', 'picker-friend p-' + (friend.presence || 'offline'));
+            chip.type = 'button';
+            chip.appendChild(avatarPicture(friend.userId, friend.name, 'message-picture'));
+            chip.appendChild(el('span', null, friend.name));
+            chip.addEventListener('click', function () {
+              if (kind === 'one') { startWith(friend.userId); return; }
+              if (chosen[friend.userId]) delete chosen[friend.userId];
+              else chosen[friend.userId] = true;
+              chip.classList.toggle('chosen', Boolean(chosen[friend.userId]));
+            });
+            grid.appendChild(chip);
+          });
+        });
+      }
+      function startWith(userId) {
+        call('POST', 'talk/chat/start', { userId: Number(userId) }).then(function (r) {
+          if (!r.ok) { setLine(line, r.data.error || 'That did not work.'); return; }
+          loadList().then(function () { openChat(r.data.conversation.id); });
+        });
+      }
+      $('chat-new').addEventListener('click', function () { pick('one'); });
+      $('chat-new-group').addEventListener('click', function () { pick('group'); });
+      var params = new URLSearchParams(location.search);
+      loadList().then(function () {
+        if (/^\d{1,15}$/.test(params.get('with') || '')) startWith(params.get('with'));
+        else if (/^\d{1,12}$/.test(params.get('c') || '')) openChat(Number(params.get('c')));
+        else showEmpty();
+      });
+      setInterval(function () { if (!document.hidden) loadList(); }, 10000);
+    });
+  }
+
+  // Unread chats, messages and friend requests: a dot on the name and counts in its menu.
+  var counts = null;
+  function showCounts(next) {
+    counts = next;
+    var total = (next.chat || 0) + (next.messages || 0) + (next.friendRequests || 0);
+    var dot = document.querySelector('.user-menu-count');
+    if (dot) { dot.textContent = String(total); dot.classList.toggle('hidden', !total); }
+    [['menu-friends', next.friendRequests], ['menu-messages', next.messages], ['menu-chat', next.chat]].forEach(function (pair) {
+      var node = $(pair[0]);
+      if (node) { node.textContent = String(pair[1] || 0); node.classList.toggle('hidden', !pair[1]); }
+    });
+  }
+  function refreshCounts() {
+    call('GET', 'talk/counts').then(function (result) { if (result.ok) showCounts(result.data); });
+  }
+
+  // ---- groups (lib/account.js group routes; the game server's lib/groupapi.js) ----
+
+  function groupUrl(group) { return '/groups/' + group.id + '/' + slug(group.name); }
+
+  function emblemSrc(group) {
+    if (!group || !group.emblem) return null;
+    var version = /[?&]v=([0-9a-z]+)/.exec(group.emblem);
+    return '/api/group-emblem/' + group.id + (version ? '?v=' + version[1] : '');
+  }
+
+  function groupEmblem(group, className) {
+    var box = el('span', className || 'group-emblem');
+    box.appendChild(el('span', 'avatar-letter', String(group.name || '?').charAt(0).toUpperCase()));
+    var src = emblemSrc(group);
+    if (src) {
+      var img = el('img');
+      img.alt = '';
+      img.decoding = 'async';
+      img.addEventListener('load', function () { box.classList.add('has-picture'); });
+      img.addEventListener('error', function () { img.remove(); });
+      img.src = src;
+      box.appendChild(img);
+    }
+    return box;
+  }
+
+  function groupCard(group, line) {
+    var card = el('a', 'group-card');
+    card.href = groupUrl(group);
+    card.appendChild(groupEmblem(group));
+    card.appendChild(el('span', 'group-card-name', group.name));
+    card.appendChild(el('span', 'group-card-line', line || plural(group.memberCount, 'member', 'members')));
+    return card;
+  }
+
+  function fillGroups(grid, list, empty, lineFor) {
+    grid.textContent = '';
+    if (!list.length) { grid.appendChild(emptyState(empty)); return; }
+    list.forEach(function (group) { grid.appendChild(groupCard(group, lineFor ? lineFor(group) : null)); });
+  }
+
+  function groupsPage() {
+    var line = $('groups-status');
+    var cost = 100;
+    call('GET', 'groups').then(function (result) {
+      if (!result.ok) { setLine(line, result.data.error || 'Could not load groups.'); return; }
+      cost = result.data.cost || cost;
+      fillGroups($('groups-popular-grid'), result.data.groups.slice(0, 24), 'No groups yet.');
+    });
+    loadMe().then(function (me) {
+      if (!me || !me.account) {
+        $('groups-mine').classList.add('hidden');
+        return;
+      }
+      var create = $('groups-create');
+      create.classList.remove('hidden');
+      create.addEventListener('click', function () { showCreate(me); });
+      call('GET', 'groups/mine').then(function (result) {
+        if (!result.ok) return;
+        $('groups-mine-title').textContent = 'My Groups (' + result.data.groups.length + ')';
+        fillGroups($('groups-mine-grid'), result.data.groups, 'You are not in any groups yet.', function (group) { return group.mine.role; });
+      });
+    });
+    $('groups-form').addEventListener('submit', function (event) {
+      event.preventDefault();
+      var q = $('groups-q').value.trim();
+      var section = $('groups-results');
+      if (!q) { section.classList.add('hidden'); return; }
+      section.classList.remove('hidden');
+      var grid = $('groups-results-grid');
+      grid.textContent = '';
+      grid.appendChild(emptyState('Looking…'));
+      call('GET', 'groups?search=' + encodeURIComponent(q.replace(/[^0-9A-Za-z_ '.&!-]/g, '').slice(0, 50))).then(function (result) {
+        fillGroups(grid, result.ok ? result.data.groups : [], result.ok ? 'No groups found.' : (result.data.error || 'Could not search.'));
+      });
+    });
+
+    function showCreate() {
+      var root = $('groups-root');
+      root.textContent = '';
+      var form = el('form', 'settings-section auth-form');
+      form.noValidate = true;
+      form.appendChild(el('h2', null, 'Create Group'));
+      function field(label, node) {
+        var wrap = el('label', 'field');
+        wrap.appendChild(el('span', null, label));
+        wrap.appendChild(node);
+        form.appendChild(wrap);
+        return node;
+      }
+      var name = el('input');
+      name.maxLength = 50;
+      field('Name', name);
+      var description = el('textarea');
+      description.maxLength = 1000;
+      description.rows = 5;
+      field('Description', description);
+      var openWrap = el('label', 'check-line');
+      var open = el('input');
+      open.type = 'checkbox';
+      open.checked = true;
+      openWrap.appendChild(open);
+      openWrap.appendChild(document.createTextNode(' Anyone can join'));
+      form.appendChild(openWrap);
+      var actions = el('div', 'profile-actions');
+      var go = el('button', 'btn btn-green btn-sm', 'Create for R$ ' + cost);
+      go.type = 'submit';
+      actions.appendChild(go);
+      actions.appendChild(button('Cancel', 'btn-secondary btn-sm', function () { location.href = '/groups'; }));
+      form.appendChild(actions);
+      form.addEventListener('submit', function (event) {
+        event.preventDefault();
+        go.disabled = true;
+        call('POST', 'groups', { name: name.value, description: description.value, public: open.checked }).then(function (result) {
+          go.disabled = false;
+          if (!result.ok) { setLine(line, result.data.error || 'That did not work.'); return; }
+          storeMe(null);
+          location.href = groupUrl(result.data.group);
+        });
+      });
+      root.appendChild(form);
+      name.focus();
+    }
+  }
+
+  function groupPage() {
+    var match = /^\/groups\/(\d{1,15})/.exec(location.pathname);
+    var root = $('group-root');
+    var line = $('group-status');
+    if (!match) { location.href = '/groups'; return; }
+    var groupId = match[1];
+    var section = 'about';
+    var roleFilter = 0;
+    var me = null;
+
+    function act(route, body, done) {
+      setLine(line, '');
+      return call('POST', 'groups/' + groupId + '/' + route, body || {}).then(function (result) {
+        if (!result.ok) { setLine(line, result.data.error || 'That did not work.'); return null; }
+        if (done) setLine(line, typeof done === 'function' ? done(result.data) : done, true);
+        if (result.data.group) render(result.data.group);
+        else location.href = '/groups';
+        return result.data;
+      });
+    }
+
+    function load() {
+      return Promise.all([call('GET', 'groups/' + groupId), loadMe()]).then(function (both) {
+        me = both[1] && both[1].account ? both[1] : null;
+        if (!both[0].ok) {
+          root.textContent = '';
+          root.appendChild(emptyState(both[0].data.error || 'Could not load this group.'));
+          return;
+        }
+        render(both[0].data.group);
+      });
+    }
+
+    function render(group) {
+      document.title = group.name + ' - rbx2017';
+      root.textContent = '';
+      var head = el('div', 'group-head');
+      head.appendChild(groupEmblem(group, 'group-emblem big'));
+      var text = el('div', 'profile-text');
+      text.appendChild(el('h1', null, group.name));
+      var by = el('p', 'profile-where');
+      by.appendChild(document.createTextNode('By '));
+      if (group.owner.userId) {
+        var owner = el('a', null, group.owner.name);
+        owner.href = profileUrl(group.owner.userId);
+        by.appendChild(owner);
+      } else by.appendChild(document.createTextNode(group.owner.name));
+      by.appendChild(document.createTextNode(' · ' + plural(group.memberCount, 'member', 'members') + (group.public ? '' : ' · Ask to join')));
+      text.appendChild(by);
+      if (group.mine) text.appendChild(el('p', 'group-rank', 'Your rank: ' + group.mine.role));
+      var actions = el('div', 'profile-actions');
+      if (me) {
+        if (group.mine) {
+          if (!(group.canOwn && group.owner.userId)) actions.appendChild(button('Leave Group', 'btn-secondary btn-sm', function () {
+            if (window.confirm('Leave ' + group.name + '?')) act('leave', {}, 'You left ' + group.name + '.');
+          }));
+        } else if (group.requested) {
+          actions.appendChild(button('Cancel Request', 'btn-secondary btn-sm', function () { act('leave', {}, 'Request taken back.'); }));
+        } else {
+          actions.appendChild(button(group.public ? 'Join Group' : 'Ask to Join', 'btn-green btn-sm', function () {
+            act('join', {}, function (d) { return d.requested ? 'Asked to join.' : 'You joined ' + group.name + '!'; });
+          }));
+        }
+      } else {
+        var login = el('a', 'btn btn-green btn-sm', 'Log in to join');
+        login.href = '/login?next=' + encodeURIComponent(location.pathname);
+        actions.appendChild(login);
+      }
+      text.appendChild(actions);
+      head.appendChild(text);
+      root.appendChild(head);
+      if (group.shout) {
+        var shout = el('div', 'group-shout');
+        shout.appendChild(el('div', 'group-shout-text', group.shout.text));
+        shout.appendChild(el('div', 'message-meta', group.shout.by.name + ' · ' + whenText(group.shout.at, true)));
+        root.appendChild(shout);
+      }
+      var tabs = el('nav', 'group-tabs');
+      [['about', 'About'], ['members', 'Members'], ['wall', 'Wall'], ['manage', 'Manage']].forEach(function (pair) {
+        if (pair[0] === 'manage' && !group.canManage && !group.isAdmin) return;
+        var tab = el('button', 'group-tab' + (section === pair[0] ? ' active' : ''), pair[0] === 'manage' && group.requestCount ? pair[1] + ' (' + group.requestCount + ')' : pair[1]);
+        tab.type = 'button';
+        tab.addEventListener('click', function () { section = pair[0]; render(group); });
+        tabs.appendChild(tab);
+      });
+      if (section === 'manage' && !group.canManage && !group.isAdmin) section = 'about';
+      root.appendChild(tabs);
+      var body = el('section', 'settings-section group-body');
+      root.appendChild(body);
+      if (section === 'about') about(body, group);
+      else if (section === 'members') members(body, group);
+      else if (section === 'wall') wall(body, group);
+      else manage(body, group);
+    }
+
+    function about(body, group) {
+      body.appendChild(el('p', 'profile-bio' + (group.description ? '' : ' empty'), group.description || 'No description.'));
+      if (group.games && group.games.length) {
+        body.appendChild(el('h2', null, 'Games'));
+        var list = el('div', 'group-games');
+        group.games.forEach(function (game) {
+          var link = el('a', 'group-game', game.name);
+          link.href = gameUrl({ placeId: game.placeId, name: game.name });
+          list.appendChild(link);
+        });
+        body.appendChild(list);
+      }
+      if (!group.imported) body.appendChild(el('p', 'profile-joined', 'Made ' + new Date(group.created).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })));
+    }
+
+    function members(body, group) {
+      var filter = el('select', 'group-filter');
+      var all = el('option', null, 'All (' + group.memberCount + ')');
+      all.value = '0';
+      filter.appendChild(all);
+      group.roles.slice().reverse().forEach(function (role) {
+        var option = el('option', null, role.name + ' (' + role.count + ')');
+        option.value = String(role.id);
+        if (role.id === roleFilter) option.selected = true;
+        filter.appendChild(option);
+      });
+      filter.addEventListener('change', function () { roleFilter = Number(filter.value) || 0; render(group); });
+      body.appendChild(filter);
+      var grid = el('div', 'person-grid');
+      grid.appendChild(emptyState('Loading…'));
+      body.appendChild(grid);
+      call('GET', 'groups/' + groupId + '/members?role=' + roleFilter).then(function (result) {
+        grid.textContent = '';
+        if (!result.ok) { grid.appendChild(emptyState(result.data.error || 'Could not load members.')); return; }
+        if (!result.data.members.length) { grid.appendChild(emptyState('Nobody here.')); return; }
+        var myRank = group.canOwn ? 256 : group.mine ? group.mine.rank : 0;
+        result.data.members.forEach(function (member) {
+          var buttons = [];
+          if (group.canManage && me && member.userId !== me.account.userId && member.rank < myRank && member.userId !== group.owner.userId) {
+            var pick = el('select', 'group-rank-pick');
+            group.roles.forEach(function (role) {
+              if (role.rank >= Math.min(myRank, 255)) return;
+              var option = el('option', null, role.name);
+              option.value = String(role.id);
+              if (role.id === member.roleId) option.selected = true;
+              pick.appendChild(option);
+            });
+            pick.addEventListener('change', function () {
+              act('members/' + member.userId + '/rank', { roleId: Number(pick.value) }, member.name + ' is now ' + pick.options[pick.selectedIndex].textContent + '.');
+            });
+            buttons.push(pick);
+            buttons.push(button('Remove', 'btn-secondary btn-xs', function () {
+              if (window.confirm('Remove ' + member.name + ' from ' + group.name + '?')) act('members/' + member.userId + '/kick', {}, 'Removed ' + member.name + '.');
+            }));
+          }
+          var tile = personTile({ userId: member.userId, name: member.name, presence: member.presence, online: member.online }, buttons);
+          tile.insertBefore(el('span', 'group-member-role', member.role), tile.children[2] || null);
+          grid.appendChild(tile);
+        });
+      });
+    }
+
+    function wall(body, group) {
+      if (group.mine) {
+        var form = el('form', 'group-post');
+        var text = el('textarea');
+        text.maxLength = 500;
+        text.rows = 3;
+        text.placeholder = 'Say something';
+        var go = el('button', 'btn btn-primary btn-sm', 'Post');
+        go.type = 'submit';
+        form.appendChild(text);
+        form.appendChild(go);
+        form.addEventListener('submit', function (event) {
+          event.preventDefault();
+          if (!text.value.trim()) return;
+          go.disabled = true;
+          act('wall', { text: text.value }).then(function () { go.disabled = false; });
+        });
+        body.appendChild(form);
+      }
+      var list = el('div', 'group-wall');
+      list.appendChild(emptyState('Loading…'));
+      body.appendChild(list);
+      call('GET', 'groups/' + groupId + '/wall').then(function (result) {
+        list.textContent = '';
+        if (!result.ok) { list.appendChild(emptyState(result.data.error || 'Could not load the wall.')); return; }
+        if (!result.data.posts.length) { list.appendChild(emptyState('No posts yet.')); return; }
+        result.data.posts.forEach(function (post) {
+          var row = el('div', 'group-wall-post');
+          var top = el('div', 'group-wall-top');
+          var who = el('a', null, post.from.name);
+          who.href = profileUrl(post.from.userId);
+          top.appendChild(who);
+          top.appendChild(el('span', 'message-when', whenText(post.at, true)));
+          if (post.canDelete) top.appendChild(button('Delete', 'btn-secondary btn-xs', function () { act('wall/' + post.id + '/delete', {}, 'Post deleted.'); }));
+          row.appendChild(top);
+          row.appendChild(el('div', 'message-body', post.text));
+          list.appendChild(row);
+        });
+      });
+    }
+
+    function manage(body, group) {
+      function field(label, node) {
+        var wrap = el('label', 'field');
+        wrap.appendChild(el('span', null, label));
+        wrap.appendChild(node);
+        return wrap;
+      }
+      if (group.canManage) {
+        body.appendChild(el('h2', null, 'Shout'));
+        var shoutForm = el('form', 'group-inline');
+        var shout = el('input');
+        shout.maxLength = 255;
+        shout.value = group.shout ? group.shout.text : '';
+        var shoutGo = el('button', 'btn btn-primary btn-sm', 'Shout');
+        shoutGo.type = 'submit';
+        shoutForm.appendChild(shout);
+        shoutForm.appendChild(shoutGo);
+        shoutForm.addEventListener('submit', function (event) { event.preventDefault(); act('shout', { text: shout.value }, 'Shout updated.'); });
+        body.appendChild(shoutForm);
+        if (!group.public || group.requestCount) {
+          body.appendChild(el('h2', null, 'Requests (' + group.requestCount + ')'));
+          var requests = el('div', 'group-requests');
+          body.appendChild(requests);
+          call('GET', 'groups/' + groupId + '/requests').then(function (result) {
+            if (!result.ok) { requests.appendChild(emptyState(result.data.error || 'Could not load requests.')); return; }
+            if (!result.data.requests.length) { requests.appendChild(emptyState('Nobody is waiting.')); return; }
+            result.data.requests.forEach(function (request) {
+              var row = el('div', 'group-request');
+              var who = el('a', null, request.name);
+              who.href = profileUrl(request.userId);
+              row.appendChild(who);
+              row.appendChild(button('Accept', 'btn-green btn-xs', function () { act('requests/' + request.userId + '/accept', {}, request.name + ' joined.'); }));
+              row.appendChild(button('Decline', 'btn-secondary btn-xs', function () { act('requests/' + request.userId + '/decline', {}, 'Declined.'); }));
+              requests.appendChild(row);
+            });
+          });
+        }
+      }
+      if (group.canOwn) {
+        body.appendChild(el('h2', null, 'Settings'));
+        var description = el('textarea');
+        description.maxLength = 1000;
+        description.rows = 5;
+        description.value = group.description || '';
+        body.appendChild(field('Description', description));
+        var openWrap = el('label', 'check-line');
+        var open = el('input');
+        open.type = 'checkbox';
+        open.checked = group.public;
+        openWrap.appendChild(open);
+        openWrap.appendChild(document.createTextNode(' Anyone can join'));
+        body.appendChild(openWrap);
+        body.appendChild(button('Save', 'btn-primary btn-sm', function () { act('settings', { description: description.value, public: open.checked }, 'Saved.'); }));
+
+        body.appendChild(el('h2', null, 'Picture'));
+        var pictureRow = el('div', 'group-inline');
+        pictureRow.appendChild(groupEmblem(group));
+        var file = el('input');
+        file.type = 'file';
+        file.accept = 'image/png,image/jpeg';
+        file.className = 'hidden';
+        file.addEventListener('change', function () {
+          var chosen = file.files && file.files[0];
+          if (!chosen) return;
+          if (chosen.size > 1024 * 1024) { setLine(line, 'Pictures can be up to 1 MB.'); return; }
+          setLine(line, 'Uploading…', true);
+          fetch('/api/groups/' + groupId + '/emblem', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': chosen.type === 'image/jpeg' ? 'image/jpeg' : 'image/png', Accept: 'application/json' }, body: chosen })
+            .then(function (response) { return response.json().catch(function () { return {}; }).then(function (data) { return { ok: response.ok, data: data }; }); })
+            .then(function (result) {
+              if (!result.ok) { setLine(line, result.data.error || 'That did not work.'); return; }
+              setLine(line, 'Picture changed.', true);
+              render(result.data.group);
+            }, function () { setLine(line, "Couldn't reach the site."); });
+        });
+        pictureRow.appendChild(file);
+        pictureRow.appendChild(button('Upload Picture', 'btn-secondary btn-sm', function () { file.click(); }));
+        if (group.emblem) pictureRow.appendChild(button('Remove Picture', 'btn-secondary btn-sm', function () { act('emblem/remove', {}, 'Picture removed.'); }));
+        body.appendChild(pictureRow);
+
+        body.appendChild(el('h2', null, 'Ranks'));
+        var rows = [];
+        var list = el('div', 'group-ranks');
+        function addRow(role) {
+          var row = el('div', 'group-inline');
+          var name = el('input');
+          name.maxLength = 50;
+          name.placeholder = 'Rank name';
+          name.value = role.name || '';
+          var number = el('input');
+          number.type = 'number';
+          number.min = '1';
+          number.max = '254';
+          number.className = 'rank-number';
+          number.value = role.rank ? String(role.rank) : '';
+          var entry = { id: role.id || 0, name: name, number: number };
+          rows.push(entry);
+          row.appendChild(name);
+          row.appendChild(number);
+          row.appendChild(button('Remove', 'btn-secondary btn-xs', function () { rows.splice(rows.indexOf(entry), 1); row.remove(); }));
+          list.appendChild(row);
+        }
+        group.roles.forEach(function (role) { if (role.rank < 255) addRow(role); });
+        body.appendChild(list);
+        var rankActions = el('div', 'profile-actions');
+        rankActions.appendChild(button('Add Rank', 'btn-secondary btn-sm', function () { addRow({}); }));
+        rankActions.appendChild(button('Save Ranks', 'btn-primary btn-sm', function () {
+          act('roles', { roles: rows.map(function (r) { return { id: r.id, name: r.name.value, rank: Number(r.number.value) }; }) }, 'Ranks saved.');
+        }));
+        body.appendChild(rankActions);
+
+        if (group.owner.userId) {
+          body.appendChild(el('h2', null, 'Owner'));
+          var giveRow = el('div', 'group-inline');
+          var who = el('input');
+          who.maxLength = 20;
+          who.placeholder = 'Member name';
+          giveRow.appendChild(who);
+          giveRow.appendChild(button('Give Group Away', 'btn-secondary btn-sm', function () {
+            var name = who.value.trim().toLowerCase();
+            if (!name) return;
+            call('GET', 'groups/' + groupId + '/members').then(function (result) {
+              var member = result.ok ? result.data.members.filter(function (m) { return m.name.toLowerCase() === name; })[0] : null;
+              if (!member) { setLine(line, who.value.trim() + ' is not in the group (or not on the first page of members).'); return; }
+              if (window.confirm('Give ' + group.name + ' to ' + member.name + '? You can’t undo this yourself.')) act('transfer', { userId: member.userId }, member.name + ' owns ' + group.name + ' now.');
+            });
+          }));
+          body.appendChild(giveRow);
+        }
+      }
+      if (group.isAdmin && !group.canOwn && group.emblem) {
+        body.appendChild(el('h2', null, 'Server Admin'));
+        body.appendChild(button('Remove Picture', 'btn-secondary btn-sm', function () { act('emblem/remove', {}, 'Picture removed.'); }));
+      }
+      if (group.isAdmin || (group.canOwn && group.owner.userId && group.memberCount === 1)) {
+        var del = button('Delete Group', 'btn-secondary btn-sm danger', function () {
+          if (window.confirm('Delete ' + group.name + ' for good? Its members, wall and ranks go with it.')) act('delete', {}, 'Group deleted.');
+        });
+        body.appendChild(del);
+      }
+    }
+
+    load();
+  }
+
+  // ---- Builders Club and trades (lib/account.js economy routes) ----
+
+  var BC_SHORT = { BC: 'BC', TBC: 'TBC', OBC: 'OBC' };
+
+  function membershipSection(root) {
+    var section = el('div', 'settings-section');
+    section.appendChild(el('h2', null, 'Builders Club'));
+    var line = el('p', 'item-note');
+    section.appendChild(line);
+    var tiers = el('div', 'bc-tiers');
+    section.appendChild(tiers);
+    var renewWrap = el('label', 'check-line hidden');
+    var renew = el('input');
+    renew.type = 'checkbox';
+    renewWrap.appendChild(renew);
+    renewWrap.appendChild(document.createTextNode(' Renew every 30 days with R$'));
+    section.appendChild(renewWrap);
+    var message = el('p', 'form-error hidden');
+    section.appendChild(message);
+    root.appendChild(section);
+    function show(text, good) { message.textContent = text; message.className = good ? 'form-good' : 'form-error'; }
+    renew.addEventListener('change', function () {
+      call('POST', 'membership/renew', { on: renew.checked }).then(function (r) {
+        show(r.ok ? (renew.checked ? 'It renews by itself while you have the R$.' : 'It ends when the time runs out.') : (r.data.error || 'That did not work.'), r.ok);
+      });
+    });
+    function load() {
+      call('GET', 'membership').then(function (result) {
+        if (!result.ok) { section.classList.add('hidden'); return; }
+        var data = result.data;
+        line.textContent = data.tier
+          ? data.name + ' until ' + new Date(data.until).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }) + '.'
+          : 'Not a member. Members get daily R$, can trade limiteds and join more groups.';
+        tiers.textContent = '';
+        data.tiers.forEach(function (tier) {
+          var card = el('div', 'bc-tier' + (data.tier === tier.key ? ' current' : ''));
+          card.appendChild(el('b', null, tier.name));
+          card.appendChild(el('span', null, 'R$ ' + number(tier.price) + ' for ' + tier.days + ' days'));
+          card.appendChild(el('span', null, '+R$ ' + tier.daily + ' every day'));
+          card.appendChild(button(data.tier === tier.key ? 'Add 30 days' : 'Join', data.tier === tier.key ? 'btn-secondary btn-xs' : 'btn-green btn-xs', function () {
+            if (!window.confirm(tier.name + ' for R$ ' + number(tier.price) + '?')) return;
+            call('POST', 'membership/buy', { tier: tier.key }).then(function (r) {
+              if (!r.ok) { show(r.data.error || 'That did not work.'); return; }
+              storeMe(null);
+              show('You’re in ' + r.data.name + '!', true);
+              load();
+            });
+          }));
+          tiers.appendChild(card);
+        });
+        renewWrap.classList.toggle('hidden', !data.tier);
+        renew.checked = Boolean(data.autoRenew);
+      });
+    }
+    load();
+  }
+
+  function tradesPage() {
+    var root = $('trades-main');
+    var line = $('trades-status');
+    var params = new URLSearchParams(location.search);
+    var kind = ['inbound', 'outbound', 'completed', 'inactive'].indexOf(params.get('kind')) >= 0 ? params.get('kind') : 'inbound';
+    signedInOnly(root).then(function (me) {
+      if (!me) return;
+      var nav = $('trade-kinds');
+      function kinds() {
+        nav.textContent = '';
+        [['inbound', 'Inbound'], ['outbound', 'Outbound'], ['completed', 'Completed'], ['inactive', 'Inactive']].forEach(function (pair) {
+          var link = el('a', 'catalog-cat' + (pair[0] === kind ? ' active' : ''), pair[1]);
+          link.href = '/my/trades?kind=' + pair[0];
+          link.addEventListener('click', function (event) {
+            event.preventDefault();
+            kind = pair[0];
+            history.replaceState(null, '', '/my/trades?kind=' + kind);
+            list();
+          });
+          nav.appendChild(link);
+        });
+      }
+      function itemTile(item, chosen, onClick) {
+        var tile = el(onClick ? 'button' : 'div', 'trade-tile' + (chosen ? ' chosen' : ''));
+        if (onClick) { tile.type = 'button'; tile.addEventListener('click', onClick); }
+        var img = el('img');
+        img.alt = '';
+        img.loading = 'lazy';
+        img.src = itemPictureUrl({ kind: 'asset', id: item.assetId });
+        tile.appendChild(img);
+        tile.appendChild(el('span', 'trade-tile-name', item.name));
+        tile.appendChild(el('span', 'trade-tile-meta', '#' + item.serial + (item.stock ? ' / ' + item.stock : '') + ' · RAP R$ ' + number(item.rap)));
+        return tile;
+      }
+      function sideBox(title, side) {
+        var box = el('div', 'trade-side');
+        box.appendChild(el('h2', null, title));
+        var grid = el('div', 'trade-grid');
+        side.items.forEach(function (item) { grid.appendChild(itemTile(item)); });
+        if (side.robux) grid.appendChild(el('div', 'trade-robux', '+ R$ ' + number(side.robux)));
+        box.appendChild(grid);
+        var value = side.items.reduce(function (sum, item) { return sum + (item.rap || 0); }, 0);
+        box.appendChild(el('p', 'item-note', 'Value R$ ' + number(value) + (side.robux ? ' + R$ ' + number(side.robux) : '')));
+        return box;
+      }
+      function list() {
+        kinds();
+        setLine(line, '');
+        root.textContent = '';
+        root.appendChild(emptyState('Loading…'));
+        call('GET', 'trades?kind=' + kind).then(function (result) {
+          root.textContent = '';
+          if (!result.ok) { root.appendChild(emptyState(result.data.error || 'Could not load trades.')); return; }
+          if (!result.data.membership) root.appendChild(el('p', 'form-error', 'Trading needs Builders Club. Join it in Settings.'));
+          if (!result.data.trades.length) { root.appendChild(emptyState(kind === 'inbound' ? 'No trades waiting for you.' : 'Nothing here.')); return; }
+          var table = el('div', 'message-list');
+          result.data.trades.forEach(function (trade) {
+            var other = trade.mine === 'sent' ? trade.to : trade.from;
+            var row = el('button', 'message-row');
+            row.type = 'button';
+            row.appendChild(avatarPicture(other.userId, other.name, 'message-picture'));
+            var text = el('span', 'message-text');
+            text.appendChild(el('span', 'message-who', other.name));
+            text.appendChild(el('span', 'message-preview', trade.offer.items.length + ' for ' + trade.request.items.length + ' · ' + trade.status));
+            row.appendChild(text);
+            row.appendChild(el('span', 'message-when', whenText(trade.updated)));
+            row.addEventListener('click', function () { view(trade); });
+            table.appendChild(row);
+          });
+          root.appendChild(table);
+        });
+      }
+      function view(trade) {
+        root.textContent = '';
+        var other = trade.mine === 'sent' ? trade.to : trade.from;
+        var box = el('section', 'settings-section');
+        var who = el('a', null, other.name);
+        who.href = profileUrl(other.userId);
+        var head = el('h2', null, 'Trade with ');
+        head.appendChild(who);
+        box.appendChild(head);
+        box.appendChild(el('p', 'message-meta', trade.status + ' · ' + whenText(trade.created, true)));
+        var sides = el('div', 'trade-sides');
+        sides.appendChild(sideBox('You give', trade.mine === 'sent' ? trade.offer : trade.request));
+        sides.appendChild(sideBox('You get', trade.mine === 'sent' ? trade.request : trade.offer));
+        box.appendChild(sides);
+        box.appendChild(el('p', 'item-note', 'R$ in a trade arrive minus 30%.'));
+        var actions = el('div', 'profile-actions');
+        actions.appendChild(button('Back', 'btn-secondary btn-sm', list));
+        if (trade.status === 'open') {
+          if (trade.mine === 'received') {
+            actions.appendChild(button('Accept', 'btn-green btn-sm', function () {
+              if (window.confirm('Accept this trade? Items and R$ move at once.')) answer(trade, 'accept');
+            }));
+            actions.appendChild(button('Decline', 'btn-secondary btn-sm', function () { answer(trade, 'decline'); }));
+          } else {
+            actions.appendChild(button('Cancel Trade', 'btn-secondary btn-sm', function () { answer(trade, 'decline'); }));
+          }
+        }
+        box.appendChild(actions);
+        root.appendChild(box);
+      }
+      function answer(trade, verb) {
+        call('POST', 'trades/' + trade.id + '/' + verb, {}).then(function (result) {
+          if (!result.ok) { setLine(line, result.data.error || 'That did not work.'); return; }
+          storeMe(null);
+          setLine(line, verb === 'accept' ? 'Trade done!' : 'Trade closed.', true);
+          view(result.data.trade);
+        });
+      }
+      function compose(userId) {
+        root.textContent = '';
+        root.appendChild(emptyState('Loading items…'));
+        Promise.all([call('GET', 'limiteds/of/' + me.account.userId), call('GET', 'limiteds/of/' + userId), call('GET', 'profile/' + userId)]).then(function (all) {
+          root.textContent = '';
+          if (!all[2].ok) { root.appendChild(emptyState(all[2].data.error || 'No such player.')); return; }
+          var person = all[2].data;
+          var box = el('section', 'settings-section');
+          box.appendChild(el('h2', null, 'New trade with ' + person.name));
+          box.appendChild(el('p', 'item-note', 'Up to 4 items a side. R$ can be up to half the value of the items with them.'));
+          var give = {};
+          var get = {};
+          var inputs = [];
+          var sides = el('div', 'trade-sides');
+          [['Your items', all[0].data.items || [], give], [person.name + '’s items', all[1].data.items || [], get]].forEach(function (entry) {
+            var side = el('div', 'trade-side');
+            side.appendChild(el('h2', null, entry[0]));
+            var grid = el('div', 'trade-grid');
+            function draw() {
+              grid.textContent = '';
+              if (!entry[1].length) grid.appendChild(el('p', 'item-note', 'No limited items.'));
+              entry[1].forEach(function (item) {
+                grid.appendChild(itemTile(item, entry[2][item.uaid], function () {
+                  if (entry[2][item.uaid]) delete entry[2][item.uaid];
+                  else if (Object.keys(entry[2]).length < 4) entry[2][item.uaid] = true;
+                  draw();
+                }));
+              });
+            }
+            draw();
+            side.appendChild(grid);
+            var robuxInput = el('input', 'trade-robux-input');
+            robuxInput.type = 'number';
+            robuxInput.min = '0';
+            robuxInput.placeholder = 'R$ (optional)';
+            inputs.push(robuxInput);
+            side.appendChild(robuxInput);
+            sides.appendChild(side);
+          });
+          box.appendChild(sides);
+          var actions = el('div', 'profile-actions');
+          actions.appendChild(button('Send Trade', 'btn-green btn-sm', function () {
+            call('POST', 'trades', {
+              userId: Number(userId),
+              offer: { uaids: Object.keys(give).map(Number), robux: Number(inputs[0].value) || 0 },
+              request: { uaids: Object.keys(get).map(Number), robux: Number(inputs[1].value) || 0 },
+            }).then(function (result) {
+              if (!result.ok) { setLine(line, result.data.error || 'That did not work.'); return; }
+              kind = 'outbound';
+              history.replaceState(null, '', '/my/trades?kind=outbound');
+              list();
+              setLine(line, 'Trade sent to ' + person.name + '.', true);
+            });
+          }));
+          actions.appendChild(button('Cancel', 'btn-secondary btn-sm', list));
+          box.appendChild(actions);
+          root.appendChild(box);
+        });
+      }
+      if (/^\d{1,15}$/.test(params.get('with') || '')) { kinds(); compose(params.get('with')); }
+      else list();
+    });
+  }
+
+  // ---- forums (lib/account.js forum routes; the game server's lib/forumapi.js) ----
+
+  function forumPage() {
+    var root = $('forum-root');
+    var line = $('forum-status');
+    var path = location.pathname.replace(/\/+$/, '');
+    var params = new URLSearchParams(location.search);
+    var thread = /^\/forum\/thread\/(\d{1,12})$/.exec(path);
+    var board = /^\/forum\/(\d{1,3})$/.exec(path);
+    function crumbs(parts) {
+      var nav = el('div', 'forum-crumbs');
+      parts.forEach(function (part, index) {
+        if (index) nav.appendChild(document.createTextNode(' › '));
+        if (part[1]) {
+          var link = el('a', null, part[0]);
+          link.href = part[1];
+          nav.appendChild(link);
+        } else nav.appendChild(document.createTextNode(part[0]));
+      });
+      return nav;
+    }
+    function lastLine(last) {
+      if (!last) return el('span', 'forum-muted', 'No posts yet');
+      var box = el('span', 'forum-last');
+      var link = el('a', null, last.title);
+      link.href = '/forum/thread/' + last.threadId + '?page=last';
+      box.appendChild(link);
+      box.appendChild(el('span', 'forum-muted', whenText(last.at, true) + ' by ' + last.by.name));
+      return box;
+    }
+    function pager(data, href) {
+      if (data.pages <= 1) return null;
+      var nav = el('div', 'pager');
+      var back = el('a', 'btn btn-secondary btn-xs', '‹ Back');
+      var next = el('a', 'btn btn-secondary btn-xs', 'Next ›');
+      if (data.page > 1) back.href = href(data.page - 1); else back.classList.add('disabled');
+      if (data.page < data.pages) next.href = href(data.page + 1); else next.classList.add('disabled');
+      nav.appendChild(back);
+      nav.appendChild(el('span', null, 'Page ' + data.page + ' of ' + data.pages));
+      nav.appendChild(next);
+      return nav;
+    }
+
+    function index() {
+      document.title = 'Forum - rbx2017';
+      call('GET', 'forum').then(function (result) {
+        root.textContent = '';
+        if (!result.ok) { root.appendChild(emptyState(result.data.error || 'Could not load the forum.')); return; }
+        result.data.sections.forEach(function (section) {
+          var box = el('section', 'forum-section');
+          box.appendChild(el('h2', 'forum-section-title', section.name));
+          section.forums.forEach(function (forum) {
+            var row = el('div', 'forum-row');
+            var name = el('div', 'forum-name');
+            var link = el('a', null, forum.name);
+            link.href = '/forum/' + forum.id;
+            name.appendChild(link);
+            name.appendChild(el('span', 'forum-muted', forum.description));
+            row.appendChild(name);
+            row.appendChild(el('div', 'forum-count', plural(forum.threads, 'thread', 'threads')));
+            row.appendChild(el('div', 'forum-count', plural(forum.posts, 'post', 'posts')));
+            row.appendChild(lastLine(forum.last));
+            box.appendChild(row);
+          });
+          root.appendChild(box);
+        });
+      });
+    }
+
+    function forumBoard(forumId) {
+      var page = Number(params.get('page')) || 1;
+      var search = (params.get('search') || '').slice(0, 50);
+      call('GET', 'forum/' + forumId + '?page=' + page + (search ? '&search=' + encodeURIComponent(search.replace(/[^0-9A-Za-z_ '.&!-]/g, '')) : '')).then(function (result) {
+        root.textContent = '';
+        if (!result.ok) { root.appendChild(emptyState(result.data.error || 'Could not load this forum.')); return; }
+        var data = result.data;
+        document.title = data.forum.name + ' - Forum - rbx2017';
+        root.appendChild(crumbs([['Forum', '/forum'], [data.forum.section, null], [data.forum.name, null]]));
+        var head = el('div', 'catalog-head');
+        head.appendChild(el('h1', null, data.forum.name));
+        var form = el('form', 'people-search');
+        var input = el('input');
+        input.placeholder = 'Search threads';
+        input.value = search;
+        input.maxLength = 50;
+        var go = el('button', 'btn btn-secondary btn-sm', 'Search');
+        go.type = 'submit';
+        form.appendChild(input);
+        form.appendChild(go);
+        form.addEventListener('submit', function (event) {
+          event.preventDefault();
+          location.href = '/forum/' + forumId + (input.value.trim() ? '?search=' + encodeURIComponent(input.value.trim()) : '');
+        });
+        head.appendChild(form);
+        root.appendChild(head);
+        if (data.canPost) root.appendChild(composer(forumId));
+        else if (!data.forum.adminOnly) {
+          var login = el('p', 'item-note');
+          var link = el('a', null, 'Log in');
+          link.href = '/login?next=' + encodeURIComponent(location.pathname);
+          login.appendChild(link);
+          login.appendChild(document.createTextNode(' to post.'));
+          root.appendChild(login);
+        }
+        var list = el('div', 'forum-threads');
+        if (!data.threads.length) list.appendChild(emptyState(search ? 'No threads found.' : 'No threads yet. Start one!'));
+        data.threads.forEach(function (t) {
+          var row = el('div', 'forum-row' + (t.pinned ? ' pinned' : ''));
+          var name = el('div', 'forum-name');
+          var link = el('a', null, (t.pinned ? 'Pinned: ' : '') + (t.locked ? '🔒 ' : '') + t.title);
+          link.href = '/forum/thread/' + t.id;
+          name.appendChild(link);
+          name.appendChild(el('span', 'forum-muted', 'by ' + t.author.name));
+          row.appendChild(name);
+          row.appendChild(el('div', 'forum-count', plural(t.replies, 'reply', 'replies')));
+          row.appendChild(el('div', 'forum-count', plural(t.views, 'view', 'views')));
+          row.appendChild(lastLine({ threadId: t.id, title: 'Last post', at: t.lastPostAt, by: t.lastPoster }));
+          list.appendChild(row);
+        });
+        root.appendChild(list);
+        var nav = pager(data, function (n) { return '/forum/' + forumId + '?page=' + n + (search ? '&search=' + encodeURIComponent(search) : ''); });
+        if (nav) root.appendChild(nav);
+      });
+    }
+
+    function composer(forumId) {
+      var wrap = el('div', 'forum-compose');
+      var open = el('button', 'btn btn-green btn-sm', 'New Thread');
+      open.type = 'button';
+      var form = el('form', 'settings-section auth-form hidden');
+      var title = el('input');
+      title.maxLength = 80;
+      title.placeholder = 'Title';
+      var text = el('textarea');
+      text.maxLength = 4000;
+      text.rows = 8;
+      text.placeholder = 'Your post';
+      var post = el('button', 'btn btn-primary btn-sm', 'Post Thread');
+      post.type = 'submit';
+      form.appendChild(title);
+      form.appendChild(text);
+      form.appendChild(post);
+      open.addEventListener('click', function () { form.classList.toggle('hidden'); title.focus(); });
+      form.addEventListener('submit', function (event) {
+        event.preventDefault();
+        post.disabled = true;
+        call('POST', 'forum/' + forumId + '/threads', { title: title.value, text: text.value }).then(function (result) {
+          post.disabled = false;
+          if (!result.ok) { setLine(line, result.data.error || 'That did not work.'); return; }
+          location.href = '/forum/thread/' + result.data.thread.id;
+        });
+      });
+      wrap.appendChild(open);
+      wrap.appendChild(form);
+      return wrap;
+    }
+
+    function threadPage(threadId) {
+      var page = params.get('page') === 'last' ? 'last' : (Number(params.get('page')) || 1);
+      call('GET', 'forum/thread/' + threadId + '?page=' + page).then(function (result) {
+        root.textContent = '';
+        if (!result.ok) { root.appendChild(emptyState(result.data.error || 'Could not load this thread.')); return; }
+        var data = result.data;
+        var t = data.thread;
+        document.title = t.title + ' - Forum - rbx2017';
+        root.appendChild(crumbs([['Forum', '/forum'], [data.forum.section, null], [data.forum.name, '/forum/' + data.forum.id]]));
+        root.appendChild(el('h1', 'forum-title', (t.locked ? '🔒 ' : '') + t.title));
+        if (data.admin) root.appendChild(adminBar(data));
+        var nav = pager(data, function (n) { return '/forum/thread/' + t.id + '?page=' + n; });
+        if (nav) root.appendChild(nav);
+        data.posts.forEach(function (p) { root.appendChild(postBox(p, data)); });
+        if (nav) root.appendChild(pager(data, function (n) { return '/forum/thread/' + t.id + '?page=' + n; }));
+        if (data.canReply) {
+          var form = el('form', 'settings-section auth-form forum-reply');
+          form.appendChild(el('h2', null, 'Reply'));
+          var text = el('textarea');
+          text.maxLength = 4000;
+          text.rows = 6;
+          var send = el('button', 'btn btn-primary btn-sm', 'Post Reply');
+          send.type = 'submit';
+          form.appendChild(text);
+          form.appendChild(send);
+          form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            send.disabled = true;
+            call('POST', 'forum/thread/' + t.id + '/reply', { text: text.value }).then(function (r) {
+              send.disabled = false;
+              if (!r.ok) { setLine(line, r.data.error || 'That did not work.'); return; }
+              location.href = '/forum/thread/' + t.id + '?page=' + r.data.pages + '#post-' + r.data.postId;
+            });
+          });
+          root.appendChild(form);
+        } else if (t.locked) {
+          root.appendChild(el('p', 'item-note', 'This thread is locked.'));
+        } else {
+          var login = el('p', 'item-note');
+          var link = el('a', null, 'Log in');
+          link.href = '/login?next=' + encodeURIComponent(location.pathname + location.search);
+          login.appendChild(link);
+          login.appendChild(document.createTextNode(' to reply.'));
+          root.appendChild(login);
+        }
+        if (location.hash) {
+          var target = document.getElementById(location.hash.slice(1));
+          if (target) target.scrollIntoView();
+        }
+      });
+    }
+
+    function postBox(p, data) {
+      var box = el('article', 'forum-post' + (p.deleted ? ' deleted' : ''));
+      box.id = 'post-' + p.id;
+      var side = el('div', 'forum-author');
+      side.appendChild(avatarPicture(p.author.userId, p.author.name, 'forum-avatar'));
+      var name = el('a', 'forum-author-name', p.author.name);
+      name.href = profileUrl(p.author.userId);
+      side.appendChild(name);
+      if (p.author.admin) side.appendChild(el('span', 'admin-tag', 'Admin'));
+      if (p.author.membership) side.appendChild(el('span', 'admin-tag bc-tag', BC_SHORT[p.author.membership] || 'BC'));
+      side.appendChild(el('span', 'forum-muted', 'Posts: ' + number(p.author.posts)));
+      box.appendChild(side);
+      var main = el('div', 'forum-post-main');
+      main.appendChild(el('div', 'forum-muted', whenText(p.at, true) + (p.edited ? ' · edited' : '')));
+      var text = el('div', 'forum-post-text', p.deleted ? 'This post was deleted.' : p.text);
+      main.appendChild(text);
+      var actions = el('div', 'forum-post-actions');
+      if (p.canEdit) {
+        actions.appendChild(button('Edit', 'btn-secondary btn-xs', function () {
+          var area = el('textarea');
+          area.maxLength = 4000;
+          area.rows = 6;
+          area.value = p.text;
+          var save = button('Save', 'btn-primary btn-xs', function () {
+            call('POST', 'forum/post/' + p.id + '/edit', { text: area.value }).then(function (r) {
+              if (!r.ok) { setLine(line, r.data.error || 'That did not work.'); return; }
+              location.reload();
+            });
+          });
+          text.replaceWith(area);
+          actions.textContent = '';
+          actions.appendChild(save);
+        }));
+        actions.appendChild(button('Delete', 'btn-secondary btn-xs', function () {
+          if (!window.confirm(p.first ? 'Delete this thread?' : 'Delete this post?')) return;
+          call('POST', 'forum/post/' + p.id + '/delete', {}).then(function (r) {
+            if (!r.ok) { setLine(line, r.data.error || 'That did not work.'); return; }
+            if (r.data.deleted) location.href = '/forum/' + r.data.forumId;
+            else location.reload();
+          });
+        }));
+      }
+      if (!p.deleted && me() && me().account && p.author.userId !== me().account.userId) {
+        actions.appendChild(button('Report', 'btn-secondary btn-xs', function () {
+          var reason = window.prompt('What is wrong with this post?', '');
+          if (reason === null) return;
+          call('POST', 'forum/post/' + p.id + '/report', { reason: reason || 'Forum post' }).then(function (r) {
+            setLine(line, r.ok ? 'Reported. Thanks.' : (r.data.error || 'That did not work.'), r.ok);
+          });
+        }));
+      }
+      main.appendChild(actions);
+      box.appendChild(main);
+      return box;
+    }
+
+    function adminBar(data) {
+      var t = data.thread;
+      var bar = el('div', 'forum-admin');
+      bar.appendChild(el('span', 'forum-muted', 'Admin:'));
+      function moderate(change, done) {
+        call('POST', 'forum/thread/' + t.id + '/moderate', change).then(function (r) {
+          if (!r.ok) { setLine(line, r.data.error || 'That did not work.'); return; }
+          setLine(line, done, true);
+          setTimeout(function () { location.reload(); }, 500);
+        });
+      }
+      bar.appendChild(button(t.pinned ? 'Unpin' : 'Pin', 'btn-secondary btn-xs', function () { moderate({ pinned: !t.pinned }, t.pinned ? 'Unpinned.' : 'Pinned.'); }));
+      bar.appendChild(button(t.locked ? 'Unlock' : 'Lock', 'btn-secondary btn-xs', function () { moderate({ locked: !t.locked }, t.locked ? 'Unlocked.' : 'Locked.'); }));
+      var move = el('select', 'group-filter');
+      (data.forums || []).forEach(function (f) {
+        var option = el('option', null, f.name);
+        option.value = String(f.id);
+        if (f.id === data.forum.id) option.selected = true;
+        move.appendChild(option);
+      });
+      move.addEventListener('change', function () { moderate({ forumId: Number(move.value) }, 'Moved.'); });
+      bar.appendChild(move);
+      bar.appendChild(button('Delete Thread', 'btn-secondary btn-xs danger', function () {
+        if (!window.confirm('Delete this whole thread?')) return;
+        call('POST', 'forum/thread/' + t.id + '/delete', {}).then(function (r) {
+          if (!r.ok) { setLine(line, r.data.error || 'That did not work.'); return; }
+          location.href = '/forum/' + r.data.forumId;
+        });
+      }));
+      return bar;
+    }
+
+    var signedIn = null;
+    function me() { return signedIn; }
+    loadMe().then(function (data) {
+      signedIn = data;
+      if (thread) threadPage(thread[1]);
+      else if (board) forumBoard(board[1]);
+      else index();
+    });
+  }
+
   // ---- start ----
   fillSearch();
   var pages = {
     home: homePage, games: gamesPage, game: gamePage, download: downloadPage,
     login: authPage('login'), signup: authPage('signup'), 'account-home': accountHomePage,
     catalog: catalogPage, item: itemPage, inventory: inventoryPage, settings: settingsPage,
+    friends: friendsPage, profile: profilePage, messages: messagesPage, chat: chatPage,
+    groups: groupsPage, group: groupPage, trades: tradesPage, forum: forumPage,
   };
   (pages[document.body.dataset.page] || simplePage)();
-  loadMe().then(renderHeaderAccount);
+  loadMe().then(function (me) {
+    renderHeaderAccount(me);
+    if (me && me.account) refreshCounts();
+  });
 
   // The 404 page's Go back button.
   var back = $('go-back');

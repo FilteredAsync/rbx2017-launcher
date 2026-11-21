@@ -97,7 +97,7 @@ function add(fields = {}) {
   const report = {
     id: crypto.randomBytes(6).toString('hex'),
     at: new Date().toISOString(),
-    source: fields.source === 'launcher' ? 'launcher' : 'game',
+    source: ['launcher', 'forum'].includes(fields.source) ? fields.source : 'game',
     reporterId,
     reporterName: nameOf(reporterId) || cleanLine(fields.reporterName, 40) || null,
     reportedId,

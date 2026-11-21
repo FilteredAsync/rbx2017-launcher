@@ -15,7 +15,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const SERVER_PATHS = /^(?:asset\/?|asset-thumbnail\/image|bundle-thumbnail\/image|avatar-thumbnail\/image|headshot-thumbnail\/image|api\/launcher\/item\/\d{1,19}|api\/launcher\/outfit-image\/\d{1,15}\/[0-9a-f]{12}|api\/thumbnails\/\d{1,15})$/i;
+const SERVER_PATHS = /^(?:asset\/?|asset-thumbnail\/image|bundle-thumbnail\/image|group-thumbnail\/image|avatar-thumbnail\/image|headshot-thumbnail\/image|api\/launcher\/item\/\d{1,19}|api\/launcher\/outfit-image\/\d{1,15}\/[0-9a-f]{12}|api\/thumbnails\/\d{1,15})$/i;
 // The ROBLOX logo comes from the server (the public download has none) and
 // is kept in config/ so it shows offline too.
 const LOGO_PATH = /^download\/(roblox-logo(?:-tagline)?\.png)$/i;
@@ -348,6 +348,37 @@ module.exports = function accountModule({ ROOT, lib }) {
     block: (centralUrl, userId, on) => authed(centralUrl, 'POST', on ? 'block' : 'unblock', { body: { userId: String(userId) } }),
     following: (centralUrl) => authed(centralUrl, 'GET', 'following', { timeoutMs: 8000 }),
     follow: (centralUrl, userId, on) => authed(centralUrl, 'POST', on ? 'follow' : 'unfollow', { body: { userId: String(userId) } }),
+    // Builders Club, limited items and trades (servers from 2026-11-21 on).
+    economy: (centralUrl, method, route, body) => {
+      const path = String(route || '');
+      const ok = /^(?:membership(?:\/buy|\/renew)?|limiteds\/(?:of|item)\/\d{1,15}|limiteds\/\d{1,12}\/sell|trades(?:\?kind=[a-z]{1,10})?|trades\/\d{1,12}(?:\/(?:accept|decline))?)$/.test(path);
+      if (!ok) throw new Error('unknown request');
+      if (method === 'POST') return authed(centralUrl, 'POST', path, { body: body || {}, timeoutMs: 15000 });
+      return maybeAuthed(centralUrl, 'GET', path, { timeoutMs: 10000 });
+    },
+    // Groups (servers from 2026-11-21 on): reading works signed out too.
+    groups: (centralUrl, method, route, body) => {
+      const path = String(route || '');
+      const [where, query = ''] = path.split('?');
+      const okPath = /^groups(?:\/mine|\/of\/\d{1,15}|\/\d{1,15}(?:\/(?:members|wall|requests|join|leave|settings|roles|transfer|emblem\/remove|shout|delete|requests\/\d{1,15}\/(?:accept|decline)|members\/\d{1,15}\/(?:rank|kick)|wall\/\d{1,12}\/delete))?)?$/.test(where);
+      const okQuery = /^(?:[a-z]{1,10}=[%0-9A-Za-z_.-]{0,80}(?:&|$)){0,3}$/.test(query);
+      if (!okPath || !okQuery) throw new Error('unknown groups request');
+      if (method === 'POST') return authed(centralUrl, 'POST', path, { body: body || {}, timeoutMs: 15000 });
+      return maybeAuthed(centralUrl, 'GET', path, { timeoutMs: 10000 });
+    },
+    groupEmblem: (centralUrl, groupId, bytes) => {
+      if (!/^\d{1,15}$/.test(String(groupId))) throw new Error('unknown group');
+      return authed(centralUrl, 'POST', `groups/${groupId}/emblem`, { bytes: Buffer.from(bytes), timeoutMs: 30000 });
+    },
+    // Chat and private messages (servers from 2026-11-21 on; older ones answer 404).
+    talk: (centralUrl, method, route, body) => {
+      const verb = method === 'POST' ? 'POST' : 'GET';
+      const path = String(route || '');
+      const query = /^(?:chat\/\d{1,12}|messages)\?(?:[a-z]+=[0-9a-z]{0,12}&?){0,4}$/.test(path);
+      const plain = /^(?:counts|chat|chat\/(?:start|group)|chat\/\d{1,12}(?:\/(?:send|read|typing|add|remove|leave|rename))?|messages|messages\/\d{1,12}(?:\/(?:read|archive))?)$/.test(path);
+      if (!query && !plain) throw new Error('unknown chat request');
+      return authed(centralUrl, verb, path, verb === 'POST' ? { body: body || {}, timeoutMs: 12000 } : { timeoutMs: 10000 });
+    },
     report: (centralUrl, { userId, reason, text }) => authed(centralUrl, 'POST', 'report', { body: { userId: String(userId), reason: String(reason || '').slice(0, 100), text: String(text || '').slice(0, 1000) } }),
   };
 };

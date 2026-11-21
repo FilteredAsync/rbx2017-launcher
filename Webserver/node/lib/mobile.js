@@ -25,16 +25,19 @@ const accounts = require('./accounts');
 const publicnet = require('./publicnet');
 const robux = require('./robux');
 
-// The app's settings (com.roblox.client.b): Roblox's analytics, reporting,
-// ads and realtime notifications (SignalR) off.
+// The app's settings (com.roblox.client.b): Roblox's analytics, reporting
+// and ads off. Realtime (SignalR) is on: the Chat tab loads nothing until it
+// is connected (lib/mobilechat.js; SignalRUrl is added per host below).
 const APP_SETTINGS = {
   EnableRbxAnalytics: false,
   EnableRbxReportingManager: false,
   InfluxThrottleRate: 0,
   EnablePrerollAds: false,
   EnableVideoAdPreCache: false,
-  EnableSignalR: false,
+  EnableSignalR: true,
   EnableNativeSignalRv3: false,
+  // lib/chat.js MAX_MEMBERS, less yourself.
+  NumParticipantsInGroupChat: 9,
   NativeSignalRPercentageRollout: 0,
   EnableNotificationStream: false,
   // Its game engine's crash dumps come here (Error/Dmp.ashx, kept in logs/captures).
@@ -58,6 +61,9 @@ async function ipv4Of(name) {
   return null;
 }
 
+// A route handler's answer meaning "not mine, try the next route" (server.js).
+const NEXT = Symbol('next route');
+
 const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
 
 module.exports = function mobileApi({ send, sendUtf8, sendJson, launcher, sessionCookie }) {
@@ -75,6 +81,10 @@ module.exports = function mobileApi({ send, sendUtf8, sendJson, launcher, sessio
     return `https://m.${match ? match[1] : hostOf(ctx)}/`;
   };
   const json = (value) => (ctx) => sendJson(ctx, 200, value);
+  // https://m.<domain>/ from any of the app's names (api., chat., m. ...): the
+  // app reads its settings from api.<domain>.
+  const APP_PREFIX = /^(?:clientsettings\.api|ephemeralcounters\.api|api|chat|www\.m|avatar\.m|inventory\.m|m|assetgame)\.(?=[a-z0-9-]+\.)/;
+  const appBase = (ctx) => `https://m.${hostOf(ctx).replace(APP_PREFIX, '')}/`;
 
   // --- the app's API calls --------------------------------------------------------------
 
@@ -214,6 +224,23 @@ main{padding:12px;max-width:720px;margin:0 auto}h1{font-size:20px;font-weight:60
   // and the avatar editor's API (lib/mobileavatar.js).
   const shop = require('./mobileshop')({ page, escapeHtml, send, launcher, hostOf });
   const avatarEditor = require('./mobileavatar')({ send, sendJson, launcher });
+  // A JSON body (the chat API's), or {} when it isn't one.
+  async function mobileJson(ctx) {
+    try {
+      const data = JSON.parse((await ctx.body(16 * 1024)).toString('utf8') || '{}');
+      return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+    } catch (error) {
+      return {};
+    }
+  }
+
+  // Friends, profiles, search and Messages pages (lib/mobilesocial.js), and the
+  // native Chat tab's API and realtime connection (lib/mobilechat.js).
+  const social = require('./mobilesocial')({ page, escapeHtml, send, launcher, hostOf, NEXT });
+  const groupPages = require('./mobilegroups')({ page, escapeHtml, send, hostOf, NEXT });
+  const economyPages = require('./mobileeconomy')({ page, escapeHtml, send, hostOf, NEXT });
+  const forumPages = require('./mobileforum')({ page, escapeHtml, send, hostOf, NEXT });
+  const chatApi = require('./mobilechat')({ sendJson, jsonBody: mobileJson, launcher, baseUrl: appBase });
 
   function gameRows() {
     const list = launcher.gameList();
@@ -250,19 +277,21 @@ main{padding:12px;max-width:720px;margin:0 auto}h1{font-size:20px;font-weight:60
   }
 
   return {
+    NEXT,
+    upgrade: chatApi.upgrade,
     isMobile,
     baseUrl,
     placeLauncher,
     notHerePage,
     routes: [
-      [/^setting\/get\/androidappsettings\/?$/i, json(APP_SETTINGS)],
+      [/^setting\/get\/androidappsettings\/?$/i, (ctx) => sendJson(ctx, 200, Object.assign({}, APP_SETTINGS, { SignalRUrl: `${appBase(ctx)}notifications` }))],
       [/^mobileapi\/check-app-version\/?$/i, json({ data: { UpgradeAction: 'None' } })],
       [/^ab\/v1\/(?:get-enrollments|enroll)\/?$/i, json({ data: [] })],
       [/^sponsoredpage\/list-json\/?$/i, json([])],
       [/^users\/account-info\/?$/i, accountInfo],
       [/^my\/balance\/?$/i, balance],
       [/^notifications\/account\/?$/i, json({})],
-      [/^v2\/push-notifications\/[a-z-]+\/?$/i, json({})],
+      [/^v2\/push-notifications\/[a-z-]+\/?$/i, json({ statusMessage: 'Success' })],
       [/^v2\/stream-notifications\/[a-z-]+\/?$/i, json({ unreadNotifications: 0 })],
       [/^v1\.1\/counters\/increment\/?$/i, json({})],
       [/^pe\.png$/i, beacon],
@@ -275,12 +304,17 @@ main{padding:12px;max-width:720px;margin:0 auto}h1{font-size:20px;font-weight:60
       // Error/Dmp.ashx), and its join statistics: nothing kept.
       [/^game\/(?:sessions\/report|joinrate\.ashx)\/?$/i, (ctx) => send(ctx, 200, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' }, 'OK')],
       ...avatarEditor.routes,
+      ...chatApi.routes,
     ],
     pageRoutes: [
       [/^(?:home)?\/?$/i, homePage],
       [/^games\/?$/i, gamesPage],
       [/^games\/start\/?$/i, startPage],
       ...shop.pageRoutes,
+      ...social.pageRoutes,
+      ...groupPages.pageRoutes,
+      ...economyPages.pageRoutes,
+      ...forumPages.pageRoutes,
     ],
   };
 };

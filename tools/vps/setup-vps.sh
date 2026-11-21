@@ -78,8 +78,9 @@ SITES="$DOMAIN"
 [ -f "$DIR/android" ] && ANDROID=1
 # m and api are the app's; the game engine asks assetgame (PlaceLauncher),
 # clientsettings.api (its flags) and ephemeralcounters.api; the avatar
-# editor puts avatar., inventory. and www. in front of m.NAME.
-ANDROID_NAMES="m api assetgame clientsettings.api ephemeralcounters.api avatar.m inventory.m www.m"
+# editor puts avatar., inventory. and www. in front of m.NAME; the Chat tab
+# asks chat.NAME (lib/mobilechat.js).
+ANDROID_NAMES="m api assetgame clientsettings.api ephemeralcounters.api avatar.m inventory.m www.m chat"
 ANDROID_SITES=""
 if [ "$ANDROID" = 1 ]; then
   [ "$DOMAIN" != "$SSLIP" ] || { echo "--android needs --domain (m.NAME, api.NAME and others)."; exit 1; }
