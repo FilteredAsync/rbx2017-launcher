@@ -69,6 +69,14 @@ def check_studio_key(exe):
     with open(exe, 'rb') as handle:
         if blob not in handle.read():
             sys.exit('Studio does not trust the server key yet: run python tools/patch-studio-key.py first.')
+    # Its web pages (the Toolbox) must use http://localhost./ (tools/patch-2017-studio-webview.py).
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('webview', os.path.join(ROOT, 'tools', 'patch-2017-studio-webview.py'))
+    webview = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(webview)
+    state = webview.patch(exe, check_only=True)
+    if not state.endswith('already patched'):
+        sys.exit(f'Studio web view: {state}. Run python tools/patch-2017-studio-webview.py first.')
 
 
 # CoreScripts edited on this PC for in-game friend status (not yet verified

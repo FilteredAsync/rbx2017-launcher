@@ -282,6 +282,8 @@ async function assetEndpoint(ctx) {
   // A library place opened in Studio (lib/studio.js).
   if (studio.placeAsset(ctx)) return;
   const query = ctx.queryLower;
+  // Studio's Toolbox inserting an item, converted for 2017 (lib/toolbox.js).
+  if (query.toolbox !== undefined) return toolbox.insert(ctx);
   const decimalParameter = (name) => {
     if (query[name] === undefined) return undefined;
     const value = core.decimal(String(query[name]));
@@ -1464,6 +1466,13 @@ async function convertPlaceFile(bytes, universeId) {
   return { bytes: stored.bytes, notes: [...input.notes, ...result.summary, ...stored.notes] };
 }
 
+// A model (Studio's Toolbox inserts it) through the same converter -> its XML,
+// which 2017 Studio reads.
+async function convertModelFile(bytes) {
+  const input = rbxbinary.placeXml(bytes);
+  return placefile.convertPlace(input.xml, { unionShapes: await unionShapes(input.xml) }).output;
+}
+
 // Collision shapes for a place's unions, made from their meshes (lib/unionshapes.js),
 // which come like any asset (cache, then Roblox). Unions without one keep the
 // converter's old rule.
@@ -2031,8 +2040,8 @@ const launcher = require('./launcherapi')({ send, sendJson, jsonBody, assetBytes
 const mobile = require('./mobile')({ send, sendUtf8, sendJson, launcher, sessionCookie: studio.sessionCookie });
 // The Xbox One app, rebuilt for Windows (lib/xbox.js).
 const xbox = require('./xbox')({ send, sendUtf8, sendJson, launcher, sessionCookie: studio.sessionCookie });
-// Studio's Toolbox: the signed-in player's inventory (lib/toolbox.js).
-const toolbox = require('./toolbox')({ sendUtf8, launcher });
+// Studio's Toolbox: free models from before 2018 and the player's inventory (lib/toolbox.js).
+const toolbox = require('./toolbox')({ send, sendUtf8, launcher, assetBytes, convertModel: convertModelFile });
 
 // --- Route table ---------------------------------------------------------------------
 // Matched case-insensitively against the path without the leading "/".
