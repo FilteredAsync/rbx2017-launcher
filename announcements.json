@@ -1,12 +1,3 @@
 {
-  "announcements": [
-    {
-      "id": "release-1.15.0",
-      "title": "Update coming",
-      "text": "Launcher 1.15.0 comes out Saturday at 12:37 AM ET.",
-      "level": "info",
-      "postedAt": "2026-11-21T00:06:22.690Z",
-      "expiresAt": "2026-11-21T05:37:00.000Z"
-    }
-  ]
+  "announcements": []
 }
