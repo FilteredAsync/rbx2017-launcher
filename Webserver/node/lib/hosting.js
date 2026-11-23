@@ -521,6 +521,14 @@ async function startHosting(rawConfig, { log = console.log, startRcc = true, ded
         runMemoryPatch('patch-rcc-http-urls.ps1', rcc.pid, 'LuaWebService patch',
           'group and friend checks in games will fail with "LuaWebService error"', log);
       }
+      // A 0.300.0.138971 game client (the same build as RCC) reports its own
+      // broken code signature (every client here is byte-patched) and RCC
+      // disconnects it right after joining; patch-rcc-signature.ps1 makes RCC
+      // ignore that one report. "patchSignatureCheck": false in host.json skips it.
+      if (config.patchSignatureCheck !== false) {
+        runMemoryPatch('patch-rcc-signature.ps1', rcc.pid, 'signature-report patch',
+          '0.300 game clients will be disconnected right after joining', log);
+      }
       const domain = fixedDomain(config);
       const scriptTimeout = config.scriptTimeout === undefined ? 10 : Number(config.scriptTimeout) || 0;
       await startGameJob(placeId, gamePort, domain, scriptTimeout, log, soapPort, placeFile, config.cloudEdit || null, config.maxPlayers || null);
