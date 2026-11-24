@@ -32,6 +32,8 @@ const zlib = require('zlib');
 const KINDS = {
   client: { file: 'client-files', folder: 'Client', what: 'the game files', missing: 'the client is missing', build: 'tools/build-client-files.py' },
   studio: { file: 'studio-files', folder: 'Studio', what: 'Studio', missing: 'Studio is missing', build: 'tools/build-client-files.py studio' },
+  // Games set to 2016 on /manage (lib/engines.js): downloaded on the first join of one.
+  client2016: { file: 'client-files-2016', folder: 'Client2016', what: 'the 2016 game files', missing: 'the 2016 client is missing', build: 'tools/build-client-files.py client2016' },
 };
 
 // zstd is in Node 22.15 and newer (the launcher's Electron has it).
@@ -111,7 +113,7 @@ module.exports = function gameFiles({ root, normalizeUrl, canPlay, onProgress = 
   // A package entry from the list: { file, size, sha256 } with one of our names.
   function validEntry(entry) {
     return Boolean(entry && typeof entry.file === 'string' && entry.file.startsWith(`${k.file}`)
-      && /^[a-z]+-files(?:-from-[0-9a-f]{12})?\.tar\.zst$/.test(entry.file)
+      && /^[a-z]+-files(?:-\d{4})?(?:-from-[0-9a-f]{12})?\.tar\.zst$/.test(entry.file)
       && /^[0-9a-f]{64}$/.test(String(entry.sha256)) && Number.isFinite(entry.size) && entry.size > 0);
   }
 
@@ -404,3 +406,4 @@ module.exports = function gameFiles({ root, normalizeUrl, canPlay, onProgress = 
 };
 
 module.exports.HAS_ZSTD = HAS_ZSTD;
+module.exports.KINDS = KINDS;

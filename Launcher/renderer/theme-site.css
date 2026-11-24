@@ -191,6 +191,7 @@
 [data-theme="site"] .game-tile { box-shadow: var(--site-shadow); }
 [data-theme="site"] .game-tile.placeholder { background: #fff; color: var(--muted); }
 [data-theme="site"] .game-tile.placeholder b { color: #b8b8b8; }
+[data-theme="site"] .tile-year { border-radius: 3px; letter-spacing: 0; }
 [data-theme="site"] .all-games .caption { background: rgba(255, 255, 255, .94); color: var(--muted); font-size: 13px; }
 
 /* Avatar ------------------------------------------------------------------------------ */

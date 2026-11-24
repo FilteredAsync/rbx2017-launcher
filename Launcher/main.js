@@ -257,6 +257,60 @@ async function updateFilesBeforePlay(centralUrl, log) {
   send('status-changed');
 }
 
+// Games on another Roblox version (lib/engines.js; /manage "Roblox version")
+// need that year's client: Client2016/ for 2016, downloaded from the server
+// (client-files-2016) the first time the player joins such a game and
+// updated like the 2017 files after that. Progress goes out as
+// 'files-progress' with the engine named.
+const engineFilesModules = new Map();
+function engineFiles(engine) {
+  if (!engineFilesModules.has(engine)) {
+    const folder = lib('engines').get(engine).client;
+    engineFilesModules.set(engine, require('./gamefiles')({
+      root: ROOT,
+      kind: `client${engine}`,
+      normalizeUrl: (url) => lib('proxy').normalizeCentralUrl(url),
+      canPlay: () => fs.existsSync(path.join(ROOT, folder, 'RobloxPlayerBeta.exe')),
+      onProgress: (info) => send('files-progress', Object.assign({ engine }, info)),
+      log: logger('play'),
+    }));
+  }
+  return engineFilesModules.get(engine);
+}
+
+// The Roblox versions this launcher can play (sent with each join).
+function playableEngines() {
+  const engines = lib('engines');
+  return Object.keys(engines.ENGINES).filter((id) => id === engines.DEFAULT_ENGINE || require('./gamefiles').KINDS[`client${id}`]);
+}
+
+// Makes sure the client of a game's engine is here and current. True when it
+// downloaded something.
+async function engineFilesBeforePlay(centralUrl, engine, log) {
+  const engines = lib('engines');
+  if (!engine || engine === engines.DEFAULT_ENGINE) return false;
+  if (!playableEngines().includes(engine)) throw new Error(`This game runs on Roblox ${engine}. Update the launcher to play it.`);
+  const exe = path.join(ROOT, engines.get(engine).client, 'RobloxPlayerBeta.exe');
+  // A host plays from the folder it packs (tools/make-engine-2016.py), when it has one.
+  if (capabilities().canHost && fs.existsSync(exe)) return false;
+  const files = engineFiles(engine);
+  if (files.isBusy()) throw new Error(`The ${engine} game files are downloading. Try again when that is done.`);
+  if (files.installed() && fs.existsSync(exe)) {
+    const update = await files.update(centralUrl);
+    if (!update) return false;
+    log(`Updating the ${engine} game files to version ${update.available} (${Math.round(update.size / 1e6)} MB)...`);
+  } else {
+    log(`Downloading the ${engine} game files (first ${engine} game on this PC)...`);
+  }
+  try {
+    await files.download(centralUrl);
+  } catch (error) {
+    throw new Error(`Could not get the ${engine} game files: ${error.message}`);
+  }
+  log(`The ${engine} game files are ready.`);
+  return true;
+}
+
 // --- menu music ----------------------------------------------------------------------
 // The host's music (config/menu-music.mp3 on the server PC) is downloaded from
 // its web server into this launcher's config folder, and fetched again when
@@ -1029,12 +1083,22 @@ function registerIpc() {
     const url = account.serverUrl();
     joinCancelled = false;
     await updateFilesBeforePlay(url, log);
+    // The game's Roblox version, when the games list said (else the ticket says).
+    const listed = game && game.engine ? String(game.engine) : null;
+    await engineFilesBeforePlay(url, listed, log);
     if (playSession) throw new Error('The client is already running. Close it first.');
     // The ticket comes after any update, so a long download cannot outlast it.
-    const ticket = await account.joinTicket(url, request || { gameId: game && game.id }, Boolean(guest), {
+    const askTicket = () => account.joinTicket(url, Object.assign({}, request || { gameId: game && game.id }, { engines: playableEngines() }), Boolean(guest), {
       onWait: (text) => send('play-progress', { text }),
       cancelled: () => joinCancelled,
     });
+    let ticket = await askTicket();
+    if (joinCancelled) throw new Error('Cancelled.');
+    const engine = ticket.game && ticket.game.engine ? String(ticket.game.engine) : null;
+    if (engine && engine !== listed && await engineFilesBeforePlay(url, engine, log)) {
+      if (joinCancelled) throw new Error('Cancelled.');
+      ticket = await askTicket();
+    }
     if (joinCancelled) throw new Error('Cancelled.');
     // Older servers name no server: then it is the one asked for.
     const target = ticket.game || { id: request && request.gameId, name: game && game.name, placeId: game && game.placeId, address: request && request.address };

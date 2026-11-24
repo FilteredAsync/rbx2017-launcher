@@ -152,6 +152,8 @@ function gameTile(game, options = {}) {
     tile.append(ccu);
   }
   if (options.badge) tile.append(el('span', `tile-badge${options.live ? ' live' : ''}`, options.badge));
+  // Games on another Roblox year (set on /manage) say which.
+  if (game.engine && game.engine !== '2017') tile.append(el('span', 'tile-year', game.engine));
   if (options.caption) tile.append(el('div', 'caption', options.caption));
   tile.addEventListener('click', () => openDetail(game));
   return tile;
@@ -1452,7 +1454,7 @@ async function startPlay(game, request) {
   playStarting = true;
   try {
     setLoadingStatus(request.privateId ? 'Joining the private server…' : 'Finding a server…');
-    const joined = await api.join({ request, game: { name: game.name, placeId: game.placeId }, guest: !me, embed: true });
+    const joined = await api.join({ request, game: { name: game.name, placeId: game.placeId, engine: game.engine || null }, guest: !me, embed: true });
     playStarting = false;
     rememberPlayed(game);
     renderHome();
@@ -2446,6 +2448,22 @@ function mbText(bytes) {
 }
 
 api.onFilesProgress((info) => {
+  // Another year's client (a 2016 game's first join): the loading screen only.
+  if (info.engine) {
+    if (!(playStarting && loading)) return;
+    if (info.phase === 'checking') setLoadingStatus(`Getting the ${info.engine} game files…`);
+    if (info.phase === 'download') {
+      setLoadingStatus(`Downloading the ${info.engine} game files… ${mbText(info.received)} of ${mbText(info.total)} MB`);
+      setLoadingBar(info.total ? info.received / info.total : null);
+    }
+    if (info.phase === 'retry') setLoadingStatus(`The connection dropped. Continuing from ${mbText(info.received)} MB…`);
+    if (info.phase === 'unpack') {
+      setLoadingStatus(`Installing the ${info.engine} game files…`);
+      setLoadingBar(null);
+    }
+    if (info.phase === 'done') setLoadingStatus('Joining the server…');
+    return;
+  }
   const bar = $('files-progress');
   if (info.phase === 'checking') setStatus('files-status', 'Contacting the server…');
   if (info.phase === 'download') {

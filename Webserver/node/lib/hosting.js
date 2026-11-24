@@ -22,10 +22,12 @@ const net = require('net');
 const os = require('os');
 const path = require('path');
 const core = require('./core');
+const engines = require('./engines');
 const proxy = require('./proxy');
 
 const CONFIG = core.rootPath('config', 'host.json');
-const RCC_EXE = core.rootPath('Server', 'RCCService.exe');
+// Place files live in the 2017 server's content folder (Server/content/places);
+// other engines' RCCs get a hard link of the game's file (linkPlaceFile).
 const CONTENT = core.rootPath('Server', 'content');
 // Each game's RCC listens for SOAP on its own port ("soapPort"; the first
 // game uses RCC's default). Several games can run on one PC side by side.
@@ -73,6 +75,35 @@ function placeFilePath(name) {
   }
   if (!core.isFile(path.join(CONTENT, ...relative.split('/')))) throw new Error(`place file not found: Server\\content\\${relative.replace(/\//g, '\\')}`);
   return relative;
+}
+
+// Another engine's RCC loads rbxasset://places/... from its own content
+// folder, so the game's place file (kept in Server/content) is put there too
+// at every start: a hard link (no copy; the 2016 RCC won't read through a
+// folder junction, "Unable to load"), or a copy on another drive. Returns the
+// place file name to load: a fresh one when an RCC still holds the old link.
+function linkPlaceFile(engine, placeFile) {
+  if (engine.server === 'Server') return placeFile;
+  const source = path.join(CONTENT, ...placeFile.split('/'));
+  let target = core.rootPath(engine.server, 'content', ...placeFile.split('/'));
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  let current = null;
+  try { current = fs.statSync(target, { bigint: true }); } catch (error) { current = null; }
+  const wanted = fs.statSync(source, { bigint: true });
+  if (current && current.ino === wanted.ino && current.dev === wanted.dev) return placeFile;
+  let name = placeFile;
+  try {
+    fs.rmSync(target, { force: true });
+  } catch (error) {
+    name = placeFile.replace(/(\.rbxlx?)$/i, `-${Date.now()}$1`);
+    target = core.rootPath(engine.server, 'content', ...name.split('/'));
+  }
+  try {
+    fs.linkSync(source, target);
+  } catch (error) {
+    fs.copyFileSync(source, target);
+  }
+  return name;
 }
 
 function sleep(ms) {
@@ -366,7 +397,7 @@ function appearanceHook() {
 // cloudEdit: { saveUrl } for a Team Create server (saveUrl: where RCC posts
 // the place; it carries the place ID and the token the web server checks).
 // maxPlayers: RCC turns away players past it.
-async function startGameJob(placeId, port, domain, scriptTimeout, log, soapPort = SOAP_PORT, placeFile = 'place.rbxlx', cloudEdit = null, maxPlayers = null) {
+async function startGameJob(placeId, port, domain, scriptTimeout, log, soapPort = SOAP_PORT, placeFile = 'place.rbxlx', cloudEdit = null, maxPlayers = null, engine = engines.get()) {
   const open = await soap('OpenJob', '<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ns1="http://localhost./">'
     + '<SOAP-ENV:Body><ns1:OpenJob><ns1:job><ns1:id>GameServer</ns1:id><ns1:expirationInSeconds>360000</ns1:expirationInSeconds>'
     + '<ns1:category>0</ns1:category><ns1:cores>4</ns1:cores></ns1:job><ns1:script><ns1:name>Bootstrap</ns1:name>'
@@ -375,6 +406,13 @@ async function startGameJob(placeId, port, domain, scriptTimeout, log, soapPort 
 
   let source = fs.readFileSync(core.rootPath('Server', 'gameserver.lua'), 'latin1');
   if (placeFile !== 'place.rbxlx') source = source.split('rbxasset://place.rbxlx').join(`rbxasset://${placeFile}`);
+  // The 2016 RCC has SetIsPlayerAuthenticationRequired (the 2017 one ignores
+  // the call) and then wants each join ticket signed over the job ID, which
+  // our join tickets are not: the player was never installed (no character,
+  // "Infinite yield ... PlayerGui"). The call goes for such engines.
+  if (!engine.playerAuthentication) {
+    source = source.split('pcall(function() game:GetService("NetworkServer"):SetIsPlayerAuthenticationRequired(true) end)').join('');
+  }
   if (cloudEdit) {
     const stock = 'game:SetServerSaveUrl(dataUrl .. "/ide/publish/UploadFromCloudEdit")';
     if (!source.includes(stock)) throw new Error('Server/gameserver.lua has no cloud edit save line');
@@ -428,6 +466,13 @@ async function startHosting(rawConfig, { log = console.log, startRcc = true, ded
   const soapPort = Number(config.soapPort) || SOAP_PORT;
   const placeId = core.decimal(String(config.placeId || '')) ? String(config.placeId) : '1818';
   const placeFile = placeFilePath(config.placeFile);
+  // The game's engine (/manage "Version"); its RCC must be on this PC.
+  const engine = engines.get(config.engine);
+  // RCC exits at once when started through a junction (sandbox copies link
+  // their folders), so it runs from its real path.
+  let rccExe = engines.rccExe(engine.id);
+  // The place file as this RCC loads it (linkPlaceFile).
+  let rccPlaceFile = placeFile;
   if (!dedicated && startRcc && dedicatedServerPid()) {
     throw new Error('the always-on server (startServer.bat) is running on this PC and hosts its games; stop it first to host from here');
   }
@@ -474,7 +519,12 @@ async function startHosting(rawConfig, { log = console.log, startRcc = true, ded
     // 2. RCCService ------------------------------------------------------------
     if (startRcc) {
       if (process.platform !== 'win32') throw new Error('RCCService runs on Windows only');
-      if (!core.isFile(RCC_EXE)) throw new Error(`RCCService not found at ${RCC_EXE}`);
+      if (!core.isFile(rccExe)) {
+        throw new Error(engine.id === engines.DEFAULT_ENGINE ? `RCCService not found at ${rccExe}`
+          : `this game is set to ${engine.label}, but the ${engine.label} game server is not installed (${engine.server}\\RCCService.exe)`);
+      }
+      rccExe = fs.realpathSync.native(rccExe);
+      rccPlaceFile = linkPlaceFile(engine, placeFile);
       // Only an RCC on this game's own SOAP port is replaced; other games'
       // RCCs on this PC keep running.
       const previous = rccOnPort(soapPort);
@@ -492,9 +542,11 @@ async function startHosting(rawConfig, { log = console.log, startRcc = true, ded
       if (previous && processAlive(previous)) throw new Error('a previous RCCService is still running and could not be stopped (if hostGame.bat started it, close that window)');
       if (await canConnect(soapPort, '127.0.0.1', 300)) throw new Error(`TCP port ${soapPort} (RCC's SOAP port) is already in use by another program`);
       if (!portFree) throw new Error(`UDP port ${gamePort} is already in use by another program`);
-      log(`starting RCCService (place ${placeId}${placeFile !== 'place.rbxlx' ? `, ${placeFile}` : ''}, SOAP port ${soapPort})...`);
-      rcc = spawn(RCC_EXE, [String(soapPort), '-Console', '-Start', '-verbose', `-PlaceId:${placeId}`], {
-        cwd: path.dirname(RCC_EXE),
+      log(`starting RCCService${engine.id === engines.DEFAULT_ENGINE ? '' : ` ${engine.label}`} (place ${placeId}${placeFile !== 'place.rbxlx' ? `, ${placeFile}` : ''}, SOAP port ${soapPort})...`);
+      const rccArgs = [String(soapPort), '-Console', '-Start', '-verbose'];
+      if (engine.placeIdArgument) rccArgs.push(`-PlaceId:${placeId}`);
+      rcc = spawn(rccExe, rccArgs, {
+        cwd: path.dirname(rccExe),
         detached: true,
         stdio: 'ignore',
         windowsHide: true,
@@ -505,33 +557,23 @@ async function startHosting(rawConfig, { log = console.log, startRcc = true, ded
         ready = await canConnect(soapPort, '127.0.0.1', 400);
       }
       if (!ready) throw new Error(`RCCService did not open its SOAP port ${soapPort}`);
-      // Once RCC has a web address it holds every player as "not
-      // authenticated"; patch-rcc-place-auth.ps1 changes that one check in
-      // RCC's memory (the .exe on disk is untouched). "patchPlaceAuth": false
-      // in host.json skips it.
-      if (config.patchPlaceAuth !== false) {
-        runMemoryPatch('patch-rcc-place-auth.ps1', rcc.pid, 'place-auth patch',
-          'players may stay "not authenticated"', log);
-      }
-      // RCC sends its LuaWebService calls (IsInGroup, GetRankInGroup,
-      // IsFriendsWith...) to https:// and then refuses them in its own trust
-      // check ("LuaWebService error"); patch-rcc-http-urls.ps1 fixes both in
-      // memory. "patchHttpUrls": false in host.json skips it.
-      if (config.patchHttpUrls !== false) {
-        runMemoryPatch('patch-rcc-http-urls.ps1', rcc.pid, 'LuaWebService patch',
-          'group and friend checks in games will fail with "LuaWebService error"', log);
-      }
-      // A 0.300.0.138971 game client (the same build as RCC) reports its own
-      // broken code signature (every client here is byte-patched) and RCC
-      // disconnects it right after joining; patch-rcc-signature.ps1 makes RCC
-      // ignore that one report. "patchSignatureCheck": false in host.json skips it.
-      if (config.patchSignatureCheck !== false) {
-        runMemoryPatch('patch-rcc-signature.ps1', rcc.pid, 'signature-report patch',
-          '0.300 game clients will be disconnected right after joining', log);
+      // The engine's RCC memory patches (lib/engines.js; the .exe on disk is
+      // untouched), each skipped by its host.json switch set to false. 2017:
+      // - patch-rcc-place-auth.ps1: once RCC has a web address it holds every
+      //   player as "not authenticated"; this changes that one check.
+      // - patch-rcc-http-urls.ps1: RCC sends its LuaWebService calls
+      //   (IsInGroup, GetRankInGroup, IsFriendsWith...) to https:// and then
+      //   refuses them in its own trust check ("LuaWebService error").
+      // - patch-rcc-signature.ps1: a 0.300.0.138971 game client (the same
+      //   build as RCC) reports its own broken code signature (every client
+      //   here is byte-patched) and RCC disconnects it right after joining;
+      //   this makes RCC ignore that one report.
+      for (const patch of engine.memoryPatches) {
+        if (config[patch.skip] !== false) runMemoryPatch(patch.script, rcc.pid, patch.label, patch.consequence, log);
       }
       const domain = fixedDomain(config);
       const scriptTimeout = config.scriptTimeout === undefined ? 10 : Number(config.scriptTimeout) || 0;
-      await startGameJob(placeId, gamePort, domain, scriptTimeout, log, soapPort, placeFile, config.cloudEdit || null, config.maxPlayers || null);
+      await startGameJob(placeId, gamePort, domain, scriptTimeout, log, soapPort, rccPlaceFile, config.cloudEdit || null, config.maxPlayers || null, engine);
       log(`game job submitted on UDP port ${gamePort} (RCC web address ${domain === null ? 'not set' : `http://${domain}/`}, script timeout ${scriptTimeout ? `${scriptTimeout} s` : 'off'})`);
       // gameserver.lua loads the place first (game:Load) and only then takes
       // players (NetworkServer:Start on the game port): a big place takes a

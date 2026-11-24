@@ -263,6 +263,9 @@ class GameSlot {
       jobId: this.jobId,
       privateId: this.privateId,
       maxPlayers: this.maxPlayers,
+      // Its year's RCC (lib/engines.js). Team Create servers stay on 2017,
+      // the year of Studio.
+      engine: places.engineOf(place),
     };
   }
 

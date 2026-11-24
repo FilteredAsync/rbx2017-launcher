@@ -493,6 +493,8 @@ button.with-icon svg { width: 21px; height: 21px; fill: none; stroke: currentCol
   padding: 3px 9px 3px 7px; font-size: 13px; font-weight: 700; z-index: 2; }
 .tile-ccu svg { width: 13px; height: 13px; fill: currentColor; }
 .tile-ccu.live { background: var(--good); color: #062; }
+/* A game's Roblox year when it isn't 2017 (lib/engines.js), bottom left. */
+.tile-year { position: absolute; left: 8px; bottom: 8px; background: var(--accent); color: #fff; padding: 2px 8px; font-size: 11px; font-weight: 700; letter-spacing: 1px; z-index: 2; }
 
 /* Loading screen (Play) --------------------------------------------------------- */
 .loading-screen { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; background: #0b1218; overflow: hidden; animation: fade .2s ease-out; }

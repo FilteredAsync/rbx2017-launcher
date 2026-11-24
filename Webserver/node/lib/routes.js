@@ -31,6 +31,7 @@ const robux = require('./robux');
 const unionshapes = require('./unionshapes');
 const missingassets = require('./missingassets');
 const places = require('./places');
+const engines = require('./engines');
 const privateservers = require('./privateservers');
 const rbxm = require('./rbxm');
 const reports = require('./reports');
@@ -1397,6 +1398,9 @@ function placesWithStatus(isAdmin) {
     runner: runner ? { running: !runner.stale, updatedAt: runner.updatedAt, maxGames: runner.maxGames, idleStopMinutes: runner.idleStopMinutes, problems: runner.problems || [] } : { running: false },
     // This PC's Tailscale address (players now come through the VPS relay instead).
     server: { tailscaleUrl: core.tailscaleIPv4() ? `http://${core.tailscaleIPv4()}` : null },
+    // The Roblox versions a game can be set to (lib/engines.js), and whether
+    // this server has each one's game server.
+    engines: engines.list(),
   };
 }
 
@@ -1578,7 +1582,7 @@ async function placesApi(ctx, match) {
     const place = places.update(placeId, {
       name: body.name, description: body.description, enabled: body.enabled, universeId: body.universeId,
       teamCreate: body.teamCreate, creator: body.creator, keepRunning: body.keepRunning, maxPlayers: body.maxPlayers,
-      avatarType: body.avatarType, allowGear: body.allowGear,
+      avatarType: body.avatarType, allowGear: body.allowGear, engine: body.engine,
     });
     return sendJson(ctx, 200, { place });
   }
@@ -1630,7 +1634,8 @@ async function assetsApi(ctx, match) {
 // when the version changes). Built by tools/build-client-files.py into
 // RobloxClient/downloads/: <name>.json (the list), <name>.tar.zst (all
 // files), <name>-from-<version>.tar.zst (only what changed since an older
-// version) and <name>.zip (for launchers before 1.7.2). Packages resume
+// version) and <name>.zip (for launchers before 1.7.2); client-files-2016 is
+// the 2016 client (lib/engines.js). Packages resume
 // where a dropped download stopped (Range).
 function downloadType(name) {
   if (name.endsWith('.json')) return 'application/json; charset=utf-8';
@@ -1640,9 +1645,12 @@ function downloadsRoute(ctx, match) {
   const name = match[1].toLowerCase();
   const file = core.rootPath('downloads', name);
   if (!core.isFile(file)) {
+    // client-files-2016...: another year's client (lib/engines.js).
+    const year = (/^client-files-(\d{4})/.exec(name) || [])[1];
     return sendJson(ctx, 404, { error: name.startsWith('studio')
       ? 'this server has no Studio to hand out (run tools/build-client-files.py studio on the PC that has it)'
-      : 'this server has no game files to hand out (run tools/build-client-files.py on it)' });
+      : year ? `this server has no ${year} game files to hand out (run tools/build-client-files.py client${year} on it)`
+        : 'this server has no game files to hand out (run tools/build-client-files.py on it)' });
   }
   if (name.endsWith('.json')) return sendFile(ctx, file, { 'Content-Type': downloadType(name), 'Cache-Control': 'no-cache' });
   const stat = fs.statSync(file);
@@ -2062,7 +2070,7 @@ const ROUTES = [
   [/^api\/places\/(\d{1,15})\/servers\/([0-9a-f]{16,32})\/(restart|stop)\/?$/i, placeServerApi],
   [/^api\/private-servers\/([0-9a-f]{12})\/?$/i, privateServerAdminApi],
   [/^manage(?:\/([a-z.]*))?\/?$/i, managePage],
-  [/^download\/((?:client|studio)-files(?:\.(?:zip|json|tar\.zst)|-from-[0-9a-f]{12}\.tar\.zst))$/i, downloadsRoute],
+  [/^download\/((?:client|studio)-files(?:-\d{4})?(?:\.(?:zip|json|tar\.zst)|-from-[0-9a-f]{12}\.tar\.zst))$/i, downloadsRoute],
   [/^download\/menu-music\.mp3$/i, menuMusicRoute],
   [/^download\/(roblox-logo(?:-tagline)?\.png)$/i, launcherLogoRoute],
   [/^api\/assets\/(?:missing|(\d{1,15})\/replacement)\/?$/i, assetsApi],
@@ -2120,6 +2128,14 @@ const ROUTES = [
   // RCC asks this before accepting a player (api.<domain>); the retired
   // Roblox service answered true for a place the player may join.
   [new RegExp(`^universes/validate-place-join${opt}$`, 'i'), fixed('application/json; charset=utf-8', 'true', { 'Cache-Control': 'no-store' })],
+  // RCC's lists of allowed client versions and exe hashes
+  // (versioncompatibility.api.<domain>). Empty means "check nothing". The
+  // 2017 RCC skips the checks anyway (FFlagDebugLocalRccServerConnection),
+  // but the 2016 one (0.254) can't use that flag, since its client doesn't
+  // know it, and kicked its own client for missing from the old web root's
+  // list (www/GetAllowedSecurityVersions, from 0.225 to 0.394 but not 0.254).
+  [new RegExp(`^(?:GetAllowedSecurityVersions|GetAllowedSecurityKeys|GetAllowedMD5Hashes)${opt}$`, 'i'),
+    fixed('application/json; charset=utf-8', '{"data":[]}', { 'Cache-Control': 'no-store' })],
   // www/game/players/1/index.php, for any player ID (guests' are negative).
   [new RegExp(`^game/players/-?\\d+${opt}$`, 'i'), fixed('text/html', '{"ChatFilter":"whitelist"}')],
   // www/studio/e.png forwarded a fake analytics event to Roblox; now a no-op.

@@ -9,6 +9,7 @@ const VIEWS = ['games', 'reports', 'announcements', 'accounts', 'assets', 'serve
 
 let places = [];
 let runner = { running: false };
+let engines = [];            // Roblox versions a game can use (lib/engines.js)
 let serverInfo = null;
 let missing = [];
 let busy = false;            // a change is being sent; polling waits
@@ -265,7 +266,8 @@ function gameRow(place) {
   },
   h('td', {}, h('div', { class: 'game-cell' }, thumb(place),
     h('div', { class: 'game-text' },
-      h('div', { class: 'game-name' }, h('span', { text: place.name }), place.avatarType === 'R15' && h('span', { class: 'tag', text: 'R15' })),
+      h('div', { class: 'game-name' }, h('span', { text: place.name }), place.avatarType === 'R15' && h('span', { class: 'tag', text: 'R15' }),
+        place.engine && place.engine !== '2017' && h('span', { class: 'tag', text: place.engine })),
       h('div', { class: 'sub' }, h('span', { class: 'mono', text: place.placeId }), creator && h('span', { text: creator }))))),
   h('td', {}, h('span', { class: `state ${state.kind}`, text: state.text, title: state.title || null }),
     live && h('div', { class: 'state-sub', text: live }),
@@ -458,6 +460,11 @@ function settingsForm(place) {
   const maxPlayers = input({ type: 'number', min: 1, max: 50, value: String(place.maxPlayers) });
   const avatar = h('select', {}, h('option', { value: 'R6', text: 'R6' }), h('option', { value: 'R15', text: 'R15' }));
   avatar.value = place.avatarType === 'R15' ? 'R15' : 'R6';
+  const engineChoices = engines.length ? engines : [{ id: '2017', label: '2017', installed: true }];
+  const version = h('select', {}, engineChoices.map((engine) => h('option', {
+    value: engine.id, text: engine.installed ? engine.label : `${engine.label} (not on this server)`,
+  })));
+  version.value = place.engine || '2017';
   const keepRunning = input({ type: 'checkbox', class: 'switch', checked: place.keepRunning });
   const allowGear = input({ type: 'checkbox', class: 'switch', checked: place.allowGear });
   const teamCreate = input({ type: 'checkbox', class: 'switch', checked: place.teamCreate });
@@ -491,6 +498,7 @@ function settingsForm(place) {
     field('Name', name),
     field('Description', description),
     h('div', { class: 'pair' }, field('Players per server', maxPlayers), field('Avatars', avatar, 'Used by servers started after saving.')),
+    h('div', { class: 'pair' }, field('Roblox version', version, 'Players get it on their first join. New servers only.')),
     h('div', { class: 'switches' },
       toggle('Keep a server running', 'Otherwise one starts on join and stops when empty.', keepRunning),
       toggle('Team Create', 'The owner and editors build it together in Studio.', teamCreate),
@@ -506,7 +514,7 @@ function settingsForm(place) {
       const fields = {
         name: name.value, description: description.value, universeId: universe.value.trim(), teamCreate: teamCreate.checked,
         keepRunning: keepRunning.checked, maxPlayers: Number(maxPlayers.value) || undefined, avatarType: avatar.value,
-        allowGear: allowGear.checked,
+        allowGear: allowGear.checked, engine: version.value,
       };
       if (!ownedHere) fields.creator = creator.value.trim();
       await change('POST', `/api/places/${id}`, JSON.stringify(fields));
@@ -902,6 +910,7 @@ async function refresh() {
     const data = await response.json();
     places = data.places || [];
     runner = data.runner || { running: false };
+    engines = data.engines || [];
     renderGames();
     if (openId !== null) renderDrawer(false);
     renderServerDot();

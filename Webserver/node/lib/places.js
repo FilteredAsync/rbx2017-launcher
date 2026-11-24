@@ -21,6 +21,7 @@
 const fs = require('fs');
 const path = require('path');
 const core = require('./core');
+const engines = require('./engines');
 
 const DATA = core.rootPath('Webserver', 'node', 'data');
 const LIBRARY = path.join(DATA, 'places.json');
@@ -41,6 +42,12 @@ function maxPlayersOf(place) {
 // (lib/hosting.js gives R15 games an R15 StarterCharacter).
 function avatarTypeOf(place) {
   return place && place.avatarType === 'R15' ? 'R15' : 'R6';
+}
+
+// The Roblox version the game runs on (/manage "Version", lib/engines.js):
+// its servers use that year's RCC and its players that year's client.
+function engineOf(place) {
+  return (place && engines.known(place.engine)) || engines.DEFAULT_ENGINE;
 }
 const KEEP_OLD_VERSIONS = 3;
 
@@ -157,6 +164,7 @@ function describe(placeId, place) {
     // Players' gear loads into this game's backpacks (lib/avatar.js).
     allowGear: place.allowGear === true,
     avatarType: avatarTypeOf(place),
+    engine: engineOf(place),
     maxPlayers: maxPlayersOf(place),
     file: place.file,
     fileSize: size,
@@ -343,6 +351,7 @@ function update(placeId, fields) {
   if (fields.keepRunning !== undefined && fields.keepRunning !== null) place.keepRunning = Boolean(fields.keepRunning);
   if (fields.allowGear !== undefined && fields.allowGear !== null) place.allowGear = Boolean(fields.allowGear);
   if (fields.avatarType === 'R6' || fields.avatarType === 'R15') place.avatarType = fields.avatarType;
+  if (engines.known(fields.engine)) place.engine = engines.known(fields.engine);
   if (fields.maxPlayers !== undefined && fields.maxPlayers !== null && fields.maxPlayers !== '') {
     const n = Math.round(Number(fields.maxPlayers));
     if (n >= 1 && n <= MAX_MAX_PLAYERS) place.maxPlayers = n;
@@ -478,7 +487,7 @@ function writeRunnerStatus(status) {
 
 module.exports = {
   load, exists, ensure, list, get, create, replaceFile, oldVersions, oldVersionBytes, removeOldVersion, update, setAccess, remove, filePath, placeKey,
-  creatorOf, setLookedUpCreator, maxPlayersOf, avatarTypeOf,
+  creatorOf, setLookedUpCreator, maxPlayersOf, avatarTypeOf, engineOf,
   requestRestart, requestStart, requestStopServer, requestCloudEdit, requestServer, readRequests, runnerStatus, writeRunnerStatus,
   LIBRARY, CONTROL, STATUS,
 };

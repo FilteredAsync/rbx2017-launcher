@@ -8,7 +8,7 @@
 //             %LOCALAPPDATA%\Roblox\logs (and its archive folder). That folder
 //             is shared with the real Roblox, so only the 2017 names are
 //             touched: log_<hex>_<n>.txt and "log_<hex> 0, 299, 0, <build>.*"
-//             (0, 300 for RCC). Today's Roblox names its logs
+//             (0, 300 for RCC; 0, 254 for the 2016 ones). Today's Roblox names its logs
 //             <version>_<time>_Player_<id>_last.log.
 //   updates   the launcher's update downloads (electron-updater's folder,
 //             %LOCALAPPDATA%\<name>-updater): pending\ holds the last update's
@@ -31,8 +31,8 @@ const path = require('path');
 
 const WEEK_MS = 7 * 24 * 3600 * 1000;
 const LOG_TEXT = /^log_[0-9A-F]{4,8}_\d+\.txt$/i;
-const LOG_CRASH = /^log_[0-9A-F]{4,8} 0, (?:299|300), 0, \d+(?:\.[A-Za-z]+)+$/i;
-const LEFTOVER_DIR = /^(?:client|studio)-files-(?:new|old-\d+)$/;
+const LOG_CRASH = /^log_[0-9A-F]{4,8} 0, (?:254|299|300), 0, \d+(?:\.[A-Za-z]+)+$/i;
+const LEFTOVER_DIR = /^(?:client|studio)-files(?:-\d{4})?-(?:new|old-\d+)$/;
 // Unfinished downloads (gamefiles.js): kept a day at start so they can continue.
 const LEFTOVER_FILE = /^(?:client|studio)-files.*\.part(?:\.json)?$/;
 const PART_KEEP_MS = 24 * 3600 * 1000;

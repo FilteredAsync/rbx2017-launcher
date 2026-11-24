@@ -11,11 +11,18 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const core = require('./core');
+const engines = require('./engines');
 const proxy = require('./proxy');
 const relay = require('./relay');
 
 const CONFIG = core.rootPath('config', 'client.json');
 const CLIENT_EXE = core.rootPath('Client', 'RobloxPlayerBeta.exe');
+
+// The client of the game's Roblox version (game.engine from the join answer,
+// lib/engines.js): Client/ for 2017, Client2016/ for 2016.
+function clientExe(engine) {
+  return core.rootPath(engines.get(engine).client, 'RobloxPlayerBeta.exe');
+}
 
 // A client that closes this soon after starting did not get into the game
 // (blocked, crashed while loading, or closed by another Roblox).
@@ -182,7 +189,8 @@ async function joinTicket(centralUrl, request, token, { onWait = null, cancelled
 // player becomes a guest).
 async function joinGame({ centralUrl, username, ticket = null, name = null, game, log = console.log, dryRun = false }) {
   if (process.platform !== 'win32') throw new Error('the 2017 client runs on Windows only');
-  if (!core.isFile(CLIENT_EXE)) throw new Error(`The game client is missing (${CLIENT_EXE}). If your antivirus removed it, restore it, or download the game files again (Settings > Network).`);
+  const exe = clientExe(game && game.engine);
+  if (!core.isFile(exe)) throw new Error(`The game client is missing (${exe}). If your antivirus removed it, restore it, or download the game files again (Settings > Network).`);
   if (!ticket && !validUsername(username)) throw new Error('the username needs 3-20 letters, digits or _');
   const userId = ticket ? null : core.localUserId(username);
 
@@ -218,8 +226,8 @@ async function joinGame({ centralUrl, username, ticket = null, name = null, game
   let stopped = false;
   let child;
   try {
-    child = spawn(CLIENT_EXE, ['--play', '-a', 'http://localhost./Login/Negotiate.ashx/', '-t', 'Test', '-j', joinUrl], {
-      cwd: path.dirname(CLIENT_EXE),
+    child = spawn(exe, ['--play', '-a', 'http://localhost./Login/Negotiate.ashx/', '-t', 'Test', '-j', joinUrl], {
+      cwd: path.dirname(exe),
       stdio: 'ignore',
       env: isolatedEnv(),
     });
@@ -268,7 +276,7 @@ async function joinGame({ centralUrl, username, ticket = null, name = null, game
 }
 
 module.exports = {
-  joinGame, joinTicket, fetchGames, validUsername, loadConfig, saveConfig, CONFIG, CLIENT_EXE,
+  joinGame, joinTicket, fetchGames, validUsername, loadConfig, saveConfig, CONFIG, CLIENT_EXE, clientExe,
   earlyExitProblem, startProblem, exitCodeText, clientLogTail, EARLY_EXIT_SECONDS, isolatedEnv, PROFILE, PROFILE_LOCAL_APPDATA,
   moveStudioPluginsSetting,
 };

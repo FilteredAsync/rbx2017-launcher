@@ -5,11 +5,14 @@
 //   POST login            {name, password, mode: "signin"|"signup"} -> {token, account}
 //   POST logout           (session)
 //   GET  me               (session) -> {account}
-//   POST join             (session, or none for a guest) one of
+//   POST join             (session, or none for a guest) {engines: ["2017", "2016"]} (the
+//                         launcher's Roblox versions; none means 2017 only) and one of
 //                           {placeId}    any public server of the game with room
 //                           {gameId}     that server (its job ID)
 //                           {privateId}  a private server you may join
-//                         -> {ticket, name, userId, guest, game: {id, name, placeId, address}}
+//                         -> {ticket, name, userId, guest, game: {id, name, placeId, address, engine}}
+//                         (engine: the Roblox version, lib/engines.js; the launcher
+//                         starts that year's client, downloading it the first time)
 //                         or 202 {starting: true}: a server is starting; ask again in a moment
 //   GET  games            the games: each with its public servers and players
 //   GET  private-servers  (session) ?placeId= the private servers you may join
@@ -79,6 +82,7 @@ const follows = require('./follows');
 const blocks = require('./blocks');
 const presence = require('./presence');
 const places = require('./places');
+const engines = require('./engines');
 const privateservers = require('./privateservers');
 const gamethumbs = require('./gamethumbs');
 const creators = require('./creators');
@@ -245,10 +249,13 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
     const who = account(ctx);
     const chosen = chooseServer(body, who);
     if (chosen.error || chosen.starting) return chosen;
+    // The phone and Xbox apps have only a 2017 client.
+    const target = gameFor(chosen.game);
+    if (target.engine !== engines.DEFAULT_ENGINE) return { status: 409, error: `This game runs on Roblox ${target.engine}; play it from the PC launcher.` };
     const identity = who ? { name: who.name, userId: who.userId, guest: false } : guestIdentity();
     noteJoin(chosen.game.id, identity.name);
     if (ctx.remote) players.set(addressKey(ctx.remote), Object.assign({ at: Date.now(), placeId: String(chosen.game.placeId) }, identity));
-    return { game: gameFor(chosen.game), identity };
+    return { game: target, identity };
   }
 
   // The game the player at that address joined last (missing assets name it), or null.
@@ -391,7 +398,8 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
   // looked up by job ID (games.get, "Join" on a friend) has it as {host, port}.
   function gameFor(game) {
     const address = game.address && typeof game.address === 'object' ? games.addressText(game.address) : game.address;
-    return { id: game.id, name: game.name, placeId: String(game.placeId), address, privateId: game.privateId || null };
+    const engine = places.engineOf(libraryPlaces()[String(game.placeId)]);
+    return { id: game.id, name: game.name, placeId: String(game.placeId), address, privateId: game.privateId || null, engine };
   }
 
   // Servers of a game (or a private server) that have room, fullest first.
@@ -497,14 +505,14 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
     const result = new Map();
     const entryFor = (placeId, fields) => Object.assign({
       placeId: String(placeId), name: `Place ${placeId}`, description: '', creator: '', thumbnail: gamethumbs.version(placeId),
-      maxPlayers: null, canStart: false, starting: false, playing: 0, servers: [],
+      maxPlayers: null, canStart: false, starting: false, playing: 0, servers: [], engine: places.engineOf(null),
     }, fields);
     for (const [placeId, place] of Object.entries(library)) {
       if (!place.enabled) continue;
       const creator = places.creatorOf(place);
       result.set(placeId, entryFor(placeId, {
         name: place.name, description: place.description || '', creator: creator ? creator.name : '',
-        maxPlayers: places.maxPlayersOf(place), canStart: Boolean(status),
+        maxPlayers: places.maxPlayersOf(place), canStart: Boolean(status), engine: places.engineOf(place),
       }));
     }
     for (const game of games.listAll()) {
@@ -1219,9 +1227,17 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
       const chosen = chooseServer(body, who);
       if (chosen.error) return sendJson(ctx, chosen.status || 400, { error: chosen.error });
       if (chosen.starting) return sendJson(ctx, 202, { starting: true, message: 'Starting a server…', retryMs: 1000 });
+      // A game on another Roblox version (lib/engines.js) needs a launcher that
+      // has that year's client; launchers list theirs ("engines"), older ones
+      // nothing, and would start the 2017 client into a 2016 server.
+      const target = gameFor(chosen.game);
+      const playable = Array.isArray(body.engines) ? body.engines.map(String) : [engines.DEFAULT_ENGINE];
+      if (!playable.includes(target.engine)) {
+        return sendJson(ctx, 409, { error: `This game runs on Roblox ${target.engine}. Update the launcher to play it.` });
+      }
       const identity = who ? { name: who.name, userId: who.userId, guest: false } : guestIdentity();
       noteJoin(chosen.game.id, identity.name);
-      return sendJson(ctx, 200, Object.assign({ ticket: newTicket(identity, chosen.game.id), game: gameFor(chosen.game) }, identity));
+      return sendJson(ctx, 200, Object.assign({ ticket: newTicket(identity, chosen.game.id), game: target }, identity));
     }
     if (action === 'games' && method === 'GET') {
       return sendJson(ctx, 200, { games: gameList() });
