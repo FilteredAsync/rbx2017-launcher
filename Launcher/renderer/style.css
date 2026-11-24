@@ -267,7 +267,8 @@ button.link:focus-visible { outline: 2px solid #fff; }
   background: none; border: 0; padding: 0; cursor: pointer; text-align: left; color: #fff; display: flex; flex-direction: column;
   outline: 4px solid transparent; transition: transform .12s ease, outline-color .12s ease;
 }
-.player-pic { aspect-ratio: 1 / 1; background: linear-gradient(180deg, rgba(48, 92, 116, .9), rgba(28, 58, 76, .9)); display: grid; place-items: center; overflow: hidden; }
+/* The width is needed on Chromium 108 (Windows 7 build): without it the box is 0 wide there. */
+.player-pic { width: 100%; aspect-ratio: 1 / 1; background: linear-gradient(180deg, rgba(48, 92, 116, .9), rgba(28, 58, 76, .9)); display: grid; place-items: center; overflow: hidden; }
 .player-pic img { width: 100%; height: 100%; object-fit: contain; }
 .player-pic svg { height: 60%; fill: rgba(255, 255, 255, .18); }
 .player-name { font-size: 20px; font-weight: 600; padding: 8px 12px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -629,6 +630,30 @@ input.volume::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; heig
 input.volume:focus { outline: none; }
 input.volume:focus-visible { border-color: #fff; }
 input.volume:hover::-webkit-slider-thumb { transform: scale(1.1); }
+
+/* Settings > Theme. The website theme's own rules are in theme-site.css;
+   its "rbx2017" wordmark stands in for the logo there. */
+.wordmark { display: none; }
+.theme-picks { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px; }
+.theme-pick { display: flex; flex-direction: column; gap: 10px; padding: 10px 10px 12px; background: rgba(255, 255, 255, .06); border: 2px solid transparent; color: var(--text); cursor: pointer; text-align: left; }
+.theme-pick:hover { background: rgba(255, 255, 255, .1); }
+.theme-pick:focus-visible { outline: none; border-color: #fff; }
+.theme-pick[aria-checked="true"] { border-color: var(--accent); }
+.theme-name { font-size: 18px; display: flex; align-items: center; gap: 8px; }
+.theme-pick[aria-checked="true"] .theme-name::after { content: "\2713"; color: var(--accent); font-weight: 700; }
+/* Small pictures of each theme: header, tabs or nav, and two tiles. */
+.theme-preview { position: relative; display: block; width: 190px; height: 112px; overflow: hidden; }
+.theme-preview i { position: absolute; display: block; }
+.theme-preview.xbox { background: radial-gradient(ellipse at 60% 30%, #1d3a4f, #0d1820 70%); }
+.theme-preview.xbox i:nth-child(1) { left: 12px; top: 12px; width: 36px; height: 7px; background: #e2231a; }
+.theme-preview.xbox i:nth-child(2) { left: 12px; top: 28px; width: 110px; height: 10px; background: linear-gradient(90deg, #fff 0 28%, transparent 28% 36%, #6aa9d8 36% 62%, transparent 62% 70%, #6aa9d8 70%); }
+.theme-preview.xbox i:nth-child(3) { left: 12px; top: 48px; width: 52px; height: 52px; background: #24485a; }
+.theme-preview.xbox i:nth-child(4) { left: 72px; top: 48px; width: 52px; height: 52px; background: #3f8f3a; outline: 2px solid #fff; }
+.theme-preview.site { background: #f2f2f2; }
+.theme-preview.site i:nth-child(1) { left: 0; top: 0; right: 0; height: 16px; background: #00a2ff; }
+.theme-preview.site i:nth-child(2) { left: 8px; top: 4px; width: 30px; height: 8px; background: #fff; }
+.theme-preview.site i:nth-child(3) { left: 12px; top: 30px; width: 52px; height: 70px; background: #fff; box-shadow: 0 1px 3px rgba(25, 25, 25, .3); border-top: 40px solid #8fc6e8; }
+.theme-preview.site i:nth-child(4) { left: 72px; top: 30px; width: 52px; height: 70px; background: #fff; box-shadow: 0 1px 3px rgba(25, 25, 25, .3); border-top: 40px solid #7cc68e; }
 
 /* Chat (chat.js) ------------------------------------------------------------------- */
 .view#view-chat { overflow: hidden; }

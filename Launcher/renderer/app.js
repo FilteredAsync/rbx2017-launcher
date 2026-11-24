@@ -323,7 +323,7 @@ function updateIdentity() {
   const name = me ? me.account.name : 'Guest';
   $('chip-name').textContent = name;
   $('chip-sub').textContent = me ? (me.offline ? 'offline' : (me.account.admin ? 'admin' : '')) : 'guest';
-  $('home-username').textContent = name.toUpperCase();
+  $('home-username').textContent = name; // the Xbox theme shows it in capitals
   $('avatar-caption').textContent = me ? 'Edit avatar' : 'Guest look';
   $('account-line').textContent = me ? `Signed in as ${me.account.name}` : (guest ? 'Playing as a guest' : 'Not signed in');
   $('account-lead').textContent = me
@@ -557,7 +557,7 @@ const groupsView = window.GroupsView.create({
 // --- views and navigation -----------------------------------------------------------
 
 let VIEWS = ['home', 'avatar', 'games', 'players', 'groups', 'chat', 'settings'];
-let SETTINGS = ['account', 'storage', 'menu', 'host', 'server', 'setup', 'about'];
+let SETTINGS = ['account', 'storage', 'menu', 'theme', 'host', 'server', 'setup', 'about'];
 
 // A player install (no server files) cannot host or run the web server.
 let capabilitiesApplied = false;
@@ -644,7 +644,9 @@ function navPool() {
   if (!$('overlay').classList.contains('hidden')) return focusables('#overlay');
   if (screen === 'start') return [$('start-press')];
   if (screen === 'account') return focusables('#screen-account');
-  return [...focusables('#tabs'), ...focusables('#robux-wrap'), $('user-chip'), ...focusables(`#view-${view}`), $('settings-hint')];
+  // The website theme hides the footer (and its Settings button).
+  return [...focusables('#tabs'), ...focusables('#robux-wrap'), $('user-chip'), ...focusables(`#view-${view}`), $('settings-hint')]
+    .filter((node) => node.offsetParent !== null);
 }
 
 // Spatial navigation: the nearest focusable control in the pressed direction.
@@ -878,6 +880,23 @@ $('toggle-background').addEventListener('click', () => {
   storage('background', window.backgroundMode);
   updateBackgroundButton();
 });
+
+// Theme: the Xbox app look or the 2017 website look. theme.js puts the saved
+// one on <html> before the page draws; switching restyles everything at once.
+const THEMES = ['xbox', 'site'];
+function showTheme() {
+  const current = document.documentElement.dataset.theme;
+  document.querySelectorAll('.theme-pick').forEach((pick) => pick.setAttribute('aria-checked', String(pick.dataset.themePick === current)));
+}
+
+function setTheme(name) {
+  const theme = THEMES.includes(name) ? name : 'xbox';
+  document.documentElement.dataset.theme = theme;
+  storage('theme', theme);
+  showTheme();
+}
+document.querySelectorAll('.theme-pick').forEach((pick) => pick.addEventListener('click', () => setTheme(pick.dataset.themePick)));
+showTheme();
 
 function tick() {
   $('top-clock').textContent = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
