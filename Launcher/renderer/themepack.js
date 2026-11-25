@@ -73,7 +73,14 @@
   function cleanCss(css, assets) {
     let text = String(css || '');
     text = text.replace(/\/\*[\s\S]*?(\*\/|$)/g, ' '); // comments (and one left open)
-    text = text.replace(/<\/?\s*style[^>]*>/gi, ' ');
+    // Escapes could spell "url" or "@import" in ways the lines below miss
+    // (u\72l, \75 rl): spell them out, then drop any backslash left.
+    text = text.replace(/\\([0-9a-fA-F]{1,6})[ \t\n\r\f]?/g, (match, hex) => {
+      const code = parseInt(hex, 16);
+      return code > 0 && code <= 0x10ffff && (code < 0xd800 || code > 0xdfff) ? String.fromCodePoint(code) : '';
+    }).replace(/\\(.)/g, '$1').replace(/\\/g, '');
+    // No markup: CSS never needs "<" (">" is a selector combinator).
+    text = text.replace(/</g, ' ');
     // At-rules that load or change parsing: @import, @charset, @namespace.
     text = text.replace(/@(?:-[a-z]+-)?(?:import|charset|namespace)\b[^;{}]*;?/gi, ' ');
     // url(...): quoted or bare.
@@ -86,8 +93,7 @@
     text = text.replace(/(?:-webkit-)?(?:image-set|cross-fade|image)\s*\(|(?<![-\w])src\s*\(/gi, 'invalid(');
     // Old engines' script hooks (no effect in Chromium, but never kept).
     text = text.replace(/expression\s*\(|javascript:|vbscript:|-moz-binding|behavior\s*:/gi, 'invalid(');
-    // Escapes could spell "url" or "@import" in a way the lines above miss;
-    // compile() lets the browser undo them and checks again.
+    // compile() also lets the browser parse the result and checks it again.
     if (text.length > LIMITS.css) fail('Its CSS is too big.');
     return text;
   }

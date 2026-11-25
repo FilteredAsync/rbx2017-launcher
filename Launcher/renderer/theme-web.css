@@ -136,7 +136,7 @@ html[data-family="web"] { background: var(--page-img) center / cover fixed, var(
 [data-family="web"][data-nav="side"] .tab-link:focus-visible { box-shadow: inset 4px 0 0 var(--select); }
 [data-family="web"][data-nav="side"] .tab-icon { display: block; flex: none; width: 22px; height: 22px; fill: none; stroke: var(--side-icon); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 [data-family="web"][data-nav="side"] .tab-link.active .tab-icon { stroke: var(--side-on-icon); }
-[data-family="web"][data-nav="side"] .tab-link .tab-badge { margin-left: auto; background: var(--accent); border-radius: 12px; }
+[data-family="web"][data-nav="side"] .tab-link .tab-badge { margin-left: auto; background: var(--accent); color: var(--accent-text); border-radius: 12px; }
 
 [data-family="web"] .user-chip { gap: 8px; padding: 3px 8px 3px 3px; background: none; border: 0; border-radius: var(--r-btn); color: var(--hdr-text); }
 [data-family="web"] .user-chip:hover, [data-family="web"] .user-chip:focus-visible { background: var(--hdr-hover); }
