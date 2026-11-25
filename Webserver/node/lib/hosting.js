@@ -527,10 +527,18 @@ async function startGameServerJob(placeId, port, domain, maxPlayers, gameId, log
 // GameServer job: run once RCC takes players, before the game is listed. No
 // appearance hook: this RCC dresses characters itself (and has no
 // game:HttpGet).
-function gameServerHooks(placeId, domain, scriptTimeout) {
+function gameServerHooks(placeId, domain, scriptTimeout, build) {
   const timeout = scriptTimeout > 0 ? `pcall(function() game:GetService("ScriptContext"):SetTimeout(${scriptTimeout}) end)\r\n` : '';
   return `${NETWORK_SETTINGS}${timeout}${FRIEND_SERVICE}${gamePassCall(domain)}${badgeCall(domain)}${avatarTypeCall(placeId)}`
-    + `${PLAYERGUI_HOOK}\r\n${adminConsoleCall(placeId)}\r\n`;
+    + `${serverVersionCall(build)}${PLAYERGUI_HOOK}\r\n${adminConsoleCall(placeId)}\r\n`;
+}
+
+// The 2018 client's Esc menu waits for RobloxReplicatedStorage.GetServerVersion,
+// which that year's ServerStarterScript makes; its RCC runs the 2017 one.
+function serverVersionCall(build) {
+  return 'pcall(function() local s = game:GetService("RobloxReplicatedStorage") '
+    + 'if not s:FindFirstChild("GetServerVersion") then local f = Instance.new("RemoteFunction") f.Name = "GetServerVersion" '
+    + `f.OnServerInvoke = function() return ${JSON.stringify(String(build || ''))} end f.Parent = s end end)\r\n`;
 }
 
 // Names of the players in the game, or null when RCC does not answer.
@@ -697,7 +705,7 @@ async function startHosting(rawConfig, { log = console.log, startRcc = true, ded
       log(`place loaded in ${Math.round((Date.now() - loadStarted) / 1000)} s; RCC takes players on UDP port ${gamePort}`);
       if (engine.jsonJobs) {
         try {
-          const hooks = await soap('Execute', executeEnvelope('Hooks', gameServerHooks(placeId, domain, scriptTimeout), soapPort), 30000, soapPort);
+          const hooks = await soap('Execute', executeEnvelope('Hooks', gameServerHooks(placeId, domain, scriptTimeout, engine.build), soapPort), 30000, soapPort);
           if (hooks.status < 200 || hooks.status >= 300) log(`warning: RCC refused the game's extra scripts (avatars, admin console): ${soapFault(hooks)}`);
         } catch (error) {
           log(`warning: RCC did not run the game's extra scripts (avatars, admin console): ${error.code || error.message}`);

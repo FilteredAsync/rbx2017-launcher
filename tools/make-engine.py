@@ -117,7 +117,10 @@ YEARS = {
         'client_flags': '{\n  "FFlagDebugLocalRccServerConnection": false\n}\n',
     },
     '2018': {
-        'client': {'version': '0.338.0.202976', 'md5': '4a77a4af05fbb8fd4242111ce8810a73'},
+        'client': {'version': '0.338.0.202976', 'md5': '4a77a4af05fbb8fd4242111ce8810a73',
+                   # Game pass and badge checks go to inventory.<domain>, a name
+                   # hosts files here don't have; api.<domain> answers them.
+                   'patches': [('inventory host', 0x1132C8C, b'inventory\0', b'api\0' + bytes(6))]},
         'base_url': 'http://localhost./',
         # Like the 2017 pair: the debug connection switch on both sides skips
         # the version and exe hash checks.
@@ -148,8 +151,29 @@ YEARS = {
                 ('https helper', 0x5238E9, bytes.fromhex('83FEFF7531'), bytes.fromhex('83C8FF9090')),
                 ('LuaWebService trust check', 0x5156FF, bytes.fromhex('751D'), bytes.fromhex('7514')),
                 ('LuaWebService trust check (flag off)', 0x515731, bytes.fromhex('7518'), bytes.fromhex('7514')),
+                # Data stores go to gamepersistence.<domain> and game pass and
+                # badge checks to inventory.<domain>, names the hosts files here
+                # don't have: data.<domain> and api.<domain> instead (the web
+                # server answers /persistence/ and /v1/users/ on any name).
+                ('data store host', 0x107AE9C, b'gamepersistence\0', b'data\0' + bytes(11)),
+                ('inventory host', 0x10954A4, b'inventory\0', b'api\0' + bytes(6)),
             ],
             'flags': '{\n  "FFlagDebugLocalRccServerConnection": true,\n  "DFFlagDebugLocalRccServerConnection": true\n}\n',
+            # This RCC hands players the PlayerScripts on its disk (2017's,
+            # above). Their ControlScript waits for a DynamicThumbstick module
+            # they lack, so players could neither move nor steer the camera.
+            # It is for touch screens only; this stub does nothing.
+            'written': {
+                'content/scripts/PlayerScripts/StarterPlayerScripts/ControlScript/MasterControl/DynamicThumbstick.lua': (
+                    '-- Written by tools/make-engine.py: ControlScript waits for this module.\r\n'
+                    '-- Touch screens only; it does nothing.\r\n'
+                    'local DynamicThumbstick = {}\r\n'
+                    'function DynamicThumbstick:Enable() end\r\n'
+                    'function DynamicThumbstick:Disable() end\r\n'
+                    'function DynamicThumbstick:Create(parentFrame) end\r\n'
+                    'return DynamicThumbstick\r\n'
+                ),
+            },
         },
     },
 }
@@ -284,7 +308,7 @@ def main():
                 sys.exit(f'{folder} exists already (--force replaces it)')
             remove(folder)
 
-    patch_exe(client_exe, os.path.join(client, 'RobloxPlayerBeta.exe'), key, registry=True)
+    patch_exe(client_exe, os.path.join(client, 'RobloxPlayerBeta.exe'), key, registry=True, code_patches=year['client'].get('patches', ()))
     result = single_instance().patch(os.path.join(client, 'RobloxPlayerBeta.exe'))
     if 'not patched' in result or result.startswith('no '):
         sys.exit(f'Client{args.year}: {result}')
@@ -306,6 +330,8 @@ def main():
         copy_named(os.path.join(ROOT, 'Server'), rcc.get('repo_files', []), server)
         write(os.path.join(server, 'AppSettings.xml'), APP_SETTINGS.format('http://www.localhost./'))
         write(os.path.join(server, 'ClientSettings', 'RCCService.json'), rcc['flags'])
+        for name, text in rcc.get('written', {}).items():
+            write(os.path.join(server, *name.split('/')), text)
     print(f'Client{args.year}' + (f' and Server{args.year} are' if rcc else ' is') + f' ready. Next: python tools/build-client-files.py client{args.year}')
 
 

@@ -50,20 +50,12 @@ const ENGINES = {
       { script: 'patch-rcc-signature.ps1', label: 'signature-report patch', skip: 'patchSignatureCheck', consequence: '0.300 game clients will be disconnected right after joining' },
     ],
   },
-  2015: {
-    id: '2015',
-    label: '2015',
-    build: '0.205.0.61876',
-    // Its RCC is 0.206.0.62042, six days later: every copy was changed after
-    // Roblox signed it, by a few bytes (tools/make-engine.py).
-    server: 'Server2015',
-    client: 'Client2015',
-    clientFiles: 'client-files-2015',
-    directJoin: true,
-    placeIdArgument: false,
-    playerAuthentication: false,
-    memoryPatches: [],
-  },
+  // 2015 (client 0.205.0.61876 on its RCC 0.206.0.62042; Server2015,
+  // Client2015, client-files-2015, directJoin, no -PlaceId, no player
+  // authentication) joins, but players can neither walk nor turn the camera:
+  // that RCC hands out Lua control and camera scripts from
+  // content/scripts/PlayerScripts, which no surviving 2015 RCC folder has.
+  // Not offered until it has them.
   // No 2014 (0.177) game server survives, and the 2014 client crashes on the
   // 2015 one (an unknown class or property type in the first replication
   // data), so 2014 is not offered.

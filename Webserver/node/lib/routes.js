@@ -1092,6 +1092,20 @@ function hasPass(ctx) {
   send(ctx, 200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }, `<Value Type="boolean">${owned}</Value>`);
 }
 
+// The 2018 engine's game pass and badge checks (UserOwnsGamePassAsync,
+// UserHasBadgeAsync), in Roblox's inventory API form: one entry in "data"
+// when the player has it. Its RCC and client ask api.<domain> here
+// (tools/make-engine.py points their inventory.<domain> there).
+function inventoryItem(ctx, match) {
+  const badge = match[2].toLowerCase() === 'badge';
+  const owned = badge ? require('./badges').has(match[1], match[3]) : ownership.owns(match[1], match[3]);
+  sendJson(ctx, 200, {
+    previousPageCursor: null,
+    nextPageCursor: null,
+    data: owned ? [{ type: badge ? 'Badge' : 'GamePass', id: Number(match[3]), name: '', instanceId: null }] : [],
+  });
+}
+
 // The receipt calls are the game server's (players have paid for these).
 function validatePurchase(ctx) {
   if (!fromGameServer(ctx.remote)) return sendJson(ctx, 403, { error: 'Only game servers can check receipts.' });
@@ -2105,6 +2119,7 @@ const ROUTES = [
   [new RegExp(`^my/economy-status${opt}$`, 'i'), fixed('application/json; charset=utf-8', '{"isMarketplaceEnabled":true,"isMarketplaceEnabledForAuthenticatedUser":true,"isMarketplaceEnabledForUser":true,"isMarketplaceEnabledForGroup":true}', { 'Cache-Control': 'no-store' })],
   [new RegExp(`^ownership/hasasset${opt}$`, 'i'), hasAsset],
   [/^game\/gamepass\/gamepasshandler\.ashx$/i, hasPass],
+  [/^v1\/users\/(-?\d{1,15})\/items\/(gamepass|badge)\/(\d{1,15})\/?$/i, inventoryItem],
   [/^game\/badge\/(hasbadge|awardbadge|isbadgedisabled|isbadgelegal)\.ashx$/i, badgeRoute],
   [/^game\/luawebservice\/handlesocialrequest\.(?:ashx|php)$/i, socialRequest],
   [/^game\/tools\/thumbnailasset\.ashx$/i, thumbnailRoute('asset')],
