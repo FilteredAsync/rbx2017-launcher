@@ -972,11 +972,11 @@ function summarize(counts, options) {
   }
   if (counts.aspectRatios > 0) lines.push(`  ${counts.aspectRatios} UIAspectRatioConstraint AspectRatio set to 1 (0 stops 2017 from loading the file)`);
   if (counts.filteringEnabled > 0) lines.push(`  FilteringEnabled turned on (the file leaves it out, and the ${year} engine would run the game with it off)`);
-  if (counts.pgsSolver > 0) lines.push('  the PGS physics solver turned on (the file leaves it out; with the older 2017 solver, forces and newer constraints do nothing)');
+  if (counts.pgsSolver > 0) lines.push('  the PGS physics solver turned on (the file leaves it out; with the older solver, forces and newer constraints do nothing)');
   if (counts.streaming > 0) lines.push('  StreamingEnabled turned off (with 2017 streaming, newer games wait for parts that never arrive)');
   for (const name of counts.gamePatches) lines.push(`  Fixed: ${name}`);
   if (counts.compatScripts > 0) {
-    lines.push(`  ${counts.compatScripts} scripts made to run on 2017: ${[...counts.compatChanges].sort((a, b) => b[1] - a[1]).map(([name, n]) => `${name} x${n}`).join(', ')}`);
+    lines.push(`  ${counts.compatScripts} scripts made to run on ${year}: ${[...counts.compatChanges].sort((a, b) => b[1] - a[1]).map(([name, n]) => `${name} x${n}`).join(', ')}`);
   }
   if (lines.length === 1) lines.push(`  nothing - the file already uses the ${year} format`);
   if (counts.apiDumpMissing && year !== '2017') lines.push(`  (no API list for ${year} on this server: converted with 2017's)`);

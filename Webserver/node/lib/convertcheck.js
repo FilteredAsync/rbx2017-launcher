@@ -3,13 +3,18 @@
 // Checks a converted place in a throwaway game server (RCCService) of the
 // engine it was converted for: whether every script compiles there, whether
 // the place loads, and which errors its scripts raise in the first seconds of
-// running (no players join, so code that waits for one does not run).
-// tools/converter-corpus.js runs it for each place of its test corpus.
+// running. One player joins in the same process, as in Studio's Play Solo
+// (Players:CreateLocalPlayer works in all three RCCs), so the game's
+// LocalScripts and its PlayerAdded code run too; solo: false runs it with
+// nobody. tools/converter-corpus.js runs it for each place of its corpus.
 //
-//   check({ engine, rccDir, place, scripts, seconds, soapPort, gamePort }) ->
-//     { compiled, scripts, scriptsFailed, compileErrors: [{ path, error }],
-//       loads, loadError, loadMs, runErrors: [{ message, path, count }],
-//       warnings: [{ message, count }], hung, crashed, log: [lines] }
+//   check({ engine, rccDir, place, scripts, seconds, soapPort, gamePort, solo }) ->
+//     { compiled, scripts, scriptsFailed, compileErrors: [{ path, error, byConverter }],
+//       loads, loadError, loadMs, player, runErrors: [{ message, path, count }],
+//       engineErrors (Roblox's own scripts'), warnings: [{ message, count }],
+//       hung, crashed, log: [lines] }
+//   Paths are where the script is in the place (a player's PlayerGui script
+//   is named by its StarterGui path).
 //   place: Buffer of the converted place as the server stores it.
 //   scripts: [{ path, className, source }] (scriptsOf in lib/placefile.js).
 //
@@ -168,7 +173,7 @@ async function compileScripts(rcc, scripts) {
   return { errors, unsupported };
 }
 
-const SETUP = (file, gamePort) => `_G.RB2017CHECK = {state = "loading", errors = {}, order = {}}
+const SETUP = (file, gamePort, solo) => `_G.RB2017CHECK = {state = "loading", errors = {}, order = {}}
 local S = _G.RB2017CHECK
 pcall(function()
   game:GetService("ScriptContext").Error:connect(function(message, trace, script)
@@ -189,10 +194,23 @@ spawn(function()
   local ok, e = pcall(function() game:Load("rbxasset://convertcheck/${file}") end)
   S.loadMs = math.floor((tick() - t) * 1000)
   if not ok then S.loadError = tostring(e) S.state = "failed" return end
-  pcall(function() game:GetService("NetworkServer"):Start(${gamePort}) end)
+  if not ${solo ? 'true' : 'false'} then pcall(function() game:GetService("NetworkServer"):Start(${gamePort}) end) end
   local ran, why = pcall(function() game:GetService("RunService"):Run() end)
   if not ran then S.runError = tostring(why) end
   S.state = "running"
+  if ${solo ? 'true' : 'false'} then
+    -- One player joins (as in Studio's Play Solo), once the server scripts
+    -- have started: their PlayerAdded code, the StarterGui, StarterPack and
+    -- StarterPlayer scripts and the character's run too.
+    wait(1)
+    local made, p = pcall(function() return game:GetService("Players"):CreateLocalPlayer(0) end)
+    if made and p then
+      S.player = p.Name
+      pcall(function() p:LoadCharacter() end)
+    else
+      S.soloError = tostring(p)
+    end
+  end
 end)
 return "started"`;
 
@@ -211,7 +229,35 @@ pcall(function()
 end)
 local errors = {}
 for i, e in ipairs(S and S.order or {}) do errors[i] = {message = e.message, path = e.path, trace = e.trace, count = e.count} end
-return H:JSONEncode({state = S and S.state, loadMs = S and S.loadMs, loadError = S and S.loadError, runError = S and S.runError, errors = errors, warnings = warnings})`;
+return H:JSONEncode({state = S and S.state, loadMs = S and S.loadMs, loadError = S and S.loadError, runError = S and S.runError, errors = errors, warnings = warnings,
+  player = S and S.player, soloError = S and S.soloError})`;
+
+// Where a script running for the player came from in the place
+// (Players.Player1.PlayerGui.Main.X -> StarterGui.Main.X), so errors name
+// the script in the file.
+function placePath(where, player) {
+  if (!player || !where) return where;
+  const prefixes = [
+    [`Players.${player}.PlayerGui.`, 'StarterGui.'],
+    [`Players.${player}.PlayerScripts.`, 'StarterPlayer.StarterPlayerScripts.'],
+    [`Players.${player}.Backpack.`, 'StarterPack.'],
+    [`Players.${player}.StarterGear.`, 'StarterPack.'],
+    [`Workspace.${player}.`, 'StarterPlayer.StarterCharacterScripts.'],
+  ];
+  for (const [from, to] of prefixes) if (where.startsWith(from)) return to + where.slice(from.length);
+  return where;
+}
+
+// An error of a script the place does not have: Roblox's own (CoreGui, the
+// default chat, camera, control and character scripts).
+// (2016's CoreScripts fail on the RCC without naming a script.)
+const ENGINE_MESSAGES = [/is not a valid member of GlobalSettings$/, /^Requested module experienced an error while loading$/];
+function engineScript(where, known, message) {
+  if (!where) return ENGINE_MESSAGES.some((pattern) => pattern.test(message));
+  if (/^CoreGui\b/.test(where)) return true;
+  for (let p = where; p; p = p.includes('.') ? p.slice(0, p.lastIndexOf('.')) : '') if (known.has(p)) return false;
+  return true;
+}
 
 async function check(options) {
   const { engine, rccDir, place, scripts = [], seconds = 20, soapPort, gamePort } = options;
@@ -258,7 +304,7 @@ async function check(options) {
       result.scriptsFailed = 0;
     }
     await step('run', async (rcc) => {
-      const started = await rcc.run(SETUP(`${token}.${ext}`, gamePort), 60000);
+      const started = await rcc.run(SETUP(`${token}.${ext}`, gamePort, options.solo !== false), 60000);
       if (started !== 'started') throw new Error(`setup: ${started.slice(0, 300)}`);
       let state = 'loading';
       const loadLimit = Date.now() + (options.loadSeconds || 600) * 1000;
@@ -280,7 +326,16 @@ async function check(options) {
       result.loadError = collected.loadError || null;
       result.loadMs = collected.loadMs == null ? null : collected.loadMs;
       if (collected.runError) result.log.push(`Run: ${collected.runError}`);
-      result.runErrors = (collected.errors || []).map((e) => ({ message: e.message, path: e.path || '', trace: e.trace || '', count: e.count }));
+      if (collected.soloError) result.log.push(`player: ${collected.soloError}`);
+      result.player = Boolean(collected.player);
+      // The game's own scripts' errors; Roblox's own scripts' apart.
+      const known = new Set(scripts.map((s) => s.path));
+      const all = (collected.errors || []).map((e) => {
+        const where = placePath(e.path || '', collected.player);
+        return { message: e.message.split(e.path || '\u0000').join(where), path: where, trace: e.trace || '', count: e.count, engine: engineScript(where, known, e.message) };
+      });
+      result.runErrors = all.filter((e) => !e.engine).map(({ engine: x, ...e }) => e);
+      result.engineErrors = all.filter((e) => e.engine).map(({ engine: x, ...e }) => e);
       result.warnings = collected.warnings || [];
     });
   } finally {

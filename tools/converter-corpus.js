@@ -345,7 +345,7 @@ async function run(options) {
         Object.assign(entry, {
           loads: check.loads, loadError: check.loadError, loadMs: check.loadMs, scripts: check.scripts, compiled: check.compiled,
           scriptsFailed: check.scriptsFailed, runErrors: check.runErrors.length, hung: check.hung, crashed: check.crashed,
-          compileErrors: check.compileErrors, errors: check.runErrors, warnings: check.warnings.slice(0, 40), log: check.log,
+          compileErrors: check.compileErrors, errors: check.runErrors, engineErrors: (check.engineErrors || []).length, player: check.player, warnings: check.warnings.slice(0, 40), log: check.log,
           issues: report.issues.filter((i) => i.kind !== 'compile' && i.kind !== 'runtime').slice(0, 60),
         });
       }
