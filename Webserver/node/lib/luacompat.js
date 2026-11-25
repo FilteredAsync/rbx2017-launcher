@@ -1140,6 +1140,8 @@ function preludeEnd(tokens) {
     let close = -1;
     if ((name === '__rbx2017' || name === 'Random') && isSymbol(tokens[k + 3], '{')) close = matchForward(tokens, k + 3);
     else if (LIBRARY[name] && tokens[k + 3] && tokens[k + 3].value === 'setmetatable' && isSymbol(tokens[k + 4], '(')) close = matchForward(tokens, k + 4);
+    // local typeof = typeof or (function ... end) (2016)
+    else if (name === 'typeof' && tokens[k + 3] && tokens[k + 3].value === 'typeof' && tokens[k + 4] && tokens[k + 4].value === 'or' && isSymbol(tokens[k + 5], '(')) close = matchForward(tokens, k + 5);
     if (close < 0) return k;
     k = close + 1;
     if (isSymbol(tokens[k], ';')) k++;
@@ -1856,6 +1858,7 @@ function convertWith(source, options) {
   const from = marked ? preludeEnd(tokens) : 0;
   const existing = marked ? text.slice(0, tokens[from] ? tokens[from].start : text.length) : '';
   const needed = {}; // library -> Set(member)
+  const uses = []; // { library, member, start, end }: library.member read in the script
   let random = false;
   const fontEdits = [];
   // A script with its own Enum table (local Enum = {}) keeps its Enum.x.
@@ -1894,32 +1897,46 @@ function convertWith(source, options) {
     if (!library[t.value] || !dot || dot.type !== 'symbol' || dot.value !== '.' || !member || member.type !== 'name') continue;
     if (library[t.value][member.value] === undefined) continue;
     (needed[t.value] = needed[t.value] || new Set()).add(member.value);
-  }
-  for (const [start, end, font] of fontEdits.reverse()) {
-    text = text.slice(0, start) + font + text.slice(end);
-    changes.add(/^[(_]|^Enum\./.test(font) ? 'newer Enum items' : 'Enum.Font');
+    if (!isSymbol(tokens[i + 3], '=')) uses.push({ library: t.value, member: member.value, start: t.start, end: member.end });
   }
 
+  // Each stand-in is a field of the helper table (__rbx2017.L_math_clamp),
+  // and only its uses go through it: a local per library (local math = ...)
+  // was an upvalue of every function using math at all, which pushed big
+  // functions past Lua 5.1's 60 upvalues (and the main chunk past 200
+  // locals). A script copying a library (for k, v in pairs(table):
+  // PartCache's Table module) gets the local, which it sees whole.
   const prelude = [];
   const libraryTables = library;
+  const libraryFields = [];
+  const edits = fontEdits.slice();
   for (const [library, all] of Object.entries(needed)) {
     if (declaresOwn(tokens, library, from)) continue;
     const members = [...all].filter((member) => !hasStandIn(existing, library, member));
     if (members.length === 0) continue;
+    const copied = new RegExp(String.raw`\bpairs\s*\(\s*${library}\s*\)`).test(text);
     const fields = members.map((member) => {
       changes.add(`${library}.${member}`);
       const value = libraryTables[library][member];
-      if (value.startsWith('HELPER_')) {
-        helpers.add(value.slice('HELPER_'.length));
-        return `${member} = __rbx2017.${value.slice('HELPER_'.length)}`;
+      const helper = value.startsWith('HELPER_') ? value.slice('HELPER_'.length) : null;
+      if (helper) helpers.add(helper);
+      if (!copied) {
+        const field = helper || `L_${library}_${member}`;
+        if (!helper && !existing.includes(`${field} = `)) libraryFields.push(`${field} = ${value}`);
+        for (const use of uses) if (use.library === library && use.member === member) edits.push([use.start, use.end, `__rbx2017.${field}`]);
       }
-      return `${member} = ${value}`;
+      return helper ? `${member} = __rbx2017.${helper}` : `${member} = ${value}`;
     });
+    if (!copied) continue;
     prelude.push(`local ${library} = setmetatable({${fields.join(', ')}}, {__index = ${library}});`);
-    // A script copying the library (for k, v in pairs(table): PartCache's
-    // Table module) must see all of it, not only the stand-ins.
-    if (new RegExp(String.raw`\bpairs\s*\(\s*${library}\s*\)`).test(text)) {
-      prelude.push(`for k, v in pairs(getmetatable(${library}).__index or {}) do if rawget(${library}, k) == nil then rawset(${library}, k, v) end end;`);
+    prelude.push(`for k, v in pairs(getmetatable(${library}).__index or {}) do if rawget(${library}, k) == nil then rawset(${library}, k, v) end end;`);
+  }
+  if (libraryFields.length > 0) helpers.add('__fields');
+  edits.sort((a, b) => b[0] - a[0]);
+  for (const [start, end, replacement] of edits) {
+    text = text.slice(0, start) + replacement + text.slice(end);
+    if (!replacement.startsWith('__rbx2017.L_') && fontEdits.some((e) => e[0] === start)) {
+      changes.add(/^[(_]|^Enum\./.test(replacement) ? 'newer Enum items' : 'Enum.Font');
     }
   }
   // typeof (2016 has only type): declared before the helpers, which use it
@@ -1941,7 +1958,7 @@ function convertWith(source, options) {
     // New helpers go at the end of the script's helper table (a later field
     // of the same name wins), or into a new table after the mark; new
     // library stand-ins after that table.
-    const fields = [...helpers].map((name) => `${name} = ${HELPERS[name]}`).join(', ');
+    const fields = [...[...helpers].filter((name) => name !== '__fields').map((name) => `${name} = ${HELPERS[name]}`), ...libraryFields].join(', ');
     const head = tokenize(existing);
     const hasTable = head[0] && head[0].value === 'local' && head[1] && head[1].value === '__rbx2017' && isSymbol(head[2], '=') && isSymbol(head[3], '{');
     const close = hasTable ? matchForward(head, 3) : -1;
@@ -1961,7 +1978,7 @@ function convertWith(source, options) {
     return { text, changes: [...changes] };
   }
   if (helpers.size > 0) {
-    prelude.unshift(`local __rbx2017 = {${[...helpers].map((name) => `${name} = ${HELPERS[name]}`).join(', ')}};`);
+    prelude.unshift(`local __rbx2017 = {${[...[...helpers].filter((name) => name !== '__fields').map((name) => `${name} = ${HELPERS[name]}`), ...libraryFields].join(', ')}};`);
   }
   if (typeofFirst && /\btypeof\s*\(/.test(`${prelude.join(' ')} ${text}`)) {
     prelude.unshift(TYPEOF_LOCAL);
@@ -1972,7 +1989,7 @@ function convertWith(source, options) {
 }
 
 // The global typeof where the engine has one, else the stand-in.
-const TYPEOF_LOCAL = `local typeof = typeof or ${HELPERS.typeof};`;
+const TYPEOF_LOCAL = `local typeof = typeof or (${HELPERS.typeof});`;
 
 // Property names a place file has that 2017 lacks (convertSource's
 // newerProperties), from the names in its XML. Names that games also use for

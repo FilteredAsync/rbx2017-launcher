@@ -74,7 +74,7 @@ test('CFrame.fromMatrix and Animator:GetPlayingAnimationTracks get stand-ins', [
 test('2016: signals, typeof, Color3.fromRGB, TweenService, TextSize', ['2016'], () => {
   const out = convert('local c = x.Changed:Connect(f) c:Disconnect() print(typeof(x)) local k = Color3.fromRGB(1, 2, 3) '
     + 'local t = game:GetService("TweenService") label.TextSize = 20 local f = model:FindFirstChildOfClass("Part")', '2016');
-  for (const part of ['__rbx2017.Connect(x.Changed, f)', '__rbx2017.Disconnect(c)', 'local typeof = typeof or function', 'fromRGB = function',
+  for (const part of ['__rbx2017.Connect(x.Changed, f)', '__rbx2017.Disconnect(c)', 'local typeof = typeof or (function', 'fromRGB = function',
     '__rbx2017.TweenService(game)', '__rbx2017.SetTextSize(label, "TextSize", 20)', '__rbx2017.FindFirstChildOfClass(model, "Part")']) {
     assert.ok(out.includes(part), `missing ${part}`);
   }
