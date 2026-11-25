@@ -369,6 +369,16 @@ async function run(options) {
 
 // --- Tables -------------------------------------------------------------------------------
 
+// Results of one label, or several joined ("before,before-2018").
+function loadResults(corpus, labels) {
+  const merged = { places: {} };
+  for (const label of String(labels).split(',')) {
+    const one = JSON.parse(fs.readFileSync(path.join(corpus, 'results', `${label}.json`), 'utf8'));
+    for (const [id, byEngine] of Object.entries(one.places)) merged.places[id] = Object.assign(merged.places[id] || {}, byEngine);
+  }
+  return merged;
+}
+
 // Errors from the check's surroundings, not the converter: the throwaway
 // server has no place ID, no web server of its own and no players.
 const ENVIRONMENT = [
@@ -402,7 +412,7 @@ function score(entry) {
 function table(options) {
   const corpus = corpusDir(options);
   const [beforeLabel, afterLabel] = options._;
-  const load = (label) => JSON.parse(fs.readFileSync(path.join(corpus, 'results', `${label}.json`), 'utf8'));
+  const load = (label) => loadResults(corpus, label);
   const before = load(beforeLabel);
   const after = afterLabel ? load(afterLabel) : null;
   const manifest = readManifest(corpus);
@@ -451,7 +461,7 @@ function table(options) {
 // The most common errors (messages with numbers, names and quotes made generic).
 function errors(options) {
   const corpus = corpusDir(options);
-  const results = JSON.parse(fs.readFileSync(path.join(corpus, 'results', `${options._[0]}.json`), 'utf8'));
+  const results = loadResults(corpus, options._[0]);
   const engines = list(options.engine) || ENGINES;
   const generic = (m) => String(m).replace(/^[^:]*:\d+: /, '').replace(/\[string "[^"]*"\]:\d+: /, '').replace(/"[^"]*"/g, '"…"').replace(/'[^']*'/g, "'…'").replace(/\d+(\.\d+)?/g, 'N').slice(0, 160);
   const groups = new Map();

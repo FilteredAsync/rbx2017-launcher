@@ -318,6 +318,8 @@ const METHODS = {
   GetPartBoundsInBox: [2, 3], GetPartBoundsInRadius: [2, 3], GetPartsInPart: [1, 2], GetScale: [0], ScaleTo: [1], CreatePath: [0, 1],
   // Color3:ToHSV, Model:GetBoundingBox, AnimationTrack:GetMarkerReachedSignal; Actor messages (2021).
   ToHSV: [0], GetBoundingBox: [0], GetMarkerReachedSignal: [1], GetPlayingAnimationTracks: [0],
+  // Enum.X:FromName / FromValue (2023).
+  FromName: [1], FromValue: [1],
   // Chat:RegisterChatCallback (2018): 2017's chat has no callbacks.
   RegisterChatCallback: [2],
   // RunService:BindToRenderStep: 2017 calls the function without the frame time.
@@ -693,6 +695,13 @@ const HELPERS = {
   // Animator:GetPlayingAnimationTracks (2019): the Humanoid's or AnimationController's.
   GetPlayingAnimationTracks: `function(o) ${own('GetPlayingAnimationTracks', '')} local ok, r = pcall(function() return o:GetPlayingAnimationTracks() end) if ok then return r end `
     + 'local p = o.Parent if p and (p:IsA("Humanoid") or p:IsA("AnimationController")) then return p:GetPlayingAnimationTracks() end return {} end',
+  // RunService.Stepped passing only the frame time (PreSimulation, PreAnimation).
+  SteppedDt: 'function(rs) local s = {} function s:connect(f) return rs.Stepped:connect(function(_, dt) f(dt) end) end s.Connect = s.connect '
+    + 'function s:wait() local _, dt = rs.Stepped:wait() return dt end s.Wait = s.wait '
+    + 'function s:Once(f) local c c = rs.Stepped:connect(function(_, dt) c:disconnect() f(dt) end) return c end return s end',
+  // Enum.X:FromName(name) / FromValue(value) (2023).
+  FromName: `function(e, n) ${own('FromName', 'n')} local ok, v = pcall(function() return e[n] end) if ok then return v end return nil end`,
+  FromValue: `function(e, v) ${own('FromValue', 'v')} for _, item in ipairs(e:GetEnumItems()) do if item.Value == v then return item end end return nil end`,
   // 2016: signals have connect/wait/disconnect only (a game's own signal object keeps its own).
   Connect: 'function(s, f) if type(s) == "table" then return s:Connect(f) end return s:connect(f) end',
   Wait: 'function(s) if type(s) == "table" then return s:Wait() end return s:wait() end',
@@ -1027,6 +1036,26 @@ function fontsOf(api) {
   return fonts ? new Set(fonts.keys()) : FONTS_2017;
 }
 
+// A require-by-string path -> the Lua expression of that instance, or null.
+// "./X" is a sibling of the script, "../X" one level up, "@self/X" the
+// script's own child, "@game/Service/X" from a service; ".lua(u)" endings
+// and a last "init" are dropped.
+function requireTarget(spec) {
+  const parts = spec.split('/').filter((p) => p !== '');
+  const first = parts.shift();
+  let base;
+  if (first === '@self') base = 'script';
+  else if (first === '.') base = 'script.Parent';
+  else if (first === '..') base = 'script.Parent.Parent';
+  else if (first === '@game' && parts.length > 0) base = `game:GetService(${JSON.stringify(parts.shift())})`;
+  else return null;
+  while (parts[0] === '..') { parts.shift(); base += '.Parent'; }
+  const names = parts.filter((p) => p !== '.').map((p) => p.replace(/\.luau?$/i, ''));
+  if (names.length > 0 && names[names.length - 1] === 'init') names.pop();
+  if (names.some((n) => n === '..')) return null;
+  return base + names.map((n) => `:WaitForChild(${JSON.stringify(n)})`).join('');
+}
+
 // Is "name" assigned or declared as a local in this script (then it is the
 // script's own, not the library)?
 function declaresOwn(tokens, name, from = 0) {
@@ -1091,6 +1120,8 @@ const isSymbol = (t, value) => t && t.type === 'symbol' && t.value === value;
 
 // Index after the type expression starting at i (or -1 if it is not one).
 function skipType(tokens, i) {
+  // A union or intersection may start with its operator (type T =\n | A\n | B).
+  if (isSymbol(tokens[i], '|') || isSymbol(tokens[i], '&')) i++;
   let t = tokens[i];
   if (!t) return -1;
   if (isSymbol(t, '(')) {
@@ -1238,7 +1269,8 @@ function stripTypes(text) {
   if (cuts.length === 0) return text;
   cuts.sort((a, b) => b[0] - a[0]);
   let out = text;
-  for (const [start, end] of cuts) out = out.slice(0, start) + out.slice(end);
+  // The line breaks of a cut stay, so error line numbers match the source.
+  for (const [start, end] of cuts) out = out.slice(0, start) + out.slice(start, end).replace(/[^\n]/g, '') + out.slice(end);
   return out;
 }
 
@@ -1320,6 +1352,14 @@ function convertWith(source, options) {
     changes.add(`.Assembly${kind}Velocity`);
     return kind === 'Linear' ? '.Velocity' : '.RotVelocity';
   });
+  // RunService.PreRender / PostSimulation (2023) -> RenderStepped / Heartbeat
+  // (both pass the frame time, as these do).
+  if (unknownTo2017('PreRender')) {
+    text = text.replace(/\.(PreRender|PostSimulation)\b(?!\s*=(?!=))/g, (match, name) => {
+      changes.add(`RunService.${name}`);
+      return name === 'PreRender' ? '.RenderStepped' : '.Heartbeat';
+    });
+  }
   // alignOrientation.CFrame = x (OneAttachment mode, 2022): 2017's
   // AlignOrientation turns Attachment0 to Attachment1, so one is made to hold x.
   text = text.split('\n').map((line) => {
@@ -1344,8 +1384,19 @@ function convertWith(source, options) {
     changes.add('typeof buffer');
     return `${op === '~=' ? 'not ' : ''}__rbx2017.IsBuffer(${value})`;
   });
-  // require("@rbx/Package") (Roblox's own packages): a stand-in that takes any call.
-  text = text.replace(/\brequire\s*\(\s*(["'])@[\w/@.-]+\1\s*\)/g, () => {
+  // require("./Module"), require("@self/Module"), require("@game/Service/X")
+  // (Luau's require by string, 2024) -> require of that instance; another
+  // alias such as require("@rbx/Package") (Roblox's own packages) -> a
+  // stand-in that takes any call. Before, every "@..." became the stand-in,
+  // so packages that load their own parts this way (charm's @self/system)
+  // silently did nothing.
+  text = text.replace(/\brequire\s*\(\s*(["'])((?:\.{1,2}|@[\w-]+)(?:\/[^"'\\/\r\n]+)*)\1\s*\)/g, (match, quote, spec) => {
+    const target = requireTarget(spec);
+    if (target) {
+      changes.add('require("./...")');
+      return `require(${target})`;
+    }
+    if (!spec.startsWith('@')) return match;
     helpers.add('Stub');
     changes.add('require("@rbx/...")');
     return '__rbx2017.Stub()';
@@ -1670,6 +1721,19 @@ function convertWith(source, options) {
         changes.add('PlayerGui waited for');
         done = false;
         break;
+      }
+      // RunService.PreSimulation / PreAnimation (2023) -> Stepped without its first argument (the time).
+      if (isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && (tokens[i + 1].value === 'PreSimulation' || tokens[i + 1].value === 'PreAnimation')
+        && unknownTo2017(tokens[i + 1].value) && !isSymbol(tokens[i + 2], '=') && !isSymbol(tokens[i + 2], '(')) {
+        const start = prefixStart(tokens, i);
+        if (start >= 0 && text.slice(tokens[start].start, tokens[i].start) !== '__rbx2017') {
+          const object = text.slice(tokens[start].start, tokens[i].start);
+          text = `${text.slice(0, tokens[start].start)}__rbx2017.SteppedDt(${object})${text.slice(tokens[i + 1].end)}`;
+          helpers.add('SteppedDt');
+          changes.add(`RunService.${tokens[i + 1].value}`);
+          done = false;
+          break;
+        }
       }
       // object.AttributeChanged -> __rbx2017.AttributeChanged(object) (attributes are Value objects here).
       if (isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && tokens[i + 1].value === 'AttributeChanged' && !isSymbol(tokens[i + 2], '=')

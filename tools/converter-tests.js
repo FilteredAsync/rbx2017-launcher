@@ -113,6 +113,35 @@ test('attributes holding binary data stay valid XML', [], () => {
   assert.strictEqual(stored.bytes.subarray(0, 8).toString('latin1'), '<roblox!', stored.notes.join(' '));
 });
 
+test('terrain shoreline cells become cells the old engines read', [], () => {
+  // chunks of 2x2x2: 3 grass, 1 shoreline (ground 9 + water 255), 4 air
+  const grid = Buffer.from([1, 1, ...new Array(12).fill(0), 0x80 | 2, 2, 0x80 | 0x40 | 14, 9, 0, 255, 0x80, 3]);
+  const xml = Buffer.from(`<roblox version="4"><Item class="Terrain" referent="T"><Properties><string name="Name">Terrain</string>`
+    + `<BinaryString name="SmoothGrid">${grid.toString('base64')}</BinaryString></Properties></Item></roblox>`, 'latin1');
+  const out = placefile.convertPlace(xml, { engine: '2017' }).output.toString('latin1');
+  const data = Buffer.from(/<BinaryString name="SmoothGrid">([^<]*)</.exec(out)[1], 'base64');
+  assert.deepStrictEqual([...data], [1, 1, ...new Array(12).fill(0), 0x80 | 2, 2, 1, 0x80, 3]);
+});
+
+test('require by string loads the instance', ['2017'], () => {
+  const out = convert('local a = require("@self/system") local b = require("./util") local c = require("@rbx/Pkg")');
+  assert.ok(out.includes('require(script:WaitForChild("system"))'), out);
+  assert.ok(out.includes('require(script.Parent:WaitForChild("util"))'), out);
+  assert.ok(out.includes('__rbx2017.Stub()'), out);
+});
+
+test('RunService.PreRender and Enum.X:FromName', ['2017'], () => {
+  const out = convert('rs.PreRender:Connect(f) rs.PreSimulation:Connect(f) local k = Enum.KeyCode:FromName("E")');
+  for (const part of ['rs.RenderStepped:Connect(f)', '__rbx2017.SteppedDt(rs):Connect(f)', '__rbx2017.FromName(Enum.KeyCode, "E")']) assert.ok(out.includes(part), `missing ${part}`);
+});
+
+test('type declarations keep their lines', ['2017'], () => {
+  const source = 'export type T =\n\t| A\n\t| B\nlocal x: {\n\ta: number,\n} = {}\nreturn x\n';
+  const out = convert(source);
+  assert.ok(!/\btype\b|number/.test(out.replace(/^--\[\[2017\]\]/, '')), out);
+  assert.strictEqual(lines(out), lines(source));
+});
+
 test('scriptsOf gives full names', [], () => {
   const xml = Buffer.from('<roblox><Item class="Workspace" referent="A"><Properties><string name="Name">Workspace</string></Properties>'
     + '<Item class="Model" referent="B"><Properties><string name="Name">M</string></Properties><Item class="Script" referent="C"><Properties>'

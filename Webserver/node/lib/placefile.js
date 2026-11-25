@@ -149,6 +149,60 @@ function fontSizeFor(size) {
   return best;
 }
 
+// --- Terrain -----------------------------------------------------------------
+
+// Terrain.SmoothGrid: version 1, log2 of the chunk size, then per chunk its
+// 12-byte position and runs of cells (2016 source, App/voxel2/Grid.cpp):
+// a byte of material (bits 0-5), "occupancy follows" (bit 6) and "count
+// follows" (bit 7); the count byte holds count - 1. Newer Studio (shorelines,
+// 2022) also writes a count byte of 0, which the old engines read as one
+// cell: there it is one cell followed by one more byte, its water. Every
+// 2016-2018 engine then refused the whole place ("Error while decoding data:
+// chunk overflow"). Such cells become one cell of the old kind: water when
+// the water fills more of it than its material does.
+const WATER = 1;
+function oldSmoothGrid(data) {
+  if (data.length < 2 || data[0] !== 1 || data[1] > 8) return null;
+  const cellsPerChunk = (1 << data[1]) ** 3;
+  const out = [data.subarray(0, 2)];
+  let changed = 0;
+  let p = 2;
+  while (p < data.length) {
+    if (p + 12 > data.length) return null;
+    out.push(data.subarray(p, p + 12));
+    p += 12;
+    let cells = 0;
+    let copyFrom = p;
+    while (cells < cellsPerChunk) {
+      if (p >= data.length) return null;
+      const start = p;
+      const meta = data[p++];
+      const occupancy = meta & 64 ? data[p++] : 255;
+      let count = 1;
+      if (meta & 128) {
+        const c = data[p++];
+        if (c === 0) {
+          const water = data[p++];
+          if (p > data.length) return null;
+          out.push(data.subarray(copyFrom, start));
+          const material = meta & 63;
+          const solid = material === 0 ? 0 : occupancy;
+          const cell = water > solid ? [WATER, water] : [material, occupancy];
+          out.push(Buffer.from(cell[0] !== 0 && cell[1] !== 255 ? [cell[0] | 64, cell[1]] : [cell[0]]));
+          copyFrom = p;
+          changed++;
+        } else {
+          count = c + 1;
+        }
+      }
+      cells += count;
+    }
+    if (cells !== cellsPerChunk) return null;
+    out.push(data.subarray(copyFrom, p));
+  }
+  return changed > 0 ? { data: Buffer.concat(out), changed } : null;
+}
+
 // --- Scripts -----------------------------------------------------------------
 
 // Target: a name with fields and one-level indexes (t[k].x, s[a.b][c.d].n).
@@ -419,6 +473,16 @@ function convertProperties(className, props, options, counts) {
     if (!/<BinaryString\s+name="AttributesSerialize">\s*<\/BinaryString>/.test(match)) counts.attributes++;
     return '';
   });
+
+  // Terrain saved by newer Studio (shoreline cells) -> the format 2016-2018 read.
+  if (className === 'Terrain') {
+    out = out.replace(/(<BinaryString\s+name="SmoothGrid">)([^<]*)(<\/BinaryString>)/, (match, open, body, close) => {
+      const grid = oldSmoothGrid(Buffer.from(body.replace(/\s+/g, ''), 'base64'));
+      if (!grid) return match;
+      counts.terrainCells += grid.changed;
+      return `${open}${grid.data.toString('base64')}${close}`;
+    });
+  }
 
   // Engines older than 2017 (2016) have no TextSize (the FontSize list
   // instead) and no AnchorPoint: the nearest FontSize, and the anchor folded
@@ -744,7 +808,7 @@ function convertPlace(input, options) {
   }
   const counts = {
     robloxLinks: 0, thumbnails: 0, gameAssets: 0, contentIds: 0, fonts: 0, droppedProperties: 0, intValues: 0,
-    attributes: 0, attributeSets: 0, attributeValues: 0, attributesInUse: false, wrappingLists: 0, sharedStrings: 0, newCsg: 0, compoundAssignments: 0, materials: 0, unionCollision: 0, unionShapes: 0, filteringEnabled: 0, aspectRatios: 0, pgsSolver: 0, streaming: 0, oldGui: 0, gamePatches: new Set(),
+    attributes: 0, attributeSets: 0, attributeValues: 0, attributesInUse: false, wrappingLists: 0, sharedStrings: 0, newCsg: 0, compoundAssignments: 0, materials: 0, unionCollision: 0, unionShapes: 0, filteringEnabled: 0, aspectRatios: 0, pgsSolver: 0, streaming: 0, oldGui: 0, terrainCells: 0, gamePatches: new Set(),
     compatScripts: 0, compatChanges: new Map(), madeFolders: new Map(), standIns: new Map(), chatSetAside: 0, coreGuiSetAside: 0, localizationTables: 0, playerModule: false,
     gameAssetNames: new Set(), unsupportedThumbnails: new Set(), luauScripts: [], unknownClasses: new Map(),
   };
@@ -959,6 +1023,7 @@ function summarize(counts, options) {
   changed(counts.compoundAssignments, 'compound assignments (x += 1) written out');
   changed(counts.unionShapes, 'unions given collision shaped like them (made from their mesh; 2017 cannot read their newer collision data)');
   changed(counts.unionCollision, 'unions given box collision (2017 cannot read their newer collision data)');
+  changed(counts.terrainCells, 'terrain shoreline cells (newer) -> water or ground cells (the place would not load)');
   changed(counts.oldGui, `GUI sizes and anchors ${year} lacks (TextSize, AnchorPoint) -> FontSize and Position`);
   changed(counts.materials, `part materials the ${year} engine lacks (Glass, ForceField...) -> the nearest it has`);
   if (counts.chatSetAside > 0) lines.push(`  a newer chat system the ${year} engine cannot run set aside; the game gets the ${year} chat`);
