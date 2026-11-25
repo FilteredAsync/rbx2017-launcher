@@ -1955,14 +1955,6 @@ async function serverApi(ctx, match) {
   return sendJson(ctx, 404, { error: 'unknown server API call' });
 }
 
-// The management page (Webserver/node/manage/).
-const MANAGE_FILES = { '': ['index.html', 'text/html; charset=utf-8'], 'manage.js': ['manage.js', 'text/javascript; charset=utf-8'], 'manage.css': ['manage.css', 'text/css; charset=utf-8'] };
-function managePage(ctx, match) {
-  const entry = MANAGE_FILES[(match[1] || '').toLowerCase()];
-  if (!entry) return send(ctx, 404, { 'Content-Type': 'text/plain' }, 'Not found');
-  return sendFile(ctx, path.join(__dirname, '..', 'manage', entry[0]), { 'Content-Type': entry[1], 'Cache-Control': 'no-cache' });
-}
-
 // /play/<placeId>[?server=<job ID>]: a game's share link. Chat apps make
 // https links clickable (not rbx2017:// ones) and show the game's name and
 // picture; the page then hands the game to the launcher through its
@@ -2083,7 +2075,7 @@ const ROUTES = [
   [/^api\/places(?:\/(\d{1,15})(?:\/([a-z-]+))?)?\/?$/i, placesApi],
   [/^api\/places\/(\d{1,15})\/servers\/([0-9a-f]{16,32})\/(restart|stop)\/?$/i, placeServerApi],
   [/^api\/private-servers\/([0-9a-f]{12})\/?$/i, privateServerAdminApi],
-  [/^manage(?:\/([a-z.]*))?\/?$/i, managePage],
+  ...require('./manageapi')({ send, sendJson, sendFile, jsonBody }).routes,
   [/^download\/((?:client|studio)-files(?:-\d{4})?(?:\.(?:zip|json|tar\.zst)|-from-[0-9a-f]{12}\.tar\.zst))$/i, downloadsRoute],
   [/^download\/menu-music\.mp3$/i, menuMusicRoute],
   [/^download\/(roblox-logo(?:-tagline)?\.png)$/i, launcherLogoRoute],
