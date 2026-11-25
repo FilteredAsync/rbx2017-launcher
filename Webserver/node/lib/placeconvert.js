@@ -71,7 +71,17 @@ module.exports = function placeconvert({ assetBytes, log = () => {} }) {
     const stored = rbxbinary.placeToStore(result.output);
     let scripts = [];
     try {
-      scripts = placefile.scriptsOf(result.output).map((s) => ({ path: s.path, className: s.className, source: s.source }));
+      // Each with whether the converter changed it (the check tells errors
+      // the original had apart).
+      const before = new Map();
+      const seen = new Map();
+      const key = (x) => { const n = (seen.get(x.path) || 0) + 1; seen.set(x.path, n); return `${x.path}#${n}`; };
+      for (const x of placefile.scriptsOf(input.xml)) before.set(key(x), x.source);
+      seen.clear();
+      scripts = placefile.scriptsOf(result.output).map((x) => {
+        const original = before.get(key(x));
+        return Object.assign({ path: x.path, className: x.className, source: x.source }, original === undefined ? {} : original !== x.source ? { original } : { unchanged: true });
+      });
     } catch (error) { /* no compile check then */ }
     return { bytes: stored.bytes, notes: [...input.notes, ...result.summary, ...stored.notes], engine: target, counts: result.counts, scripts };
   }

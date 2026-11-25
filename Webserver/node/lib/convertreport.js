@@ -64,7 +64,10 @@ function checkIssues(result) {
   if (result.loads === false) issues.push({ severity: 'error', kind: 'load', path: '', message: result.loadError ? `Doesn't load: ${result.loadError}` : "Doesn't load" });
   if (result.crashed) issues.push({ severity: 'error', kind: 'crash', path: '', message: 'The game server crashed' });
   else if (result.hung) issues.push({ severity: 'error', kind: 'hang', path: '', message: 'The game server stopped answering' });
-  for (const e of result.compileErrors || []) issues.push({ severity: 'error', kind: 'compile', path: e.path, message: e.error });
+  for (const e of result.compileErrors || []) {
+    // unchanged: the converter left the script as it was (same error in the original).
+    issues.push({ severity: e.unchanged ? 'warning' : 'error', kind: 'compile', path: e.path, message: e.unchanged ? `${e.error} (as in the original)` : e.error });
+  }
   for (const e of result.runErrors || []) {
     issues.push({ severity: 'error', kind: 'runtime', path: e.path || '', message: `${e.message}${e.count > 1 ? ` (x${e.count})` : ''}` });
   }

@@ -253,6 +253,31 @@ function simpleExpressionEnd(tokens, at) {
   }
 }
 
+// Is the expression ending before tokens[k] one of several assignment
+// targets (a.G, b.F = 1, 2)? Then a read rule must leave it.
+function assignmentTarget(tokens, k) {
+  let j = k;
+  while (isSymbol(tokens[j], ',')) {
+    j++;
+    if (!tokens[j] || tokens[j].type !== 'name') return false;
+    j++;
+    for (;;) {
+      if ((isSymbol(tokens[j], '.') || isSymbol(tokens[j], ':')) && tokens[j + 1] && tokens[j + 1].type === 'name') j += 2;
+      else if (isSymbol(tokens[j], '[') || isSymbol(tokens[j], '(')) { const close = matchForward(tokens, j); if (close < 0) return false; j = close + 1; }
+      else break;
+    }
+  }
+  return j > k && isSymbol(tokens[j], '=');
+}
+
+// prefixStart, but -1 for a name being defined (function a.b:Connect() ...):
+// the rewrites change uses, not definitions (a game's own signal class).
+function objectStart(tokens, colon) {
+  const start = prefixStart(tokens, colon);
+  const before = start > 0 ? tokens[start - 1] : null;
+  return before && before.type === 'keyword' && before.value === 'function' ? -1 : start;
+}
+
 function prefixStart(tokens, colon) {
   let i = colon - 1;
   while (i >= 0) {
@@ -1470,7 +1495,7 @@ function convertWith(source, options) {
       // CollectionService:HasTag(o, t) etc. -> __rbx2017.CSHasTag(service, o, t): tags on 2017 clients.
       if (isSymbol(tokens[i], ':') && tokens[i + 1].type === 'name' && CS_METHODS[tokens[i + 1].value] !== undefined && isSymbol(tokens[i + 2], '(')) {
         const close = matchForward(tokens, i + 2);
-        const start = close >= 0 && argumentCount(tokens, i + 2, close) === CS_METHODS[tokens[i + 1].value] ? prefixStart(tokens, i) : -1;
+        const start = close >= 0 && argumentCount(tokens, i + 2, close) === CS_METHODS[tokens[i + 1].value] ? objectStart(tokens, i) : -1;
         if (start >= 0 && text.slice(tokens[start].start, tokens[i].start) !== '__rbx2017') {
           const object = text.slice(tokens[start].start, tokens[i].start);
           const name = tokens[i + 1].value;
@@ -1487,7 +1512,7 @@ function convertWith(source, options) {
         const literal = /^(["'])(\w+)\1$/.exec(text.slice(tokens[i + 3].start, tokens[i + 3].end));
         // 2016 has a TweenService without Create: a working stand-in.
         if (literal && literal[2] === 'TweenService' && older && API && !API.member('TweenService', 'Create')) {
-          const at = prefixStart(tokens, i);
+          const at = objectStart(tokens, i);
           if (at >= 0) {
             text = `${text.slice(0, tokens[at].start)}__rbx2017.TweenService(${text.slice(tokens[at].start, tokens[i].start)})${text.slice(tokens[i + 4].end)}`;
             helpers.add('TweenService');
@@ -1496,7 +1521,7 @@ function convertWith(source, options) {
             break;
           }
         }
-        const start = literal && !classKnownTo2017(literal[2]) ? prefixStart(tokens, i) : -1;
+        const start = literal && !classKnownTo2017(literal[2]) ? objectStart(tokens, i) : -1;
         if (start >= 0) {
           const object = text.slice(tokens[start].start, tokens[i].start);
           text = `${text.slice(0, tokens[start].start)}__rbx2017.Service(${object}, "${literal[2]}")${text.slice(tokens[i + 4].end)}`;
@@ -1507,8 +1532,8 @@ function convertWith(source, options) {
         }
       }
       // x.NewerProperty (read) -> __rbx2017.Prop(x, "NewerProperty", value).
-      if (isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && NEWER_PROPERTIES[tokens[i + 1].value] !== undefined && !isSymbol(tokens[i + 2], '=')) {
-        const start = prefixStart(tokens, i);
+      if (isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && NEWER_PROPERTIES[tokens[i + 1].value] !== undefined && !isSymbol(tokens[i + 2], '=') && !assignmentTarget(tokens, i + 2)) {
+        const start = objectStart(tokens, i);
         if (start >= 0) {
           const object = text.slice(tokens[start].start, tokens[i].start);
           const name = tokens[i + 1].value;
@@ -1523,7 +1548,7 @@ function convertWith(source, options) {
       if (isSymbol(tokens[i], ':') && tokens[i + 1].type === 'name' && NEWER_METHODS[tokens[i + 1].value] !== undefined && isSymbol(tokens[i + 2], '(')) {
         const close = matchForward(tokens, i + 2);
         const count = close >= 0 ? argumentCount(tokens, i + 2, close) : -1;
-        const start = NEWER_METHODS[tokens[i + 1].value].includes(count) ? prefixStart(tokens, i) : -1;
+        const start = NEWER_METHODS[tokens[i + 1].value].includes(count) ? objectStart(tokens, i) : -1;
         if (start >= 0 && text.slice(tokens[start].start, tokens[i].start) !== '__rbx2017') {
           const object = text.slice(tokens[start].start, tokens[i].start);
           const name = tokens[i + 1].value;
@@ -1536,7 +1561,7 @@ function convertWith(source, options) {
       }
       // cf:Inverse() / cf:PointToObjectSpace(v) -> __rbx2017.CFCall(cf, "Inverse") / (cf, "PointToObjectSpace", v).
       if (isSymbol(tokens[i], ':') && tokens[i + 1].type === 'name' && CFRAME_METHODS.has(tokens[i + 1].value) && isSymbol(tokens[i + 2], '(')) {
-        const start = prefixStart(tokens, i);
+        const start = objectStart(tokens, i);
         if (start >= 0 && text.slice(tokens[start].start, tokens[i].start) !== '__rbx2017') {
           const object = text.slice(tokens[start].start, tokens[i].start);
           const name = tokens[i + 1].value;
@@ -1549,9 +1574,9 @@ function convertWith(source, options) {
       }
       // humanoid.RootPart (read; 2018) -> __rbx2017.RootPart(humanoid); player.DisplayName (2020; on
       // 2017 only Roblox's own scripts may read it) -> __rbx2017.DisplayName(player): the name.
-      if (isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && readHelpers[tokens[i + 1].value] !== undefined && !isSymbol(tokens[i + 2], '=') && !isSymbol(tokens[i + 2], '(')
+      if (isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && readHelpers[tokens[i + 1].value] !== undefined && !isSymbol(tokens[i + 2], '=') && !isSymbol(tokens[i + 2], '(') && !assignmentTarget(tokens, i + 2)
         && (tokens[i + 1].value !== 'C0' || usesTransform)) {
-        const start = prefixStart(tokens, i);
+        const start = objectStart(tokens, i);
         if (start >= 0 && text.slice(tokens[start].start, tokens[i].start) !== '__rbx2017') {
           const object = text.slice(tokens[start].start, tokens[i].start);
           const name = tokens[i + 1].value;
@@ -1566,7 +1591,7 @@ function convertWith(source, options) {
       if (isSymbol(tokens[i], ':') && tokens[i + 1].type === 'name' && tokens[i + 1].value === 'Create' && isSymbol(tokens[i + 2], '(')) {
         const close = matchForward(tokens, i + 2);
         const args = close >= 0 ? text.slice(tokens[i + 2].end, tokens[close].start) : '';
-        const start = close >= 0 && argumentCount(tokens, i + 2, close) === 3 && /\bClockTime\s*=/.test(args) ? prefixStart(tokens, i) : -1;
+        const start = close >= 0 && argumentCount(tokens, i + 2, close) === 3 && /\bClockTime\s*=/.test(args) ? objectStart(tokens, i) : -1;
         if (start >= 0 && text.slice(tokens[start].start, tokens[i].start) !== '__rbx2017') {
           const object = text.slice(tokens[start].start, tokens[i].start);
           text = `${text.slice(0, tokens[start].start)}__rbx2017.TweenCreate(${object}, ${text.slice(tokens[i + 2].end)}`;
@@ -1577,9 +1602,9 @@ function convertWith(source, options) {
         }
       }
       // color.R / .G / .B (read) -> __rbx2017.C3(color, "R"); not on Enum items (Enum.KeyCode.R).
-      if (isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && /^[RGB]$/.test(tokens[i + 1].value) && !isSymbol(tokens[i + 2], '=') && !isSymbol(tokens[i + 2], '(')
+      if (isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && /^[RGB]$/.test(tokens[i + 1].value) && !isSymbol(tokens[i + 2], '=') && !isSymbol(tokens[i + 2], '(') && !assignmentTarget(tokens, i + 2)
         && !isSymbol(tokens[i + 2], '.') && !isSymbol(tokens[i + 2], ':') && !isSymbol(tokens[i + 2], '[')) {
-        const start = prefixStart(tokens, i);
+        const start = objectStart(tokens, i);
         const object = start >= 0 ? text.slice(tokens[start].start, tokens[i].start) : '';
         if (start >= 0 && object !== '__rbx2017' && !/^Enum\b/.test(object)) {
           text = `${text.slice(0, tokens[start].start)}__rbx2017.C3(${object}, "${tokens[i + 1].value}")${text.slice(tokens[i + 1].end)}`;
@@ -1591,7 +1616,7 @@ function convertWith(source, options) {
       }
       // player.CharacterAppearanceLoaded:Connect(...) -> __rbx2017.AppearanceLoaded(player):Connect(...).
       if (isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && tokens[i + 1].value === 'CharacterAppearanceLoaded' && isSymbol(tokens[i + 2], ':')) {
-        const start = prefixStart(tokens, i);
+        const start = objectStart(tokens, i);
         if (start >= 0 && text.slice(tokens[start].start, tokens[i].start) !== '__rbx2017') {
           const object = text.slice(tokens[start].start, tokens[i].start);
           text = `${text.slice(0, tokens[start].start)}__rbx2017.AppearanceLoaded(${object})${text.slice(tokens[i + 1].end)}`;
@@ -1626,7 +1651,7 @@ function convertWith(source, options) {
         break;
       }
       // cf.LookVector / someCFrame.Position (read) -> __rbx2017.CFMember(cf, "LookVector").
-      if (isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && !isSymbol(tokens[i + 2], '=') && !isSymbol(tokens[i + 2], '(')
+      if (isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && !isSymbol(tokens[i + 2], '=') && !isSymbol(tokens[i + 2], '(') && !assignmentTarget(tokens, i + 2)
         && (CFRAME_MEMBERS.has(tokens[i + 1].value) || (CFRAME_NAMED_MEMBERS.has(tokens[i + 1].value) && tokens[i - 1] && tokens[i - 1].type === 'name' && CFRAME_NAME.test(tokens[i - 1].value))
           // x:GetPivot().Position, resolveLinkCFrame().Position: calls that give a CFrame
           || (CFRAME_NAMED_MEMBERS.has(tokens[i + 1].value) && isSymbol(tokens[i - 1], ')') && cframeCall(tokens, i - 1))
@@ -1635,7 +1660,7 @@ function convertWith(source, options) {
           // pos.Position where pos is a plain variable the script uses as a CFrame
           || (CFRAME_NAMED_MEMBERS.has(tokens[i + 1].value) && tokens[i - 1] && tokens[i - 1].type === 'name' && cframeNames.has(tokens[i - 1].value)
             && !isSymbol(tokens[i - 2], '.') && !isSymbol(tokens[i - 2], ':')))) {
-        const start = prefixStart(tokens, i);
+        const start = objectStart(tokens, i);
         if (start >= 0 && text.slice(tokens[start].start, tokens[i].start) !== '__rbx2017') {
           const object = text.slice(tokens[start].start, tokens[i].start);
           text = `${text.slice(0, tokens[start].start)}__rbx2017.CFMember(${object}, "${tokens[i + 1].value}")${text.slice(tokens[i + 1].end)}`;
@@ -1646,8 +1671,8 @@ function convertWith(source, options) {
         }
       }
       // attachment.WorldCFrame (read) -> __rbx2017.WorldCF(attachment).
-      if (isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && tokens[i + 1].value === 'WorldCFrame' && !isSymbol(tokens[i + 2], '=')) {
-        const start = prefixStart(tokens, i);
+      if (isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && tokens[i + 1].value === 'WorldCFrame' && !isSymbol(tokens[i + 2], '=') && !assignmentTarget(tokens, i + 2)) {
+        const start = objectStart(tokens, i);
         if (start >= 0 && text.slice(tokens[start].start, tokens[i].start) !== '__rbx2017') {
           const object = text.slice(tokens[start].start, tokens[i].start);
           text = `${text.slice(0, tokens[start].start)}__rbx2017.WorldCF(${object})${text.slice(tokens[i + 1].end)}`;
@@ -1666,7 +1691,7 @@ function convertWith(source, options) {
       if (valueEnd > 0) {
         const next = tokens[valueEnd + 1];
         const ends = !next || next.type === 'eof' || (next.type === 'keyword' && next.value !== 'and' && next.value !== 'or') || next.type === 'name' || isSymbol(next, ';');
-        const start = ends ? prefixStart(tokens, i) : -1;
+        const start = ends ? objectStart(tokens, i) : -1;
         const object = start >= 0 ? text.slice(tokens[start].start, tokens[i].start) : '';
         if (start >= 0 && object !== GUARD_OBJECT) {
           const value = text.slice(tokens[i + 3].start, tokens[valueEnd].end);
@@ -1678,7 +1703,9 @@ function convertWith(source, options) {
           } else {
             // Inline, so the enclosing function gains no upvalue (Lua 5.1
             // allows 60; Phantom Forces' Framework has a function at the limit).
-            text = `${text.slice(0, tokens[start].start)}do local ${GUARD_OBJECT}, __v2017 = ${object}, ${value} pcall(function() ${GUARD_OBJECT}.${name} = __v2017 end) end${text.slice(tokens[valueEnd].end)}`;
+            // (a space after the closing end when a word follows at once: x.P = v[1]end)
+            const rest = text.slice(tokens[valueEnd].end);
+            text = `${text.slice(0, tokens[start].start)}do local ${GUARD_OBJECT}, __v2017 = ${object}, ${value} pcall(function() ${GUARD_OBJECT}.${name} = __v2017 end) end${/^\w/.test(rest) ? ' ' : ''}${rest}`;
           }
           changes.add(`.${tokens[i + 1].value} =`);
           done = false;
@@ -1690,7 +1717,7 @@ function convertWith(source, options) {
       // reading the table's text from ReplicatedStorage (lib/placefile.js).
       if (isSymbol(tokens[i], ':') && tokens[i + 1].type === 'name' && tokens[i + 1].value === 'GetTranslator' && isSymbol(tokens[i + 2], '(')) {
         const close = matchForward(tokens, i + 2);
-        const start = close >= 0 ? prefixStart(tokens, i) : -1;
+        const start = close >= 0 ? objectStart(tokens, i) : -1;
         if (start >= 0) {
           let name = 'nil';
           const last = tokens[i - 1];
@@ -1709,7 +1736,7 @@ function convertWith(source, options) {
       // (GuiButton.Activated came later; Tool.Activated is kept as it is).
       if (tokens[i].type === 'symbol' && tokens[i].value === '.' && tokens[i + 1].type === 'name' && tokens[i + 1].value === 'Activated'
         && tokens[i + 2].type === 'symbol' && tokens[i + 2].value === ':') {
-        const start = prefixStart(tokens, i);
+        const start = objectStart(tokens, i);
         if (start < 0) continue;
         const object = text.slice(tokens[start].start, tokens[i].start);
         text = `${text.slice(0, tokens[start].start)}__rbx2017.Activated(${object})${text.slice(tokens[i + 1].end)}`;
@@ -1744,7 +1771,7 @@ function convertWith(source, options) {
       // RunService.PreSimulation / PreAnimation (2023) -> Stepped without its first argument (the time).
       if (isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && (tokens[i + 1].value === 'PreSimulation' || tokens[i + 1].value === 'PreAnimation')
         && unknownTo2017(tokens[i + 1].value) && !isSymbol(tokens[i + 2], '=') && !isSymbol(tokens[i + 2], '(')) {
-        const start = prefixStart(tokens, i);
+        const start = objectStart(tokens, i);
         if (start >= 0 && text.slice(tokens[start].start, tokens[i].start) !== '__rbx2017') {
           const object = text.slice(tokens[start].start, tokens[i].start);
           text = `${text.slice(0, tokens[start].start)}__rbx2017.SteppedDt(${object})${text.slice(tokens[i + 1].end)}`;
@@ -1757,7 +1784,7 @@ function convertWith(source, options) {
       // object.AttributeChanged -> __rbx2017.AttributeChanged(object) (attributes are Value objects here).
       if (isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && tokens[i + 1].value === 'AttributeChanged' && !isSymbol(tokens[i + 2], '=')
         && !isSymbol(tokens[i + 2], '(') && tokens[i - 1].value !== '__rbx2017') {
-        const start = prefixStart(tokens, i);
+        const start = objectStart(tokens, i);
         if (start >= 0) {
           const object = text.slice(tokens[start].start, tokens[i].start);
           text = `${text.slice(0, tokens[start].start)}__rbx2017.AttributeChanged(${object})${text.slice(tokens[i + 1].end)}`;
@@ -1772,7 +1799,7 @@ function convertWith(source, options) {
       if (isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && tokens[i + 1].value !== 'Activated' && isSymbol(tokens[i + 2], ':')
         && tokens[i + 3] && tokens[i + 3].type === 'name' && /^(?:connect|Connect|wait|Wait|Once|ConnectParallel)$/.test(tokens[i + 3].value)
         && unknownTo2017(tokens[i + 1].value)) {
-        const start = prefixStart(tokens, i);
+        const start = objectStart(tokens, i);
         if (start >= 0) {
           const object = text.slice(tokens[start].start, tokens[i].start);
           text = `${text.slice(0, tokens[start].start)}__rbx2017.Event(${object}, "${tokens[i + 1].value}")${text.slice(tokens[i + 1].end)}`;
@@ -1789,7 +1816,7 @@ function convertWith(source, options) {
         const next = tokens[i + 4];
         const continues = next && ((next.type === 'symbol' && !['(', ')', ';', ','].includes(next.value) && next.value !== '}' && next.value !== ']') || (next.type === 'symbol' && next.value === '(')
           || (next.type === 'keyword' && (next.value === 'and' || next.value === 'or')));
-        const start = continues ? -1 : prefixStart(tokens, i);
+        const start = continues ? -1 : objectStart(tokens, i);
         if (start >= 0) {
           const object = text.slice(tokens[start].start, tokens[i].start);
           const value = text.slice(tokens[i + 3].start, tokens[i + 3].end);
@@ -1810,7 +1837,7 @@ function convertWith(source, options) {
       if (close < 0) continue;
       const count = argumentCount(tokens, i + 2, close);
       if (!methods[name.value].includes(count)) continue;
-      const start = prefixStart(tokens, i);
+      const start = objectStart(tokens, i);
       if (start < 0) continue;
       const object = text.slice(tokens[start].start, colon.start);
       text = `${text.slice(0, tokens[start].start)}__rbx2017.${name.value}(${object}${count > 0 ? ', ' : ''}${text.slice(paren.end)}`;

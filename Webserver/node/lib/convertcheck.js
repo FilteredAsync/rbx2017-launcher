@@ -169,6 +169,9 @@ async function compileScripts(rcc, scripts) {
       for (const e of withOriginal) e.byConverter = !failing.has(e.path);
     }
   }
+  // A script the converter left as it was: the same error in the original
+  // (often notes saved as a Script, which never ran on Roblox either).
+  for (const e of errors) if (e.script.unchanged) e.unchanged = true;
   for (const e of errors) delete e.script;
   return { errors, unsupported };
 }

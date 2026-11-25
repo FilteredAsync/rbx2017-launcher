@@ -225,7 +225,7 @@ async function convertOne(options) {
   seen.clear();
   const scripts = scriptsOf(result.output).map((s) => {
     const original = before.get(key(s));
-    return Object.assign({ path: s.path, className: s.className, source: s.source }, original !== undefined && original !== s.source ? { original } : {});
+    return Object.assign({ path: s.path, className: s.className, source: s.source }, original === undefined ? {} : original !== s.source ? { original } : { unchanged: true });
   });
   const counts = {};
   for (const [key, value] of Object.entries(result.counts)) {
@@ -400,7 +400,8 @@ function cell(entry) {
   if (entry.loads === false || entry.loads === null) return `load ✗${entry.hung ? ' (hung)' : ''}${entry.crashed ? ' (crash)' : ''}`;
   const failed = entry.scriptsFailed === null ? '?' : entry.scriptsFailed;
   const broke = (entry.compileErrors || []).filter((e) => e.byConverter).length;
-  return `${failed}c${broke ? ` (${broke} by converter)` : ""} ${runErrorCount(entry)}r`;
+  const same = (entry.compileErrors || []).filter((e) => e.unchanged).length;
+  return `${failed}c${broke ? ` (${broke} by converter)` : ""}${same ? ` (${same} as in original)` : ""} ${runErrorCount(entry)}r`;
 }
 
 function score(entry) {

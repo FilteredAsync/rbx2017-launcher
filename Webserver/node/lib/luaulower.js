@@ -572,7 +572,10 @@ function lowerLoops(text, changes, helpers) {
               const call = /^([\w.:]+)\s*\(/.exec(expr);
               const callee = call && parser.primary(j + 1) === end ? call[1] : null;
               if (!(callee && ITERATOR_FUNCTIONS.test(callee)) && !/^__rbx2017\.Iter\(/.test(expr) && expr !== 'next') {
-                edits.push([tokens[j + 1].start, tokens[end - 1].end, `__rbx2017.Iter(${expr})`]);
+                // Two insertions, not a replacement: a loop inside the
+                // expression (in a function in a table) gets its own, and
+                // nested replacements garbled the text.
+                edits.push([tokens[end - 1].end, tokens[end - 1].end, ')'], [tokens[j + 1].start, tokens[j + 1].start, '__rbx2017.Iter(']);
                 helpers.add('Iter');
                 changes.add('generalized iteration');
               }

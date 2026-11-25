@@ -142,6 +142,29 @@ test('type declarations keep their lines', ['2017'], () => {
   assert.strictEqual(lines(out), lines(source));
 });
 
+test('a game\'s own method definitions are left alone', ['2017'], () => {
+  const source = 'function Signal.__index:Connect(f) end\nfunction M.PromptPremiumPurchaseFinished:Connect() end\n';
+  assert.strictEqual(convert(source), source);
+  assert.ok(!convert(source, '2016').includes('function __rbx2017'));
+});
+
+test('nested generalized loops are wrapped one inside the other', [], () => {
+  const source = 'for _, s in f({ function() for _, v in g(x) do end end }) do end';
+  const out = luaulower.lower(source).text;
+  assert.strictEqual(out, 'for _, s in __rbx2017.Iter(f({ function() for _, v in __rbx2017.Iter(g(x)) do end end })) do end');
+});
+
+test('targets of a multiple assignment are not read rewrites', ['2017'], () => {
+  const out = convert('copy.G, copy.F = nil, nil\nlocal g = c.G');
+  assert.ok(out.includes('copy.G, copy.F = nil, nil'), out);
+  assert.ok(out.includes('__rbx2017.C3(c, "G")'), out);
+});
+
+test('a guarded property set keeps a space before a following word', ['2017'], () => {
+  const out = convert('x.CanTouch = a[1]end');
+  assert.ok(/end end$/.test(out), out);
+});
+
 test('scriptsOf gives full names', [], () => {
   const xml = Buffer.from('<roblox><Item class="Workspace" referent="A"><Properties><string name="Name">Workspace</string></Properties>'
     + '<Item class="Model" referent="B"><Properties><string name="Name">M</string></Properties><Item class="Script" referent="C"><Properties>'
