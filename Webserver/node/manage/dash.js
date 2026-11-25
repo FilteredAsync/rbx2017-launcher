@@ -97,18 +97,19 @@ function paintChart(overview) {
   const totals = points.map((point) => (point.values ? ids.reduce((sum, id) => sum + point.values[id], 0) : 0));
   const peak = Math.max(4, ...totals);
   const top = Math.ceil(peak / 5) * 5;
-  const signature = JSON.stringify([dash.range, ids, totals, points.length && points[points.length - 1].t]);
+  // Drawn at the box's own width, so text is never stretched.
+  const W = Math.max(280, Math.round(box.clientWidth || 1000));
+  const signature = JSON.stringify([dash.range, ids, totals, points.length && points[points.length - 1].t, W]);
   if (box.dataset.sig === signature) return;
   box.dataset.sig = signature;
 
-  const W = 1000;
   const H = 220;
   const left = 34;
   const bottom = 22;
   const plotH = H - bottom - 8;
   const x = (i) => left + (i / Math.max(1, points.length - 1)) * (W - left - 6);
   const y = (value) => 8 + plotH - (value / top) * plotH;
-  const chart = svg('svg', { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none', class: 'chart-svg', role: 'img', 'aria-label': 'Players over time' });
+  const chart = svg('svg', { viewBox: `0 0 ${W} ${H}`, class: 'chart-svg', role: 'img', 'aria-label': 'Players over time' });
   for (const value of [0, top / 2, top]) {
     chart.append(svg('line', { x1: left, x2: W - 6, y1: y(value), y2: y(value), class: 'grid' }));
     chart.append(svg('text', { x: left - 6, y: y(value) + 4, class: 'axis', 'text-anchor': 'end' }, String(value)));
@@ -122,8 +123,8 @@ function paintChart(overview) {
     chart.append(svg('path', { d: path, class: `area e${id}` }));
     below = above;
   }
-  // Hours or days along the bottom.
-  const labels = dash.range === 'week' ? 7 : 6;
+  // Hours or days along the bottom (fewer on a phone).
+  const labels = dash.range === 'week' ? 7 : W < 500 ? 3 : 6;
   for (let i = 0; i <= labels; i++) {
     const t = start + (span / labels) * i;
     const date = new Date(t);
@@ -157,6 +158,12 @@ views.dashboard = {
   show() { renderDash(); },
   render(what) { if (['overview', 'places', 'missing', 'search', 'reports', 'serverInfo'].includes(what)) renderDash(); },
 };
+
+let chartResize = null;
+window.addEventListener('resize', () => {
+  clearTimeout(chartResize);
+  chartResize = setTimeout(() => { if (view === 'dashboard' && data.overview) paintChart(data.overview); }, 150);
+});
 
 document.addEventListener('DOMContentLoaded', () => {
   for (const button of document.querySelectorAll('#dash-range button')) {

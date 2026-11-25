@@ -23,6 +23,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 const core = require('./core');
 const assets = require('./assets');
 const missingassets = require('./missingassets');
@@ -98,7 +99,7 @@ const fileOf = (id, item) => path.join(FILES, String(id), `${item.n}.${item.ext}
 // --- HTTP, spaced out per site -------------------------------------------------------------
 
 const nextAt = { roblox: 0, archive: 0 };
-const sleep = (ms) => new Promise((resolve) => { const timer = setTimeout(resolve, ms); if (timer.unref) timer.unref(); });
+const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
 const siteOf = (url) => (/(^|\.)archive\.org$/i.test(new URL(url).hostname) ? 'archive' : 'roblox');
 
 async function polite(url, run) {
@@ -135,8 +136,12 @@ async function downloadVersion(id, version) {
   if (key !== null) {
     const lookup = await get(`https://apis.roblox.com/asset-delivery-api/v1/assetId/${id}/version/${version}`, { Accept: 'application/json', 'x-api-key': key });
     if (lookup.status !== 200) return { ok: false, status: lookup.status };
-    let location = null;
-    try { location = JSON.parse(lookup.body.toString('utf8')).location; } catch (error) { location = null; }
+    let answer = null;
+    try { answer = JSON.parse(lookup.body.toString('utf8')); } catch (error) { answer = null; }
+    // Refusals come as HTTP 200 with { errors: [{ code: 403, ... }] }.
+    const refused = answer && Array.isArray(answer.errors) && answer.errors[0] ? Number(answer.errors[0].code) || 404 : null;
+    if (refused) return { ok: false, status: refused };
+    const location = answer && answer.location;
     if (typeof location !== 'string' || !/^https:\/\//i.test(location)) return { ok: false, status: 502 };
     const file = await polite(location, () => assets.httpGet(location, {}, 60000));
     return file.status === 200 ? { ok: true, body: file.body } : { ok: false, status: file.status };
@@ -183,7 +188,9 @@ const normalName = (text) => String(text || '').toLowerCase().replace(/[^a-z0-9]
 // Adds a found file unless it is a duplicate, rejected before, the wrong kind,
 // or one too many. -> true when added.
 function offer(id, entry, bytes, fields, want) {
-  if (!Buffer.isBuffer(bytes) || !bytes.length || bytes.length > missingassets.MAX_BYTES) return false;
+  if (!Buffer.isBuffer(bytes) || !bytes.length) return false;
+  bytes = unpacked(bytes);
+  if (bytes.length > missingassets.MAX_BYTES) return false;
   const ext = missingassets.kindOf(bytes);
   if (!ext || (want && !want.includes(ext))) return false;
   const sha1 = crypto.createHash('sha1').update(bytes).digest('hex');
@@ -205,12 +212,12 @@ async function searchRoblox(id, entry, info, want) {
     return true;
   }
   // Private assets are private in every version.
-  if (now.status === 401 || now.status === 403) return false;
+  if (now.status === 401 || now.status === 403 || /not authorized/i.test(now.message || '')) return false;
   for (let version = 1; version <= 3; version++) {
     const old = await downloadVersion(id, version);
     if (old.ok) {
       offer(id, entry, old.body, { source: 'version', label: `Roblox, version ${version}`, link: `https://www.roblox.com/library/${id}` }, want);
-    } else if (old.status === 404 || old.status === 401 || old.status === 403) {
+    } else {
       break;
     }
   }
@@ -223,12 +230,11 @@ async function searchThumbnail(id, entry, thumb) {
   if (image.status === 200) offer(id, entry, image.body, { source: 'thumbnail', label: 'Roblox thumbnail, 512 px', link: `https://www.roblox.com/library/${id}` }, ['png', 'jpg']);
 }
 
-// The asset's URLs as the Wayback Machine knows them (its index ignores
-// "www.", case and query order). Its index is slow (10 to 60 s a query), so
-// only the forms places and the old site used.
+// The asset's URLs as the Wayback Machine knows them. Its index ignores
+// "www.", case, query order and "asset?id" vs "asset/?id", and it is slow
+// (10 to 60 s a query), so only the hosts places and the old site used.
 const WAYBACK_URLS = (id) => [
-  `roblox.com/asset/?id=${id}`, `roblox.com/asset?id=${id}`,
-  `assetgame.roblox.com/asset/?id=${id}`, `assetdelivery.roblox.com/v1/asset/?id=${id}`,
+  `roblox.com/asset/?id=${id}`, `assetgame.roblox.com/asset/?id=${id}`, `assetdelivery.roblox.com/v1/asset/?id=${id}`,
 ];
 const CDX_TIMEOUT_MS = 60000;
 
@@ -261,9 +267,15 @@ async function waybackBytes(capture) {
       url = response.redirect;
       continue;
     }
-    return response.status === 200 ? { bytes: response.body, url } : null;
+    return response.status === 200 ? { bytes: unpacked(response.body), url } : null;
   }
   return null;
+}
+
+// rbxcdn sent its files gzipped, and the archive hands them back that way.
+function unpacked(bytes) {
+  if (bytes.length < 3 || bytes[0] !== 0x1f || bytes[1] !== 0x8b) return bytes;
+  try { return zlib.gunzipSync(bytes, { maxOutputLength: missingassets.MAX_BYTES + 1 }); } catch (error) { return bytes; }
 }
 
 async function searchWayback(id, entry, want) {
@@ -379,6 +391,11 @@ async function search(id) {
   saveSoon();
   const missing = missingassets.list().find((item) => item.id === String(id)) || { id: String(id) };
   try {
+    // Replaced (or no longer missing) since it was queued.
+    if (missing.replaced || !missing.reason) {
+      entry.state = 'done';
+      return entry;
+    }
     const info = await details(id) || { name: missing.name || '', type: missing.type || '', creatorName: missing.creator || '', creatorId: 0, creatorType: 1 };
     entry.name = info.name || missing.name || null;
     entry.type = info.type || missing.type || null;
@@ -404,7 +421,7 @@ async function search(id) {
     entry.error = error && error.message ? error.message : String(error);
   } finally {
     entry.searchedAt = core.isoDate();
-    saveSoon();
+    save();
   }
   return entry;
 }
@@ -566,4 +583,9 @@ function summary() {
   };
 }
 
-module.exports = { start, search, searchNow, setPaused, approve, reject, filePath, status, summary, decalTexture, normalName };
+module.exports = {
+  start, search, searchNow, setPaused, approve, reject, filePath, status, summary,
+  // For checks by hand, e.g. node -e "require('./lib/assetsearch').sources.waybackCaptures('<id>').then(console.log)"
+  sources: { waybackCaptures, waybackBytes, searchCreator, searchRoblox },
+  decalTexture, normalName,
+};

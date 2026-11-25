@@ -221,7 +221,7 @@ async function fillPreview(element) {
 
 async function decide(asset, item, what) {
   const name = asset.name || asset.id;
-  if (what === 'approve' && !await ask(`Use this for ${name}?`, `${item.label}. Games get it the next time they load the asset.`, 'Approve')) return;
+  if (what === 'approve' && !await ask(`Use this for ${name}?`, 'Games get it the next time they load it.', 'Approve')) return;
   await act(async () => {
     await change('POST', `/api/manage/asset-search/${asset.id}/${item.n}/${what}`, '{}');
     const key = `${asset.id}/${item.n}`;
