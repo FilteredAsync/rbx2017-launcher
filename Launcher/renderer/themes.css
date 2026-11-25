@@ -1,0 +1,612 @@
+/* The built-in themes (theme.js lists them). Each sets the custom properties
+   theme-web.css draws with, plus a few touches of its own. The variables are
+   also set on the gallery's previews (.theme-preview[data-theme=...]), so
+   every picture there is drawn from the theme's own colors.
+
+   The year looks are our own recreations of the Roblox site of that year,
+   from its colors, sizes and type (checked against Wayback captures): no
+   Roblox CSS, logo or art. The default, 2017, is theme-web.css itself. */
+
+/* 2014: a glossy navy bar, a white page, square grey-and-silver buttons. ------- */
+[data-theme="web2014"] {
+  --font: "Source Sans Pro", Arial, Helvetica, sans-serif;
+  --w-head: 600;
+  --title: 22px;
+  --tab-size: 15px;
+  --w-tab: 600;
+  --page: #fff;
+  --content-w: 970px;
+  --text: #343434;
+  --muted: #888;
+  --faint: #aaa;
+  --line: #ccc;
+  --link: #0055b3;
+  --card: #fff;
+  --card-line: #ccc;
+  --card-shadow: none;
+  --card-hover: 0 0 0 1px #888;
+  --r: 0;
+  --soft: #f1f1f1;
+  --pale: #e6eefa;
+  --hdr: #114081;
+  --hdr-img: linear-gradient(#3a76c8, #2360b3 48%, #114081 52%, #0f3a76);
+  --hdr-h: 36px;
+  --hdr-shadow: none;
+  --hdr-hover: rgba(255, 255, 255, .14);
+  --hdr-on: rgba(255, 255, 255, .2);
+  --r-btn: 0;
+  --r-btn-big: 0;
+  --accent: #0852b7;
+  --accent-hover: #1a66cc;
+  --play: #007001;
+  --play-hover: #128a14;
+  --btn: #e6e6e6;
+  --btn-line: #777;
+  --btn-text: #000;
+  --btn-hover-line: #333;
+  --btn-shadow: none;
+  --input-line: #a7a7a7;
+  --select: #00a1da;
+  --side-on-line: #0055b3;
+}
+[data-theme="web2014"] .wordmark { font-weight: 700; letter-spacing: -1px; }
+[data-theme="web2014"] .top-mark { font-size: 22px; text-shadow: 0 1px 0 rgba(0, 0, 0, .35); }
+[data-theme="web2014"] .tab-link { text-shadow: 0 1px 0 rgba(0, 0, 0, .3); }
+[data-theme="web2014"] button.primary, [data-theme="web2014"] button.icon-btn.accent { background: linear-gradient(#2a76d6, #0852b7); border-color: #063f8c; }
+[data-theme="web2014"] button.primary:hover, [data-theme="web2014"] button.icon-btn.accent:hover { background: linear-gradient(#4a8de6, #1a66cc); }
+[data-theme="web2014"] button.ghost, [data-theme="web2014"] button.icon-btn, [data-theme="web2014"] .more, [data-theme="web2014"] .news-dismiss { background: linear-gradient(#fafafa, #d4d4d4); }
+[data-theme="web2014"] button.ghost:hover, [data-theme="web2014"] .more:hover { background: linear-gradient(#fff, #e2e2e2); }
+[data-theme="web2014"] .play-button, [data-theme="web2014"] .start-press { background: linear-gradient(#2f9a2f, #007001); border: 1px solid #005200; }
+[data-theme="web2014"] .play-button:hover, [data-theme="web2014"] .start-press:hover { background: linear-gradient(#45b045, #128a14); }
+[data-theme="web2014"] .game-tile { border-color: transparent; box-shadow: none; }
+[data-theme="web2014"] .game-tile > .cover { aspect-ratio: 16 / 9; border-radius: 0; }
+[data-theme="web2014"] .tile-name { font-size: 14px; font-weight: 600; }
+[data-theme="web2014"] .tile-info { padding: 4px 0 2px; }
+[data-theme="web2014"] .col-title, [data-theme="web2014"] .section-title, [data-theme="web2014"] .detail-name, [data-theme="web2014"] .home-hello { letter-spacing: -1px; }
+[data-theme="web2014"] .settings-nav, [data-theme="web2014"] .cat-list { padding: 0; background: #d6d6d6; border: 1px solid #9e9e9e; }
+[data-theme="web2014"] .set-link, [data-theme="web2014"] .cat-link { border-left: 0; border-bottom: 1px solid #9e9e9e; color: #363636; font-weight: 700; font-size: 15px; }
+[data-theme="web2014"] .set-link:last-child { border-bottom: 0; }
+[data-theme="web2014"] .set-link:hover, [data-theme="web2014"] .cat-link:hover { background: #e9e9e9; }
+[data-theme="web2014"] .set-link.active, [data-theme="web2014"] .cat-link.active { background: #fff; }
+[data-theme="web2014"] .panel > .label:first-child { padding-bottom: 6px; border-bottom: 1px solid #ccc; }
+
+/* 2015: the first flat site: a blue bar, a light page, capitals in light type. */
+[data-theme="web2015"] {
+  --w-text: 300;
+  --title-case: uppercase;
+  --title: 22px;
+  --page: #f2f2f2;
+  --content-w: 1154px;
+  --card-shadow: 0 1px 3px rgba(150, 150, 150, .74);
+  --card-hover: 0 1px 6px rgba(150, 150, 150, .9);
+  --r-btn: 4px;
+  --r-btn-big: 5px;
+  --play: #02b757;
+  --btn-text: #757575;
+}
+[data-theme="web2015"] button.primary, [data-theme="web2015"] button.ghost, [data-theme="web2015"] button.danger { padding-left: 26px; padding-right: 26px; }
+[data-theme="web2015"] .tab-link { margin: 6px 0; height: 28px; padding: 0 9px; }
+[data-theme="web2015"] .home-hello, [data-theme="web2015"] .detail-name { text-transform: none; }
+[data-theme="web2015"] .col-title, [data-theme="web2015"] .section-title, [data-theme="web2015"] .detail-head span { letter-spacing: .5px; }
+
+/* 2016: the blue bar with rounded tab highlights, a grey page, light type. ---- */
+[data-theme="web2016"] {
+  --w-text: 300;
+  --hdr-on: rgba(25, 25, 25, .16);
+}
+[data-theme="web2016"] .tab-link { height: 30px; margin: 5px 1px; padding: 0 10px; border-radius: 5px; }
+[data-theme="web2016"] .status-row b, [data-theme="web2016"] .chip-name { font-weight: 400; }
+
+/* 2017 dark: our own night version of the default. ------------------------------- */
+[data-theme="web2017-dark"] {
+  --page: #191b1d;
+  --text: #f0f1f2;
+  --muted: #a3a8ad;
+  --faint: #6f757b;
+  --line: #383c40;
+  --link: #4cb8ff;
+  --card: #26292c;
+  --card-shadow: 0 1px 4px rgba(0, 0, 0, .55);
+  --card-hover: 0 1px 8px rgba(0, 0, 0, .8);
+  --soft: #303337;
+  --pale: #123a57;
+  --hdr: #005a94;
+  --side: #212427;
+  --side-text: #f0f1f2;
+  --side-icon: #9aa1a8;
+  --side-hover: #2c2f33;
+  --side-on: #303337;
+  --side-on-line: #32b5ff;
+  --side-shadow: 0 0 4px rgba(0, 0, 0, .6);
+  --btn: #26292c;
+  --btn-line: #5b6066;
+  --btn-text: #f0f1f2;
+  --btn-hover-line: #9aa1a8;
+  --btn-shadow: 0 1px 3px rgba(0, 0, 0, .6);
+  --input: #1f2124;
+  --input-line: #4b5056;
+  --input-text: #f0f1f2;
+  --select: #32b5ff;
+  --good-text: #3fd17f;
+  --good-bg: #133222;
+  --bad-text: #ff8a80;
+  --bad-bg: #3a1e1e;
+  --warn: #ffab40;
+  --warn-bg: #3a2c12;
+  --rbx-text: #3fd17f;
+  --silhouette: rgba(255, 255, 255, .14);
+  --overlay: rgba(0, 0, 0, .7);
+  --tile: #303337;
+  color-scheme: dark;
+}
+
+/* 2018: 2017's site with the late-2018 rounded green buttons. ---------------- */
+[data-theme="web2018"] {
+  --r-btn: 8px;
+  --r-btn-big: 8px;
+  --play: #00b06f;
+  --play-hover: #1cc086;
+  --btn: transparent;
+  --btn-line: #7b7c7d;
+  --btn-text: #393b3d;
+  --btn-hover-line: #393b3d;
+}
+
+/* 2018 dark: the blue bar over the first dark theme's greys. ------------------- */
+[data-theme="web2018-dark"] {
+  --page: #232527;
+  --text: #fff;
+  --muted: #bdbebe;
+  --faint: #8a8c8e;
+  --line: #656668;
+  --link: #fff;
+  --card: #393b3d;
+  --card-shadow: 0 1px 4px rgba(0, 0, 0, .5);
+  --card-hover: 0 1px 8px rgba(0, 0, 0, .8);
+  --soft: #2f3133;
+  --pale: #1d4258;
+  --side: #1f2123;
+  --side-text: #fff;
+  --side-icon: #bdbebe;
+  --side-hover: #2b2d2f;
+  --side-on: #393b3d;
+  --side-on-line: #fff;
+  --side-shadow: 0 0 8px rgba(0, 0, 0, .3);
+  --r-btn: 8px;
+  --r-btn-big: 8px;
+  --play: #00b06f;
+  --play-hover: #1cc086;
+  --btn: transparent;
+  --btn-line: #bdbebe;
+  --btn-text: rgba(255, 255, 255, .8);
+  --btn-hover-line: #fff;
+  --btn-shadow: none;
+  --input: rgba(0, 0, 0, .55);
+  --input-line: rgba(0, 0, 0, .7);
+  --input-text: #e6e6e6;
+  --good-text: #3fd17f;
+  --good-bg: #1d3a2b;
+  --bad-text: #ff8a80;
+  --bad-bg: #452626;
+  --warn: #ffab40;
+  --warn-bg: #3d3118;
+  --rbx-text: #3fd17f;
+  --silhouette: rgba(255, 255, 255, .16);
+  --overlay: rgba(0, 0, 0, .7);
+  --tile: #393b3d;
+  color-scheme: dark;
+}
+
+/* 2019: Gotham-style heavy titles, flat cards, round buttons. ------------------- */
+[data-theme="web2019"], [data-theme="web2019-dark"] {
+  --font: "Gotham SSm", "Gotham", "Montserrat", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --w-head: 700;
+  --w-strong: 600;
+  --title: 20px;
+  --card-shadow: none;
+  --card-hover: 0 2px 8px rgba(0, 0, 0, .15);
+  --r-btn: 8px;
+  --r-btn-big: 8px;
+  --play: #00b06f;
+  --play-hover: #1cc086;
+  --hdr-shadow: none;
+  --hdr-hover: transparent;
+  --hdr-on: transparent;
+  --side-w: 186px;
+}
+[data-theme="web2019"] {
+  --page: #f2f4f5;
+  --text: #393b3d;
+  --muted: #767879;
+  --faint: #a3a5a6;
+  --line: #d8dbde;
+  --link: #393b3d;
+  --soft: #eaedef;
+  --pale: #e1f2fb;
+  --hdr: #eaedef;
+  --hdr-text: #393b3d;
+  --hdr-line: 1px solid #d8dbde;
+  --hdr-on-line: #393b3d;
+  --side: #eaedef;
+  --side-text: #393b3d;
+  --side-icon: #767879;
+  --side-hover: #e1e4e6;
+  --side-on: #dde1e4;
+  --side-on-line: #393b3d;
+  --side-shadow: 0 0 8px rgba(0, 0, 0, .1);
+  --accent: #393b3d;
+  --accent-hover: #4d5052;
+  --accent-text: #f2f4f5;
+  --btn: transparent;
+  --btn-line: #767879;
+  --btn-text: #393b3d;
+  --btn-hover-line: #393b3d;
+  --btn-shadow: none;
+  --input-line: #bdbebe;
+  --select: #0099ff;
+}
+[data-theme="web2019-dark"] {
+  --page: #232527;
+  --text: #fff;
+  --muted: #bdbebe;
+  --faint: #8a8c8e;
+  --line: #656668;
+  --link: #fff;
+  --card: #393b3d;
+  --card-hover: 0 2px 10px rgba(0, 0, 0, .5);
+  --soft: #2f3133;
+  --pale: #1d4258;
+  --hdr: #1f2123;
+  --hdr-line: 1px solid #18191b;
+  --hdr-on-line: #fff;
+  --side: #1f2123;
+  --side-text: #fff;
+  --side-icon: #bdbebe;
+  --side-hover: #2b2d2f;
+  --side-on: #393b3d;
+  --side-on-line: #fff;
+  --side-shadow: 0 0 8px rgba(0, 0, 0, .3);
+  --accent: #fff;
+  --accent-hover: #e6e6e6;
+  --accent-text: #232527;
+  --btn: transparent;
+  --btn-line: #bdbebe;
+  --btn-text: rgba(255, 255, 255, .8);
+  --btn-hover-line: #fff;
+  --btn-shadow: none;
+  --input: rgba(0, 0, 0, .55);
+  --input-line: rgba(0, 0, 0, .7);
+  --input-text: #e6e6e6;
+  --select: #33b3ff;
+  --good-text: #3fd17f;
+  --good-bg: #1d3a2b;
+  --bad-text: #ff8a80;
+  --bad-bg: #452626;
+  --warn: #ffab40;
+  --warn-bg: #3d3118;
+  --rbx-text: #3fd17f;
+  --silhouette: rgba(255, 255, 255, .16);
+  --overlay: rgba(0, 0, 0, .7);
+  --tile: #393b3d;
+  color-scheme: dark;
+}
+[data-theme="web2019"] .home-hello, [data-theme="web2019-dark"] .home-hello,
+[data-theme="web2019"] .detail-name, [data-theme="web2019-dark"] .detail-name { font-weight: 800; letter-spacing: -.5px; }
+[data-theme="web2019"] .tab-link.active, [data-theme="web2019-dark"] .tab-link.active { font-weight: 600; }
+[data-theme="web2019"] .tile-meta, [data-theme="web2019-dark"] .tile-meta { font-size: 13px; font-weight: 500; }
+[data-theme="web2019"] .tile-name, [data-theme="web2019-dark"] .tile-name { font-size: 15px; font-weight: 600; }
+[data-theme="web2019"] button.primary, [data-theme="web2019"] button.ghost, [data-theme="web2019"] .more,
+[data-theme="web2019-dark"] button.primary, [data-theme="web2019-dark"] button.ghost, [data-theme="web2019-dark"] .more { font-weight: 500; }
+
+/* Studio: Roblox Studio's panels, square and small. ---------------------------- */
+[data-theme="studio-dark"], [data-theme="studio-light"] {
+  --font: "Segoe UI", "Source Sans Pro", Arial, sans-serif;
+  --w-head: 400;
+  --w-strong: 600;
+  --title: 20px;
+  --tab-size: 14px;
+  --r: 0;
+  --r-btn: 2px;
+  --r-btn-big: 2px;
+  --card-hover: none;
+  --hdr-h: 38px;
+  --side-w: 180px;
+  --btn-shadow: none;
+}
+[data-theme="studio-dark"] {
+  --page: #2e2e2e;
+  --text: #cccccc;
+  --muted: #9a9a9a;
+  --faint: #6e6e6e;
+  --line: #222;
+  --link: #5aa7ff;
+  --card: #353535;
+  --card-line: #222;
+  --card-shadow: none;
+  --soft: #3c3c3c;
+  --pale: #1b4b7a;
+  --hdr: #252525;
+  --hdr-text: #e6e6e6;
+  --hdr-line: 1px solid #1a1a1a;
+  --hdr-shadow: none;
+  --hdr-hover: #3a3a3a;
+  --hdr-on: #2e2e2e;
+  --side: #2e2e2e;
+  --side-text: #cccccc;
+  --side-icon: #9a9a9a;
+  --side-hover: #3a3a3a;
+  --side-on: #0b5aaf;
+  --side-on-line: #0b5aaf;
+  --side-on-text: #fff;
+  --side-on-icon: #fff;
+  --side-shadow: inset -1px 0 0 #1a1a1a;
+  --accent: #0b5aaf;
+  --accent-hover: #136fd0;
+  --play: #3d9a46;
+  --play-hover: #4cae55;
+  --btn: #3c3c3c;
+  --btn-line: #222;
+  --btn-text: #cccccc;
+  --btn-hover-line: #5a5a5a;
+  --input: #252525;
+  --input-line: #1a1a1a;
+  --input-text: #e6e6e6;
+  --select: #4a9eff;
+  --good-text: #6fd27a;
+  --good-bg: #24382a;
+  --bad-text: #ff8a80;
+  --bad-bg: #432828;
+  --warn: #ffb74d;
+  --warn-bg: #3d3420;
+  --rbx-text: #6fd27a;
+  --silhouette: rgba(255, 255, 255, .14);
+  --overlay: rgba(0, 0, 0, .6);
+  --dialog-shadow: 0 6px 24px rgba(0, 0, 0, .6);
+  --tile: #3c3c3c;
+  color-scheme: dark;
+}
+[data-theme="studio-light"] {
+  --page: #f0f0f0;
+  --text: #1f1f1f;
+  --muted: #6d6d6d;
+  --faint: #a0a0a0;
+  --line: #dadada;
+  --link: #0066cc;
+  --card: #fff;
+  --card-line: #dadada;
+  --card-shadow: none;
+  --soft: #f3f3f3;
+  --pale: #cce8ff;
+  --hdr: #fff;
+  --hdr-text: #1f1f1f;
+  --hdr-line: 1px solid #dadada;
+  --hdr-shadow: none;
+  --hdr-hover: #e5f1fb;
+  --hdr-on: #cce4f7;
+  --side: #fff;
+  --side-text: #1f1f1f;
+  --side-icon: #6d6d6d;
+  --side-hover: #e5f3ff;
+  --side-on: #cce8ff;
+  --side-on-line: #3399ff;
+  --side-shadow: inset -1px 0 0 #dadada;
+  --accent: #2b78d0;
+  --accent-hover: #3d8be0;
+  --play: #2fa33d;
+  --play-hover: #3db74b;
+  --btn: #f7f7f7;
+  --btn-line: #adadad;
+  --btn-text: #1f1f1f;
+  --btn-hover-line: #0078d7;
+  --input-line: #adadad;
+  --select: #0078d7;
+}
+[data-theme="studio-light"] .top-mark b { color: #2b78d0; }
+
+/* Builders Club: black and gold. ------------------------------------------------ */
+[data-theme="bc"] {
+  --page: #141414;
+  --text: #f2f2f2;
+  --muted: #b3ab98;
+  --faint: #6f6a5f;
+  --line: #3a362d;
+  --link: #f6b702;
+  --card: #1f1e1b;
+  --card-line: #3a362d;
+  --card-shadow: 0 1px 4px rgba(0, 0, 0, .6);
+  --card-hover: 0 0 0 1px #f6b702;
+  --soft: #2a2824;
+  --pale: #3d3216;
+  --hdr: #0d0d0d;
+  --hdr-text: #f6b702;
+  --hdr-line: 2px solid #f6b702;
+  --hdr-hover: rgba(246, 183, 2, .12);
+  --hdr-on: rgba(246, 183, 2, .2);
+  --side-on-line: #f6b702;
+  --accent: #f6b702;
+  --accent-hover: #ffc933;
+  --accent-text: #1b1b1b;
+  --play: #02b757;
+  --btn: #1f1e1b;
+  --btn-line: #6f6a5f;
+  --btn-text: #f2f2f2;
+  --btn-hover-line: #f6b702;
+  --btn-shadow: none;
+  --input: #0f0f0f;
+  --input-line: #4a453a;
+  --input-text: #f2f2f2;
+  --select: #f6b702;
+  --good-text: #3fd17f;
+  --good-bg: #17301f;
+  --bad-text: #ff8a80;
+  --bad-bg: #3a1e1e;
+  --warn: #f6b702;
+  --warn-bg: #2e2614;
+  --rbx-text: #3fd17f;
+  --silhouette: rgba(246, 183, 2, .18);
+  --overlay: rgba(0, 0, 0, .75);
+  --tile: #2a2824;
+  color-scheme: dark;
+}
+[data-theme="bc"] .wordmark b { color: #fff; }
+
+/* Midnight: deep blue, rounded. -------------------------------------------------- */
+[data-theme="midnight"] {
+  --font: "Segoe UI", "Source Sans Pro", Arial, sans-serif;
+  --w-head: 600;
+  --title: 21px;
+  --page: #0e1522;
+  --text: #e6ecf5;
+  --muted: #8b9ab3;
+  --faint: #5d6b82;
+  --line: #22314b;
+  --link: #7ea6ff;
+  --card: #162238;
+  --card-shadow: 0 2px 6px rgba(0, 0, 0, .35);
+  --card-hover: 0 4px 14px rgba(0, 0, 0, .5);
+  --r: 10px;
+  --soft: #1c2a44;
+  --pale: #233a6b;
+  --hdr: #101a2b;
+  --hdr-line: 1px solid #1c2a44;
+  --hdr-shadow: none;
+  --hdr-hover: #1c2a44;
+  --hdr-on: #22345a;
+  --side: #101a2b;
+  --side-text: #dfe6f2;
+  --side-icon: #7d8ca6;
+  --side-hover: #1a2740;
+  --side-on: #22345a;
+  --side-on-line: #7ea6ff;
+  --side-shadow: inset -1px 0 0 #1c2a44;
+  --r-btn: 8px;
+  --r-btn-big: 10px;
+  --accent: #5b8cff;
+  --accent-hover: #7aa2ff;
+  --play: #2fbf71;
+  --play-hover: #45d386;
+  --btn: #1a2740;
+  --btn-line: #2e4166;
+  --btn-text: #e6ecf5;
+  --btn-hover-line: #5b8cff;
+  --btn-shadow: none;
+  --input: #0b111c;
+  --input-line: #2e4166;
+  --input-text: #e6ecf5;
+  --select: #7ea6ff;
+  --good-text: #45d386;
+  --good-bg: #13302a;
+  --bad-text: #ff8f8f;
+  --bad-bg: #3a1f2b;
+  --warn: #ffb25b;
+  --warn-bg: #36291a;
+  --rbx-text: #45d386;
+  --silhouette: rgba(230, 236, 245, .14);
+  --overlay: rgba(3, 7, 15, .72);
+  --tile: #1c2a44;
+  color-scheme: dark;
+}
+
+/* Light: plain white, rounded, tabs in the bar. -------------------------------- */
+[data-theme="light"] {
+  --font: "Segoe UI", "Source Sans Pro", Arial, sans-serif;
+  --w-head: 600;
+  --title: 21px;
+  --page: #f6f6f7;
+  --text: #1d1d1f;
+  --muted: #6e6e73;
+  --faint: #a1a1a6;
+  --line: #e5e5ea;
+  --link: #2f6fed;
+  --card: #fff;
+  --card-line: #e5e5ea;
+  --card-shadow: none;
+  --card-hover: 0 4px 14px rgba(0, 0, 0, .08);
+  --r: 10px;
+  --soft: #f2f2f5;
+  --pale: #e8f0fe;
+  --hdr: #fff;
+  --hdr-text: #1d1d1f;
+  --hdr-line: 1px solid #e5e5ea;
+  --hdr-shadow: none;
+  --hdr-hover: #f2f2f5;
+  --hdr-on: transparent;
+  --hdr-on-line: #2f6fed;
+  --r-btn: 8px;
+  --r-btn-big: 10px;
+  --accent: #2f6fed;
+  --accent-hover: #4a82f0;
+  --play: #1aa260;
+  --play-hover: #21b86e;
+  --btn-line: #d2d2d7;
+  --btn-hover-line: #86868b;
+  --btn-shadow: none;
+  --input-line: #d2d2d7;
+  --select: #2f6fed;
+}
+[data-theme="light"] .top-mark b { color: #2f6fed; }
+
+/* High contrast: black, white and yellow, thick lines. ------------------------- */
+[data-theme="contrast"] {
+  --font: "Segoe UI", Arial, sans-serif;
+  --w-text: 400;
+  --w-head: 700;
+  --page: #000;
+  --text: #fff;
+  --muted: #e6e6e6;
+  --faint: #c8c8c8;
+  --line: #fff;
+  --link: #ffff00;
+  --card: #000;
+  --card-line: #fff;
+  --card-shadow: none;
+  --card-hover: 0 0 0 2px #ffff00;
+  --r: 0;
+  --soft: #1a1a1a;
+  --pale: #333300;
+  --hdr: #000;
+  --hdr-text: #fff;
+  --hdr-line: 2px solid #fff;
+  --hdr-shadow: none;
+  --hdr-hover: #333;
+  --hdr-on: #ffff00;
+  --r-btn: 0;
+  --r-btn-big: 0;
+  --accent: #ffff00;
+  --accent-hover: #ffff66;
+  --accent-text: #000;
+  --play: #00ff66;
+  --play-hover: #66ff99;
+  --play-text: #000;
+  --btn: #000;
+  --btn-line: #fff;
+  --btn-text: #fff;
+  --btn-hover-line: #ffff00;
+  --btn-shadow: none;
+  --input: #000;
+  --input-line: #fff;
+  --input-text: #fff;
+  --select: #00ffff;
+  --danger: #ff4040;
+  --good: #00ff66;
+  --good-text: #00ff66;
+  --good-bg: #002b11;
+  --bad: #ff6060;
+  --bad-text: #ff8080;
+  --bad-bg: #2b0000;
+  --warn: #ffff00;
+  --warn-bg: #2b2b00;
+  --rbx: #00ff66;
+  --rbx-text: #00ff66;
+  --online: #00ffff;
+  --silhouette: rgba(255, 255, 255, .35);
+  --overlay: rgba(0, 0, 0, .85);
+  --dialog-shadow: 0 0 0 2px #fff;
+  --tile: #1a1a1a;
+  color-scheme: dark;
+}
+[data-theme="contrast"] .tab-link.active { color: #000; font-weight: 700; }
+[data-theme="contrast"] .card-main, [data-theme="contrast"] .game-tile, [data-theme="contrast"] .panel, [data-theme="contrast"] .theme-card { border-width: 2px; }
+[data-theme="contrast"] .nav-target:focus-visible, [data-theme="contrast"] .game-tile.focused, [data-theme="contrast"] button:focus-visible { outline-width: 3px !important; }
+[data-theme="contrast"] .tile-meta, [data-theme="contrast"] .hint, [data-theme="contrast"] .lead { color: #fff; }
+[data-theme="contrast"] .rbx-badge { color: #000; }

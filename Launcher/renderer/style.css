@@ -7,7 +7,7 @@
 @font-face { font-family: "Source Sans Pro"; font-weight: 600; src: url("launcher-net://client/fonts/SourceSansPro-Semibold.ttf"); }
 @font-face { font-family: "Source Sans Pro"; font-weight: 700; src: url("launcher-net://client/fonts/SourceSansPro-Bold.ttf"); }
 
-:root {
+:root, [data-family="console"] {
   --bg: #0e1c27;
   --tab: #6aa9d8;
   --tab-hover: #b5d9f5;
@@ -633,29 +633,71 @@ input.volume:focus { outline: none; }
 input.volume:focus-visible { border-color: #fff; }
 input.volume:hover::-webkit-slider-thumb { transform: scale(1.1); }
 
-/* Settings > Theme. The website theme's own rules are in theme-site.css;
-   its "rbx2017" wordmark stands in for the logo there. */
+/* Settings > Theme: a gallery of cards, each with a small picture of the
+   theme drawn from its own colors (themes.css). The website looks are in
+   theme-web.css; their "rbx2017" wordmark stands in for the logo there. */
 .wordmark { display: none; }
-.theme-picks { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px; }
-.theme-pick { display: flex; flex-direction: column; gap: 10px; padding: 10px 10px 12px; background: rgba(255, 255, 255, .06); border: 2px solid transparent; color: var(--text); cursor: pointer; text-align: left; }
-.theme-pick:hover { background: rgba(255, 255, 255, .1); }
-.theme-pick:focus-visible { outline: none; border-color: #fff; }
-.theme-pick[aria-checked="true"] { border-color: var(--accent); }
-.theme-name { font-size: 18px; display: flex; align-items: center; gap: 8px; }
-.theme-pick[aria-checked="true"] .theme-name::after { content: "\2713"; color: var(--accent); font-weight: 700; }
-/* Small pictures of each theme: header, tabs or nav, and two tiles. */
-.theme-preview { position: relative; display: block; width: 190px; height: 112px; overflow: hidden; }
-.theme-preview i { position: absolute; display: block; }
-.theme-preview.xbox { background: radial-gradient(ellipse at 60% 30%, #1d3a4f, #0d1820 70%); }
-.theme-preview.xbox i:nth-child(1) { left: 12px; top: 12px; width: 36px; height: 7px; background: #e2231a; }
-.theme-preview.xbox i:nth-child(2) { left: 12px; top: 28px; width: 110px; height: 10px; background: linear-gradient(90deg, #fff 0 28%, transparent 28% 36%, #6aa9d8 36% 62%, transparent 62% 70%, #6aa9d8 70%); }
-.theme-preview.xbox i:nth-child(3) { left: 12px; top: 48px; width: 52px; height: 52px; background: #24485a; }
-.theme-preview.xbox i:nth-child(4) { left: 72px; top: 48px; width: 52px; height: 52px; background: #3f8f3a; outline: 2px solid #fff; }
-.theme-preview.site { background: #f2f2f2; }
-.theme-preview.site i:nth-child(1) { left: 0; top: 0; right: 0; height: 16px; background: #00a2ff; }
-.theme-preview.site i:nth-child(2) { left: 8px; top: 4px; width: 30px; height: 8px; background: #fff; }
-.theme-preview.site i:nth-child(3) { left: 12px; top: 30px; width: 52px; height: 70px; background: #fff; box-shadow: 0 1px 3px rgba(25, 25, 25, .3); border-top: 40px solid #8fc6e8; }
-.theme-preview.site i:nth-child(4) { left: 72px; top: 30px; width: 52px; height: 70px; background: #fff; box-shadow: 0 1px 3px rgba(25, 25, 25, .3); border-top: 40px solid #7cc68e; }
+.theme-gallery { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
+.theme-group { margin-top: 10px; color: var(--muted); font-size: 15px; }
+.theme-group:first-child { margin-top: 0; }
+.theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 12px; }
+.theme-card-wrap { display: flex; flex-direction: column; min-width: 0; }
+.theme-card { display: flex; flex-direction: column; gap: 8px; width: 100%; padding: 8px 8px 10px; background: rgba(255, 255, 255, .06); border: 2px solid transparent; color: var(--text); cursor: pointer; text-align: left; }
+.theme-card:hover { background: rgba(255, 255, 255, .1); }
+.theme-card:focus-visible { outline: none; border-color: #fff; }
+.theme-card[aria-checked="true"] { border-color: var(--accent); }
+.theme-card-text { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.theme-name { font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.theme-sub { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.theme-card[aria-checked="true"] .theme-name::after { content: " \2713"; color: var(--accent); font-weight: 700; }
+.theme-remove { align-self: flex-start; margin: 4px 0 0 2px; }
+.theme-import-row { margin-top: 16px; }
+
+/* The picture: a header with tabs (or the console's big tabs), a side
+   column for themes with one, and three game cards with a Play button. */
+.theme-preview {
+  position: relative; display: grid; width: 100%; height: auto; aspect-ratio: 16 / 10; overflow: hidden;
+  grid-template-columns: 0 minmax(0, 1fr); grid-template-rows: 15% minmax(0, 1fr);
+  background: var(--page, var(--bg)); font-size: 0; isolation: isolate;
+}
+:where(.theme-preview) i { display: block; }
+.theme-preview .pv-picture { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.pv-bg { position: absolute; inset: 0; z-index: -1; background: var(--page-img, none); background-size: cover; }
+.pv-head { grid-column: 1 / -1; grid-row: 1; display: flex; align-items: center; gap: 5%; padding: 0 5%; background: var(--hdr-img, none), var(--hdr, transparent); border-bottom: var(--hdr-line, 0); }
+.pv-mark { width: 20%; height: 36%; background: var(--hdr-text, #fff); border-radius: 1px; }
+.pv-tab { width: 9%; height: 22%; background: var(--hdr-text, #fff); opacity: .5; border-radius: 1px; }
+.pv-tab.on { opacity: 1; }
+.pv-side { display: none; grid-column: 1; grid-row: 2; background: var(--side); box-shadow: var(--side-shadow); }
+.theme-preview[data-nav="side"] { grid-template-columns: 22% minmax(0, 1fr); }
+.theme-preview[data-nav="side"] .pv-side { display: block; background: linear-gradient(var(--side-on), var(--side-on)) 0 12% / 100% 12% no-repeat, repeating-linear-gradient(transparent 0 30%, var(--side-icon) 30% 36%, transparent 36% 50%) 22% 8% / 56% 60% no-repeat, var(--side); }
+.theme-preview[data-nav="side"] .pv-tab { display: none; }
+.pv-page { grid-column: 2; grid-row: 2; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: 9% 56% 13%; gap: 7%; align-content: start; padding: 6% 6% 0; }
+.pv-title { grid-column: 1 / 3; grid-row: 1; width: 70%; background: var(--text); opacity: .75; border-radius: 1px; }
+.pv-card { grid-row: 2; position: relative; background: var(--card, var(--tile)); border: 1px solid var(--card-line, transparent); border-radius: var(--r, 0); box-shadow: var(--card-shadow, none); overflow: hidden; }
+.pv-card::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 66%; background: linear-gradient(160deg, #3f8f3a, #1f5a2a); }
+.pv-card:nth-child(3)::before { background: linear-gradient(160deg, #7b4fd6, #3a2a7a); }
+.pv-card:nth-child(4)::before { background: linear-gradient(160deg, #e0902a, #8a3d1c); }
+.pv-btn { grid-row: 3; grid-column: 1; background: var(--play, var(--good)); border-radius: var(--r-btn, 0); }
+/* The console look: no header bar, big thin tabs, square tiles, a white frame. */
+.theme-preview[data-family="console"] { background: radial-gradient(ellipse at 60% 30%, #1d3a4f, #0d1820 70%); }
+.theme-preview[data-family="console"] .pv-head { background: none; align-items: flex-end; gap: 6%; padding-bottom: 1%; }
+.theme-preview[data-family="console"] .pv-mark { width: 16%; height: 30%; background: #fff; box-shadow: 0 0 0 1px #e2231a; }
+.theme-preview[data-family="console"] .pv-tab { width: 13%; height: 30%; background: var(--tab); opacity: 1; }
+.theme-preview[data-family="console"] .pv-tab.on { background: #fff; }
+.theme-preview[data-family="console"] .pv-page { grid-template-rows: 7% 62% 12%; gap: 5%; }
+.theme-preview[data-family="console"] .pv-title { width: 40%; background: #fff; }
+.theme-preview[data-family="console"] .pv-card { background: var(--tile); border-radius: 0; box-shadow: none; }
+.theme-preview[data-family="console"] .pv-card::before { height: 100%; }
+.theme-preview[data-family="console"] .pv-card:nth-child(2) { outline: 2px solid #fff; }
+.theme-preview[data-family="console"] .pv-btn { display: none; }
+
+/* Parts only the website looks show (theme-web.css turns them on). */
+.tab-icon, .home-hello, .more-text, .tile-info, .detail-stats, .friends-more, .play-icon { display: none; }
+.detail-main { display: contents; }
+/* The console look keeps the description above the buttons. */
+.detail-name { order: 1; } .detail-meta { order: 2; } .detail-desc { order: 3; } .detail-more { order: 4; }
+.detail-actions { order: 5; } .detail-note { order: 6; } .detail-as { order: 7; } .detail-section, .detail-stats { order: 8; }
+.play-button > span { pointer-events: none; }
 
 /* Chat (chat.js) ------------------------------------------------------------------- */
 .view#view-chat { overflow: hidden; }

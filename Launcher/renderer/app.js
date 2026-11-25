@@ -155,12 +155,21 @@ function gameTile(game, options = {}) {
   // Games on another Roblox year (set on /manage) say which.
   if (game.engine && game.engine !== '2017') tile.append(el('span', 'tile-year', game.engine));
   if (options.caption) tile.append(el('div', 'caption', options.caption));
+  // Website themes show the name and a line under the picture, like 2017's game cards.
+  const info = el('div', 'tile-info');
+  info.append(el('div', 'tile-name', game.name));
+  const players = Number.isFinite(options.players) ? options.players : null;
+  const metaText = options.meta !== undefined ? options.meta
+    : players ? `${players} playing` : (game.creator ? `By ${game.creator}` : '');
+  info.append(el('div', `tile-meta${players || options.live ? ' live' : ''}`, metaText));
+  tile.append(info);
+  tile.title = game.name;
   tile.addEventListener('click', () => openDetail(game));
   return tile;
 }
 
 function placeholder(text, big, onClick) {
-  const tile = el('button', `game-tile placeholder${onClick ? ' nav-target' : ' dim'}`);
+  const tile = el('button', `game-tile placeholder${onClick ? ' nav-target' : ' dim'}${text ? '' : ' filler'}`);
   if (big) tile.append(el('b', '', big));
   tile.append(document.createTextNode(text));
   if (onClick) tile.addEventListener('click', onClick);
@@ -326,6 +335,7 @@ function updateIdentity() {
   $('chip-name').textContent = name;
   $('chip-sub').textContent = me ? (me.offline ? 'offline' : (me.account.admin ? 'admin' : '')) : 'guest';
   $('home-username').textContent = name; // the Xbox theme shows it in capitals
+  $('home-hello-name').textContent = name;
   $('avatar-caption').textContent = me ? 'Edit avatar' : 'Guest look';
   $('account-line').textContent = me ? `Signed in as ${me.account.name}` : (guest ? 'Playing as a guest' : 'Not signed in');
   $('account-lead').textContent = me
@@ -883,22 +893,185 @@ $('toggle-background').addEventListener('click', () => {
   updateBackgroundButton();
 });
 
-// Theme: the Xbox app look or the 2017 website look. theme.js puts the saved
-// one on <html> before the page draws; switching restyles everything at once.
-const THEMES = ['xbox', 'site'];
-function showTheme() {
-  const current = document.documentElement.dataset.theme;
-  document.querySelectorAll('.theme-pick').forEach((pick) => pick.setAttribute('aria-checked', String(pick.dataset.themePick === current)));
+// --- theme (Settings > Theme) -----------------------------------------------------------
+// theme.js put the saved theme on <html> before the page drew. Built-in themes
+// are styled by theme-web.css and themes.css; imported packs (themepack.js)
+// are kept by the main process in the launcher's app data, never sent anywhere.
+const Themes = window.LauncherThemes;
+let customThemes = []; // checked packs, oldest first
+
+const THEME_GROUPS = [
+  ['Website', (theme) => /^web/.test(theme.id)],
+  ['Xbox', (theme) => theme.family === 'console'],
+  ['More', (theme) => !/^web/.test(theme.id) && theme.family !== 'console'],
+];
+
+function themeKey() {
+  const root = document.documentElement;
+  return root.dataset.custom ? Themes.CUSTOM + root.dataset.custom : root.dataset.theme;
 }
 
-function setTheme(name) {
-  const theme = THEMES.includes(name) ? name : 'xbox';
-  document.documentElement.dataset.theme = theme;
-  storage('theme', theme);
-  showTheme();
+// A small picture of a theme, drawn with its own colors (themes.css styles
+// .theme-preview by data-theme, like the page itself).
+function themePreview(theme, compiled, picture) {
+  const box = el('span', 'theme-preview');
+  box.setAttribute('aria-hidden', 'true');
+  box.dataset.theme = theme.id;
+  box.dataset.family = theme.family;
+  box.dataset.nav = theme.nav;
+  if (picture) {
+    const img = el('img', 'pv-picture');
+    img.alt = '';
+    img.src = picture;
+    box.append(img);
+    return box;
+  }
+  if (compiled) for (const name of Object.keys(compiled.vars)) box.style.setProperty(name, compiled.vars[name]);
+  const head = el('i', 'pv-head');
+  head.append(el('i', 'pv-mark'), el('i', 'pv-tab on'), el('i', 'pv-tab'), el('i', 'pv-tab'));
+  const page = el('i', 'pv-page');
+  page.append(el('i', 'pv-title'), el('i', 'pv-card'), el('i', 'pv-card'), el('i', 'pv-card'), el('i', 'pv-btn'));
+  box.append(el('i', 'pv-bg'), head, el('i', 'pv-side'), page);
+  return box;
 }
-document.querySelectorAll('.theme-pick').forEach((pick) => pick.addEventListener('click', () => setTheme(pick.dataset.themePick)));
-showTheme();
+
+function themeCard(key, name, sub, preview) {
+  const card = el('button', 'theme-card nav-target');
+  card.setAttribute('role', 'radio');
+  card.dataset.key = key;
+  const text = el('span', 'theme-card-text');
+  text.append(el('span', 'theme-name', name));
+  if (sub) text.append(el('span', 'theme-sub', sub));
+  card.append(preview, text);
+  card.addEventListener('click', () => setTheme(key));
+  return card;
+}
+
+function renderThemes() {
+  const gallery = $('theme-gallery');
+  const focused = document.activeElement && document.activeElement.classList.contains('theme-card') ? document.activeElement.dataset.key : null;
+  gallery.textContent = '';
+  for (const [title, test] of THEME_GROUPS) {
+    const list = Themes.BUILTIN.filter(test);
+    if (!list.length) continue;
+    gallery.append(el('div', 'theme-group', title));
+    const grid = el('div', 'theme-grid');
+    for (const theme of list) grid.append(themeCard(theme.id, theme.name, theme.id === Themes.DEFAULT ? 'Default' : '', themePreview(theme)));
+    gallery.append(grid);
+  }
+  if (customThemes.length) {
+    gallery.append(el('div', 'theme-group', 'Yours'));
+    const grid = el('div', 'theme-grid');
+    for (const pack of customThemes) {
+      const base = Themes.find(pack.base) || Themes.find(Themes.DEFAULT);
+      const wrap = el('div', 'theme-card-wrap');
+      const card = themeCard(Themes.CUSTOM + pack.id, pack.name, pack.author ? `By ${pack.author}` : '',
+        themePreview(base, ThemePack.compile(pack), pack.preview ? pack.assets[pack.preview] : null));
+      const remove = el('button', 'link theme-remove', 'Remove');
+      remove.addEventListener('click', () => removeTheme(pack));
+      wrap.append(card, remove);
+      grid.append(wrap);
+    }
+    gallery.append(grid);
+  }
+  showTheme();
+  if (focused) {
+    const again = [...gallery.querySelectorAll('.theme-card')].find((card) => card.dataset.key === focused);
+    if (again) focusEl(again);
+  }
+}
+
+function showTheme() {
+  const current = themeKey();
+  document.querySelectorAll('.theme-card').forEach((card) => card.setAttribute('aria-checked', String(card.dataset.key === current)));
+}
+
+// Remembers the compiled pack so theme.js can put it on before the next paint.
+// A pack too big for localStorage keeps its colors there; its CSS comes once
+// the main process has sent the packs (loadThemes).
+function cachePack(compiled) {
+  try {
+    localStorage.setItem('themePack', JSON.stringify(compiled));
+  } catch (error) {
+    try { localStorage.setItem('themePack', JSON.stringify(Object.assign({}, compiled, { css: '' }))); } catch (again) { /* storage blocked */ }
+  }
+}
+
+function setTheme(key) {
+  let applied = false;
+  if (String(key).indexOf(Themes.CUSTOM) === 0) {
+    const pack = customThemes.find((entry) => Themes.CUSTOM + entry.id === key);
+    if (pack) {
+      const compiled = ThemePack.compile(pack);
+      Themes.apply(compiled);
+      storage('theme', key);
+      cachePack(compiled);
+      applied = true;
+    }
+  }
+  if (!applied) {
+    const theme = Themes.find(key) || Themes.find(Themes.DEFAULT);
+    Themes.apply(theme.id);
+    storage('theme', theme.id);
+    try { localStorage.removeItem('themePack'); } catch (error) { /* storage blocked */ }
+  }
+  showTheme();
+  document.dispatchEvent(new Event('themechange'));
+}
+
+async function loadThemes() {
+  try {
+    customThemes = await api.themes();
+    if (!Array.isArray(customThemes)) customThemes = [];
+  } catch (error) {
+    customThemes = [];
+  }
+  // The saved pack again, in full (the cache may hold only its colors), or
+  // the default when it was removed.
+  if (document.documentElement.dataset.custom) setTheme(themeKey());
+  renderThemes();
+}
+
+async function removeTheme(pack) {
+  try {
+    await api.removeTheme(pack.id);
+  } catch (error) {
+    setStatus('theme-status', message(error), 'error');
+    return;
+  }
+  const wasOn = themeKey() === Themes.CUSTOM + pack.id;
+  customThemes = customThemes.filter((entry) => entry.id !== pack.id);
+  if (wasOn) setTheme(Themes.DEFAULT);
+  renderThemes();
+  setStatus('theme-status', `Removed ${pack.name}.`);
+}
+
+$('theme-import').addEventListener('click', async () => {
+  setStatus('theme-status', '');
+  try {
+    const result = await api.importTheme();
+    if (!result || result.canceled || !result.theme) return;
+    customThemes = customThemes.filter((entry) => entry.id !== result.theme.id).concat([result.theme]);
+    renderThemes();
+    setTheme(Themes.CUSTOM + result.theme.id);
+    setStatus('theme-status', `${result.theme.name} is on.`, 'good');
+  } catch (error) {
+    setStatus('theme-status', message(error), 'error');
+  }
+});
+
+// Ctrl+Shift+T: the default look again, so a theme that hides too much
+// can't lock anyone out.
+document.addEventListener('keydown', (event) => {
+  if (event.ctrlKey && event.shiftKey && (event.key === 'T' || event.key === 't')) {
+    event.preventDefault();
+    setTheme(Themes.DEFAULT);
+    showToast('Back to the default theme.', 4000);
+  }
+}, true);
+
+renderThemes();
+loadThemes();
 
 function tick() {
   $('top-clock').textContent = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -960,7 +1133,11 @@ function renderHome() {
       continue;
     }
     const online = onlineMatch(entry);
-    recent.append(gameTile(online || entry, { badge: online ? 'ONLINE' : 'OFFLINE', live: Boolean(online) }));
+    const count = online ? playersIn(online) : 0;
+    recent.append(gameTile(online || entry, {
+      badge: online ? 'ONLINE' : 'OFFLINE', live: count > 0,
+      meta: online ? (count ? `${count} playing` : 'Online') : 'Offline',
+    }));
   }
 
   // Online games: up to six.
@@ -969,7 +1146,7 @@ function renderHome() {
   for (let i = 0; i < 6; i++) {
     const game = lastGames[i];
     const count = playersIn(game);
-    if (game) grid.append(gameTile(game, { badge: count ? `${count} PLAYING` : null, live: count > 0 }));
+    if (game) grid.append(gameTile(game, { badge: count ? `${count} PLAYING` : null, live: count > 0, meta: count ? `${count} playing` : (game.creator ? `By ${game.creator}` : '') }));
     else if (i === lastGames.length && state && state.canHost) grid.append(placeholder('Host a game', '+', () => { showView('settings'); showSettings('host'); }));
     else if (i === lastGames.length) grid.append(placeholder(lastGames.length ? 'More games show up here.' : 'No games online yet.', '·'));
     else grid.append(placeholder(''));
@@ -994,6 +1171,7 @@ function openDetail(game) {
   box.append(cover(detailGame));
   $('detail-name').textContent = detailGame.name;
   renderDetailMeta(detailGame, listed);
+  renderDetailStats(detailGame, listed, servers);
   const desc = $('detail-desc');
   desc.textContent = detailGame.description || '';
   desc.classList.remove('open');
@@ -1022,6 +1200,22 @@ function renderDetailMeta(game, listed) {
   if (game.creator) meta.append(el('span', '', `By ${game.creator}`));
   const count = listed ? playersIn(game) : 0;
   if (count > 0) meta.append(el('span', 'detail-live', `${count} playing`));
+}
+
+// Playing, servers and the game's Roblox year, in a row like 2017's game page.
+function renderDetailStats(game, listed, servers) {
+  const box = $('detail-stats');
+  box.textContent = '';
+  const stats = [
+    ['Playing', listed ? String(playersIn(game)) : '-'],
+    ['Servers', listed ? String(servers.length) : '-'],
+    ['Year', String(game.engine || '2017')],
+  ];
+  for (const [label, value] of stats) {
+    const stat = el('div', 'detail-stat');
+    stat.append(el('span', '', label), el('b', '', value));
+    box.append(stat);
+  }
 }
 
 // --- votes, badges and game passes (the server's game/<placeId>) ---
