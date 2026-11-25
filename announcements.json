@@ -1,12 +1,12 @@
 {
   "announcements": [
     {
-      "id": "release-1.18.0",
-      "title": "Update coming",
-      "text": "Launcher 1.18.0 comes out Tuesday at 6:45 PM ET.",
+      "id": "released-1.18.0",
+      "title": "Launcher 1.18.0 is out",
+      "text": "It installs by itself the next time you open the launcher.",
       "level": "info",
-      "postedAt": "2026-11-24T23:07:43.189Z",
-      "expiresAt": "2026-11-24T23:45:00.000Z"
+      "postedAt": "2026-11-25T00:03:17.661Z",
+      "expiresAt": "2026-11-27T00:03:17.661Z"
     }
   ]
 }
