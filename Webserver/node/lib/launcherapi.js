@@ -5,8 +5,9 @@
 //   POST login            {name, password, mode: "signin"|"signup"} -> {token, account}
 //   POST logout           (session)
 //   GET  me               (session) -> {account}
-//   POST join             (session, or none for a guest) {engines: ["2017", "2016"]} (the
-//                         launcher's Roblox versions; none means 2017 only) and one of
+//   POST join             (session, or none for a guest) {engines: ["2017", "2016"], anyYear}
+//                         (the launcher's Roblox versions; none means 2017 only; anyYear:
+//                         it fetches any year's client-files-<year>) and one of
 //                           {placeId}    any public server of the game with room
 //                           {gameId}     that server (its job ID)
 //                           {privateId}  a private server you may join
@@ -399,7 +400,10 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
   function gameFor(game) {
     const address = game.address && typeof game.address === 'object' ? games.addressText(game.address) : game.address;
     const engine = places.engineOf(libraryPlaces()[String(game.placeId)]);
-    return { id: game.id, name: game.name, placeId: String(game.placeId), address, privateId: game.privateId || null, engine };
+    const out = { id: game.id, name: game.name, placeId: String(game.placeId), address, privateId: game.privateId || null, engine };
+    // Pre-2016 clients take the join script's own address (lib/joining.js).
+    if (engines.get(engine).directJoin) out.joinMode = 'direct';
+    return out;
   }
 
   // Servers of a game (or a private server) that have room, fullest first.
@@ -1232,7 +1236,7 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
       // nothing, and would start the 2017 client into a 2016 server.
       const target = gameFor(chosen.game);
       const playable = Array.isArray(body.engines) ? body.engines.map(String) : [engines.DEFAULT_ENGINE];
-      if (!playable.includes(target.engine)) {
+      if (!playable.includes(target.engine) && !(body.anyYear === true && /^\d{4}$/.test(target.engine))) {
         return sendJson(ctx, 409, { error: `This game runs on Roblox ${target.engine}. Update the launcher to play it.` });
       }
       const identity = who ? { name: who.name, userId: who.userId, guest: false } : guestIdentity();

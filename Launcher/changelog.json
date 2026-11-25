@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.19.0",
+    "date": "2026-11-25",
+    "title": "2015 and 2018 games",
+    "items": [
+      "Games can run on Roblox 2015 and 2018 now. They have a year tag, like 2016 games.",
+      "Playing a game no longer closes Roblox if you have it open.",
+      "Years added later work without a launcher update."
+    ]
+  },
+  {
     "version": "1.18.0",
     "date": "2026-11-24",
     "title": "2016 games",

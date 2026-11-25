@@ -14,12 +14,21 @@
 //   playerAuthentication  gameserver.lua's SetIsPlayerAuthenticationRequired(true)
 //                  stays in (lib/hosting.js); the 2016 RCC would then refuse
 //                  our join tickets, so it is taken out there.
+//   directJoin   the client runs its -j address as the join script (clients
+//                  before 2016): the join answer says joinMode 'direct' and the
+//                  launcher passes the join script's own address (lib/joining.js).
 //   placeIdArgument  RCC is started with -PlaceId:<id> (it names the process).
 //                  The 2016 RCC instead calls a start() of its own with it,
 //                  which fails, and exits.
+//   jsonJobs     RCC runs only JSON jobs (2018 on): the game is its own
+//                  "GameServer" job, which loads the place from the web server
+//                  and starts the server itself, since the Lua calls
+//                  gameserver.lua makes (game:SetPlaceID, the Set...Url calls)
+//                  are gone; any other script goes through a Thumbnail job
+//                  (lib/hosting.js).
 //
 // 2017 is 0.300.0.138971. 2016 is 0.254.0.80823 (July 2016): client, RCC and
-// game files of that one build (tools/make-engine-2016.py builds the folders).
+// game files of that one build (tools/make-engine.py builds the folders).
 
 const core = require('./core');
 
@@ -41,6 +50,23 @@ const ENGINES = {
       { script: 'patch-rcc-signature.ps1', label: 'signature-report patch', skip: 'patchSignatureCheck', consequence: '0.300 game clients will be disconnected right after joining' },
     ],
   },
+  2015: {
+    id: '2015',
+    label: '2015',
+    build: '0.205.0.61876',
+    // Its RCC is 0.206.0.62042, six days later: every copy was changed after
+    // Roblox signed it, by a few bytes (tools/make-engine.py).
+    server: 'Server2015',
+    client: 'Client2015',
+    clientFiles: 'client-files-2015',
+    directJoin: true,
+    placeIdArgument: false,
+    playerAuthentication: false,
+    memoryPatches: [],
+  },
+  // No 2014 (0.177) game server survives, and the 2014 client crashes on the
+  // 2015 one (an unknown class or property type in the first replication
+  // data), so 2014 is not offered.
   2016: {
     id: '2016',
     label: '2016',
@@ -50,6 +76,20 @@ const ENGINES = {
     clientFiles: 'client-files-2016',
     placeIdArgument: false,
     playerAuthentication: false,
+    memoryPatches: [],
+  },
+  2018: {
+    id: '2018',
+    label: '2018',
+    build: '0.338.0.202976',
+    // Its RCC is 0.338.0.202225 (May 2018, the same version number), patched
+    // on disk by tools/make-engine.py.
+    server: 'Server2018',
+    client: 'Client2018',
+    clientFiles: 'client-files-2018',
+    placeIdArgument: false,
+    playerAuthentication: false,
+    jsonJobs: true,
     memoryPatches: [],
   },
 };
@@ -62,6 +102,15 @@ function known(value) {
 
 function get(value) {
   return ENGINES[known(value) || DEFAULT_ENGINE];
+}
+
+// The launcher's folder for an engine's client: a known engine's, or
+// Client<year> for any other year a server names (launchers since 1.19.0
+// download any year's client-files-<year> without knowing the year).
+function clientFolder(value) {
+  const id = String(value === undefined || value === null ? '' : value).trim();
+  if (known(id)) return ENGINES[id].client;
+  return /^\d{4}$/.test(id) ? `Client${id}` : ENGINES[DEFAULT_ENGINE].client;
 }
 
 function rccExe(value) {
@@ -80,4 +129,4 @@ function list() {
   }));
 }
 
-module.exports = { DEFAULT_ENGINE, ENGINES, known, get, rccExe, installed, list };
+module.exports = { DEFAULT_ENGINE, ENGINES, known, get, clientFolder, rccExe, installed, list };

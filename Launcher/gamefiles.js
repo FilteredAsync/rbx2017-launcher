@@ -32,9 +32,16 @@ const zlib = require('zlib');
 const KINDS = {
   client: { file: 'client-files', folder: 'Client', what: 'the game files', missing: 'the client is missing', build: 'tools/build-client-files.py' },
   studio: { file: 'studio-files', folder: 'Studio', what: 'Studio', missing: 'Studio is missing', build: 'tools/build-client-files.py studio' },
-  // Games set to 2016 on /manage (lib/engines.js): downloaded on the first join of one.
-  client2016: { file: 'client-files-2016', folder: 'Client2016', what: 'the 2016 game files', missing: 'the 2016 client is missing', build: 'tools/build-client-files.py client2016' },
 };
+
+// client<year>: another Roblox year's client (lib/engines.js), for games set
+// to that year on /manage, downloaded on the first join of one.
+function kindInfo(kind) {
+  if (KINDS[kind]) return KINDS[kind];
+  const year = (/^client(\d{4})$/.exec(String(kind)) || [])[1];
+  if (!year) throw new Error(`unknown game files kind ${kind}`);
+  return { file: `client-files-${year}`, folder: `Client${year}`, what: `the ${year} game files`, missing: `the ${year} client is missing`, build: `tools/build-client-files.py client${year}` };
+}
 
 // zstd is in Node 22.15 and newer (the launcher's Electron has it).
 const HAS_ZSTD = typeof zlib.createZstdDecompress === 'function';
@@ -80,7 +87,7 @@ function dropped(error) {
 }
 
 module.exports = function gameFiles({ root, normalizeUrl, canPlay, onProgress = () => {}, kind = 'client', log = () => {} }) {
-  const k = KINDS[kind];
+  const k = kindInfo(kind);
   const stateFile = path.join(root, 'config', `${k.file}.json`);
   const downloads = path.join(root, 'downloads');
   const target = path.join(root, k.folder);
@@ -407,3 +414,4 @@ module.exports = function gameFiles({ root, normalizeUrl, canPlay, onProgress = 
 
 module.exports.HAS_ZSTD = HAS_ZSTD;
 module.exports.KINDS = KINDS;
+module.exports.kindInfo = kindInfo;

@@ -14,6 +14,7 @@
 // (stop() called, or RCC exited by itself).
 
 const { spawn, spawnSync } = require('child_process');
+const crypto = require('crypto');
 const dgram = require('dgram');
 const dns = require('dns').promises;
 const fs = require('fs');
@@ -207,11 +208,43 @@ function soap(action, envelope, timeoutMs, port = SOAP_PORT) {
   });
 }
 
-function executeEnvelope(name, script) {
+// SOAP port -> folder of an RCC that runs only JSON jobs (lib/engines.js
+// jsonJobs, 2018). There a script runs as a Thumbnail job: RCC runs the file
+// internalscripts/thumbnails/<Type>.lua and returns what it returns (its
+// loadstring is off once a game runs). So each script is written there once,
+// named by its content.
+const JSON_JOB_PORTS = new Map();
+
+function jobScript(script, soapPort) {
+  const server = JSON_JOB_PORTS.get(soapPort);
+  if (!server) return script;
+  const type = `RB2017_${crypto.createHash('sha1').update(script, 'latin1').digest('hex').slice(0, 20)}`;
+  const file = path.join(server, 'internalscripts', 'thumbnails', `${type}.lua`);
+  if (!core.isFile(file)) {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, script, 'latin1');
+  }
+  return JSON.stringify({ Mode: 'Thumbnail', Settings: { Type: type, Arguments: [] } });
+}
+
+function executeEnvelope(name, script, soapPort = SOAP_PORT) {
   return '<?xml version="1.0" encoding="UTF-8"?>\n'
     + '<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ns1="http://localhost./">'
     + `<SOAP-ENV:Body><ns1:Execute><ns1:jobID>GameServer</ns1:jobID><ns1:script><ns1:name>${name}</ns1:name>`
-    + `<ns1:script>${xmlEscape(script)}</ns1:script><ns1:arguments /></ns1:script></ns1:Execute></SOAP-ENV:Body></SOAP-ENV:Envelope>`;
+    + `<ns1:script>${xmlEscape(jobScript(script, soapPort))}</ns1:script><ns1:arguments /></ns1:script></ns1:Execute></SOAP-ENV:Body></SOAP-ENV:Envelope>`;
+}
+
+function openJobEnvelope(name, script) {
+  return '<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ns1="http://localhost./">'
+    + '<SOAP-ENV:Body><ns1:OpenJob><ns1:job><ns1:id>GameServer</ns1:id><ns1:expirationInSeconds>360000</ns1:expirationInSeconds>'
+    + `<ns1:category>0</ns1:category><ns1:cores>4</ns1:cores></ns1:job><ns1:script><ns1:name>${name}</ns1:name>`
+    + `<ns1:script>${xmlEscape(script)}</ns1:script><ns1:arguments /></ns1:script></ns1:OpenJob></SOAP-ENV:Body></SOAP-ENV:Envelope>`;
+}
+
+// RCC's error text in a SOAP fault, or the HTTP status.
+function soapFault(result) {
+  const match = /<faultstring>([\s\S]*?)<\/faultstring>/i.exec(result.body || '');
+  return match ? xmlUnescape(match[1]).trim().slice(0, 300) : `HTTP ${result.status}`;
 }
 
 // The start() call for gameserver.lua. Its 10th argument (baseUrl, a domain)
@@ -397,11 +430,12 @@ function appearanceHook() {
 // cloudEdit: { saveUrl } for a Team Create server (saveUrl: where RCC posts
 // the place; it carries the place ID and the token the web server checks).
 // maxPlayers: RCC turns away players past it.
-async function startGameJob(placeId, port, domain, scriptTimeout, log, soapPort = SOAP_PORT, placeFile = 'place.rbxlx', cloudEdit = null, maxPlayers = null, engine = engines.get()) {
-  const open = await soap('OpenJob', '<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ns1="http://localhost./">'
-    + '<SOAP-ENV:Body><ns1:OpenJob><ns1:job><ns1:id>GameServer</ns1:id><ns1:expirationInSeconds>360000</ns1:expirationInSeconds>'
-    + '<ns1:category>0</ns1:category><ns1:cores>4</ns1:cores></ns1:job><ns1:script><ns1:name>Bootstrap</ns1:name>'
-    + '<ns1:script>return true</ns1:script><ns1:arguments /></ns1:script></ns1:OpenJob></SOAP-ENV:Body></SOAP-ENV:Envelope>', 15000, soapPort);
+async function startGameJob(placeId, port, domain, scriptTimeout, log, soapPort = SOAP_PORT, placeFile = 'place.rbxlx', cloudEdit = null, maxPlayers = null, engine = engines.get(), gameId = null) {
+  if (engine.jsonJobs) {
+    if (cloudEdit) throw new Error(`Team Create servers run on Roblox 2017 only, not ${engine.label}`);
+    return startGameServerJob(placeId, port, domain, maxPlayers, gameId, log, soapPort);
+  }
+  const open = await soap('OpenJob', openJobEnvelope('Bootstrap', 'return true'), 15000, soapPort);
   if (open.status < 200 || open.status >= 300) throw new Error(`RCC rejected OpenJob (HTTP ${open.status})`);
 
   let source = fs.readFileSync(core.rootPath('Server', 'gameserver.lua'), 'latin1');
@@ -424,16 +458,86 @@ async function startGameJob(placeId, port, domain, scriptTimeout, log, soapPort 
   const limit = !cloudEdit && Number(maxPlayers) >= 1
     ? `pcall(function() game:GetService("Players").MaxPlayersInternal = ${Math.round(Number(maxPlayers))} end)\r\n` : '';
   const script = `${source}\r\n${NETWORK_SETTINGS}${creatorCall(placeId)}${cloudEdit ? '' : FRIEND_SERVICE + gamePassCall(domain)}${limit}${startCall(placeId, port, domain, scriptTimeout, Boolean(cloudEdit))}\r\n${limit}${cloudEdit ? '' : `${badgeCall(domain)}${avatarTypeCall(placeId)}${appearanceHook()}\r\n${PLAYERGUI_HOOK}\r\n${adminConsoleCall(placeId)}`}\r\n`;
-  soap('Execute', executeEnvelope('GameServer', script), 0, soapPort).then((result) => {
+  soap('Execute', executeEnvelope('GameServer', script, soapPort), 0, soapPort).then((result) => {
     if (result.status < 200 || result.status >= 300) log(`RCC answered the game job with HTTP ${result.status}`);
   }, (error) => log(`game job connection ended: ${error.code || error.message}`));
+}
+
+// A game on an RCC that runs only JSON jobs (2018): a "GameServer" job. That
+// RCC has none of the Lua calls gameserver.lua makes to set a game up
+// (game:SetPlaceID, the Set...Url calls); it loads the place from
+// assetgame.<domain>/asset/?id=<placeId> (lib/routes.js answers with the
+// game's place file), sets the game up and starts the server on the game port
+// itself. SelfContained: the place's details are all here, so RCC does not ask
+// api.<domain>/game/load-place-info for them. RCC stops with "missing ...
+// setting" without any of these (GameCode, DatacenterId and VipOwnerId may be
+// left out).
+function gameServerJob(placeId, port, domain, maxPlayers, gameId) {
+  let place = null;
+  let creator = null;
+  try {
+    const places = require('./places');
+    if (places.exists()) {
+      place = places.load().places[String(placeId)] || null;
+      creator = places.creatorOf(place);
+    }
+  } catch (error) { /* no place library on this PC */ }
+  const universeId = place && core.decimal(String(place.universeId || '')) ? Number(place.universeId) : Number(placeId);
+  const players = Number(maxPlayers) >= 1 ? Math.round(Number(maxPlayers)) : 50;
+  return JSON.stringify({
+    Mode: 'GameServer',
+    Settings: {
+      SelfContained: true,
+      PlaceId: Number(placeId),
+      UniverseId: universeId,
+      CreatorId: creator && creator.id > 0 ? Math.floor(creator.id) : 1,
+      CreatorType: creator && creator.type === 'Group' ? 'Group' : 'User',
+      PlaceVersion: 1,
+      MatchmakingContextId: 1,
+      PreferredPort: port,
+      MaxPlayers: players,
+      PreferredPlayerCapacity: players,
+      MaxGameInstances: 1,
+      GameId: gameId || crypto.randomUUID(),
+      MachineAddress: '127.0.0.1',
+      BaseUrl: domain || 'localhost.',
+      GsmInterval: 60,
+      ApiKey: '',
+      PlaceVisitAccessKey: '',
+      JobSignature: '',
+    },
+  });
+}
+
+async function startGameServerJob(placeId, port, domain, maxPlayers, gameId, log, soapPort) {
+  const reply = soap('OpenJob', openJobEnvelope('GameServer', gameServerJob(placeId, port, domain, maxPlayers, gameId)), 0, soapPort);
+  // RCC answers once it has read the settings (a refusal comes then); the
+  // place loads on its own thread, which the wait for the game port covers.
+  const first = await Promise.race([reply.catch((error) => ({ error })), sleep(15000).then(() => null)]);
+  if (first && first.error) throw new Error(`RCC did not take the game job: ${first.error.code || first.error.message}`);
+  if (first && (first.status < 200 || first.status >= 300)) throw new Error(`RCC refused the game job: ${soapFault(first)}`);
+  if (!first) {
+    reply.then((result) => {
+      if (result.status < 200 || result.status >= 300) log(`RCC refused the game job: ${soapFault(result)}`);
+    }, (error) => log(`game job connection ended: ${error.code || error.message}`));
+  }
+}
+
+// What start() in gameserver.lua is followed by on the other engines, for a
+// GameServer job: run once RCC takes players, before the game is listed. No
+// appearance hook: this RCC dresses characters itself (and has no
+// game:HttpGet).
+function gameServerHooks(placeId, domain, scriptTimeout) {
+  const timeout = scriptTimeout > 0 ? `pcall(function() game:GetService("ScriptContext"):SetTimeout(${scriptTimeout}) end)\r\n` : '';
+  return `${NETWORK_SETTINGS}${timeout}${FRIEND_SERVICE}${gamePassCall(domain)}${badgeCall(domain)}${avatarTypeCall(placeId)}`
+    + `${PLAYERGUI_HOOK}\r\n${adminConsoleCall(placeId)}\r\n`;
 }
 
 // Names of the players in the game, or null when RCC does not answer.
 async function rccPlayers(soapPort = SOAP_PORT) {
   const lua = 'local n = {} for _, x in pairs(game:GetService("Players"):GetPlayers()) do table.insert(n, x.Name) end return table.concat(n, "\\n")';
   try {
-    const result = await soap('Execute', executeEnvelope('Players', lua), 8000, soapPort);
+    const result = await soap('Execute', executeEnvelope('Players', lua, soapPort), 8000, soapPort);
     const match = /<ns1:value>([\s\S]*?)<\/ns1:value>/.exec(result.body);
     if (!match) return result.status === 200 ? [] : null;
     // SOAP escapes the newlines between names as &#xA;.
@@ -492,7 +596,8 @@ async function startHosting(rawConfig, { log = console.log, startRcc = true, ded
     if (local) {
       if (!(await canConnect(80, '127.0.0.1', 1500))) throw new Error('the web server is not running on this PC; start it first');
     } else {
-      localProxy = await proxy.startProxy(config.centralUrl, log);
+      // The 2018 RCC makes its API calls over https (any certificate does).
+      localProxy = await proxy.startProxy(config.centralUrl, log, undefined, { https: Boolean(engine.jsonJobs) });
       log(`forwarding RCC's web requests to ${config.centralUrl}`);
     }
     try {
@@ -501,9 +606,10 @@ async function startHosting(rawConfig, { log = console.log, startRcc = true, ded
     } catch (error) {
       throw new Error(`could not reach the web server at ${config.centralUrl}: ${error.cause && error.cause.code ? error.cause.code : error.message}`);
     }
-    // RCC builds api.localhost., data.localhost. and similar names itself.
+    // RCC builds api.localhost., data.localhost. and similar names itself
+    // (the 2018 one loads the place from assetgame.localhost.).
     const missing = [];
-    for (const name of ['api.localhost', 'data.localhost', 'versioncompatibility.api.localhost']) {
+    for (const name of ['api.localhost', 'data.localhost', 'versioncompatibility.api.localhost', ...(engine.jsonJobs ? ['assetgame.localhost'] : [])]) {
       try {
         const resolved = await dns.lookup(name);
         if (!proxy.isLoopbackHost(resolved.address)) missing.push(`${name} (points at ${resolved.address})`);
@@ -543,6 +649,8 @@ async function startHosting(rawConfig, { log = console.log, startRcc = true, ded
       if (await canConnect(soapPort, '127.0.0.1', 300)) throw new Error(`TCP port ${soapPort} (RCC's SOAP port) is already in use by another program`);
       if (!portFree) throw new Error(`UDP port ${gamePort} is already in use by another program`);
       log(`starting RCCService${engine.id === engines.DEFAULT_ENGINE ? '' : ` ${engine.label}`} (place ${placeId}${placeFile !== 'place.rbxlx' ? `, ${placeFile}` : ''}, SOAP port ${soapPort})...`);
+      if (engine.jsonJobs) JSON_JOB_PORTS.set(soapPort, path.dirname(rccExe));
+      else JSON_JOB_PORTS.delete(soapPort);
       const rccArgs = [String(soapPort), '-Console', '-Start', '-verbose'];
       if (engine.placeIdArgument) rccArgs.push(`-PlaceId:${placeId}`);
       rcc = spawn(rccExe, rccArgs, {
@@ -573,7 +681,7 @@ async function startHosting(rawConfig, { log = console.log, startRcc = true, ded
       }
       const domain = fixedDomain(config);
       const scriptTimeout = config.scriptTimeout === undefined ? 10 : Number(config.scriptTimeout) || 0;
-      await startGameJob(placeId, gamePort, domain, scriptTimeout, log, soapPort, rccPlaceFile, config.cloudEdit || null, config.maxPlayers || null, engine);
+      await startGameJob(placeId, gamePort, domain, scriptTimeout, log, soapPort, rccPlaceFile, config.cloudEdit || null, config.maxPlayers || null, engine, config.jobId || null);
       log(`game job submitted on UDP port ${gamePort} (RCC web address ${domain === null ? 'not set' : `http://${domain}/`}, script timeout ${scriptTimeout ? `${scriptTimeout} s` : 'off'})`);
       // gameserver.lua loads the place first (game:Load) and only then takes
       // players (NetworkServer:Start on the game port): a big place takes a
@@ -587,6 +695,14 @@ async function startHosting(rawConfig, { log = console.log, startRcc = true, ded
         await sleep(500);
       }
       log(`place loaded in ${Math.round((Date.now() - loadStarted) / 1000)} s; RCC takes players on UDP port ${gamePort}`);
+      if (engine.jsonJobs) {
+        try {
+          const hooks = await soap('Execute', executeEnvelope('Hooks', gameServerHooks(placeId, domain, scriptTimeout), soapPort), 30000, soapPort);
+          if (hooks.status < 200 || hooks.status >= 300) log(`warning: RCC refused the game's extra scripts (avatars, admin console): ${soapFault(hooks)}`);
+        } catch (error) {
+          log(`warning: RCC did not run the game's extra scripts (avatars, admin console): ${error.code || error.message}`);
+        }
+      }
     }
   } catch (error) {
     cleanup();
@@ -643,7 +759,7 @@ async function startHosting(rawConfig, { log = console.log, startRcc = true, ded
     const lua = `local n = 0 for _, p in pairs(game:GetService("Players"):GetPlayers()) do n = n + 1 pcall(function() p:Kick(${JSON.stringify(String(message))}) end) end return n`;
     let kicked = 0;
     try {
-      const result = await soap('Execute', executeEnvelope('Kick', lua), 10000, soapPort);
+      const result = await soap('Execute', executeEnvelope('Kick', lua, soapPort), 10000, soapPort);
       kicked = Number((/<ns1:value>(\d+)<\/ns1:value>/.exec(result.body) || [])[1]) || 0;
     } catch (error) {
       return; // RCC not answering: nothing more to save
@@ -686,7 +802,7 @@ async function startHosting(rawConfig, { log = console.log, startRcc = true, ded
   // True when RCC answers a trivial script within the time limit.
   const ping = async (timeoutMs = 15000) => {
     try {
-      const result = await soap('Execute', executeEnvelope('Ping', 'return 1'), timeoutMs, soapPort);
+      const result = await soap('Execute', executeEnvelope('Ping', 'return 1', soapPort), timeoutMs, soapPort);
       return result.status === 200;
     } catch (error) {
       return false;
@@ -697,7 +813,7 @@ async function startHosting(rawConfig, { log = console.log, startRcc = true, ded
   // address); true when RCC ran it.
   const saveNow = async (timeoutMs = 60000) => {
     try {
-      const result = await soap('Execute', executeEnvelope('Save', 'game:ServerSave() return 1'), timeoutMs, soapPort);
+      const result = await soap('Execute', executeEnvelope('Save', 'game:ServerSave() return 1', soapPort), timeoutMs, soapPort);
       return result.status === 200;
     } catch (error) {
       return false;

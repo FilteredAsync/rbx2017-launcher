@@ -19,9 +19,9 @@ const CONFIG = core.rootPath('config', 'client.json');
 const CLIENT_EXE = core.rootPath('Client', 'RobloxPlayerBeta.exe');
 
 // The client of the game's Roblox version (game.engine from the join answer,
-// lib/engines.js): Client/ for 2017, Client2016/ for 2016.
+// lib/engines.js): Client/ for 2017, Client<year>/ for the others.
 function clientExe(engine) {
-  return core.rootPath(engines.get(engine).client, 'RobloxPlayerBeta.exe');
+  return core.rootPath(engines.clientFolder(engine), 'RobloxPlayerBeta.exe');
 }
 
 // A client that closes this soon after starting did not get into the game
@@ -214,7 +214,20 @@ async function joinGame({ centralUrl, username, ticket = null, name = null, game
   };
 
   const who = ticket ? `ticket=${ticket}` : `username=${encodeURIComponent(username)}&id=${userId}`;
-  const joinUrl = `http://localhost./game/placelauncher.ashx/?gameId=${encodeURIComponent(game.id)}&${who}&relayport=${gameRelay.port}`;
+  let joinUrl = `http://localhost./game/placelauncher.ashx/?gameId=${encodeURIComponent(game.id)}&${who}&relayport=${gameRelay.port}`;
+  // Clients before 2016 (lib/engines.js directJoin) run their -j address as
+  // the join script itself instead of following placelauncher's answer, so
+  // they get the join script address it names.
+  if (game.joinMode === 'direct') {
+    try {
+      const answer = await (await fetch(`${centralUrl}${joinUrl.slice('http://localhost.'.length)}`, { signal: AbortSignal.timeout(15000) })).json();
+      if (!answer || !answer.joinScriptUrl) throw new Error(answer && answer.message ? answer.message : 'no join script address');
+      joinUrl = answer.joinScriptUrl;
+    } catch (error) {
+      closeAll();
+      throw new Error(`could not get the join script: ${error.message}`);
+    }
+  }
   if (dryRun) {
     log(`Would start the client with -j ${joinUrl}`);
     closeAll();

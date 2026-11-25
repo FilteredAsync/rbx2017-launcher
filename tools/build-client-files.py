@@ -2,8 +2,8 @@
 
     python tools/build-client-files.py            the game client
     python tools/build-client-files.py studio     Roblox Studio
-    python tools/build-client-files.py client2016 the 2016 client (Client2016/, built by
-        tools/make-engine-2016.py), for games set to 2016 on /manage
+    python tools/build-client-files.py client2016 another year's client (Client<year>/, built by
+        tools/make-engine.py <year>), for games set to that year on /manage
     python tools/build-client-files.py --edited-corescripts
         the game client with this PC's edited CoreScripts (see ORIGINALS)
     --out <folder>   write somewhere else than downloads/ (for tests)
@@ -30,6 +30,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -51,13 +52,6 @@ KINDS = {
         # Same exclusions as the full installer (Launcher/package.json).
         'exclude': ['Client/RobloxPlayerBeta_aecandidate.exe', 'Client/RobloxPlayerBeta_tracecandidate.exe',
                     'Client/rbxsig_private.pem', 'Client/corescripts-original', 'Client/corescripts-original/*'],
-    },
-    # The 2016 client (lib/engines.js): launchers fetch it on a player's first 2016 game.
-    'client2016': {
-        'folder': 'Client2016',
-        'exe': 'RobloxPlayerBeta.exe',
-        'name': 'client-files-2016',
-        'exclude': [],
     },
     'studio': {
         'folder': 'Studio',
@@ -177,6 +171,11 @@ def main():
     args = [arg for i, arg in enumerate(sys.argv[1:], 1) if not arg.startswith('--') and i not in skip]
     edited = '--edited-corescripts' in sys.argv
     kind_name = args[0].lower() if args else 'client'
+    # client<year>: another year's client (lib/engines.js); launchers fetch it
+    # on a player's first game of that year.
+    year = re.fullmatch(r'client(\d{4})', kind_name)
+    if year:
+        KINDS[kind_name] = {'folder': f'Client{year.group(1)}', 'exe': 'RobloxPlayerBeta.exe', 'name': f'client-files-{year.group(1)}', 'exclude': []}
     if kind_name not in KINDS:
         sys.exit(f'usage: python tools/build-client-files.py [{"|".join(KINDS)}]')
     kind = KINDS[kind_name]
@@ -186,12 +185,12 @@ def main():
         sys.exit(f'{kind["folder"]}/{kind["exe"]} not found')
     if kind_name == 'studio':
         check_studio_key(exe)
-    if kind_name == 'client2016':
+    if year:
         with open(os.path.join(ROOT, 'Server', 'rbxsig_blob.txt'), 'rb') as handle:
             blob = handle.read().strip()
         with open(exe, 'rb') as handle:
             if blob not in handle.read():
-                sys.exit('Client2016 does not carry the server key: build it with python tools/make-engine-2016.py.')
+                sys.exit(f'{kind["folder"]} does not carry the server key: build it with tools/make-engine.py.')
     exclude = kind['exclude']
     files = []
     for directory, subdirs, names in os.walk(source):

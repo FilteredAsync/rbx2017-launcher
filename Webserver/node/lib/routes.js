@@ -2124,6 +2124,13 @@ const ROUTES = [
   [new RegExp(`^currency/balance${opt}$`, 'i'), currencyBalance],
   [/^upgrades\/robux\.aspx$/i, robuxPage],
   [new RegExp(`^game/validate-machine${opt}$`, 'i'), fixed('application/json', '{"success":true}', { 'Cache-Control': 'no-store' })],
+  // The 2018 RCC reports its game to Roblox's game server list
+  // (gameinstances.api.<domain>, games.api.<domain>) and its players' visits;
+  // games here are listed by lib/hosting.js instead, so these only answer.
+  [/^v2\/createorupdate\/?$/i, fixed('application/json; charset=utf-8', '{}', { 'Cache-Control': 'no-store' })],
+  [/^v1\/close\/?$/i, fixed('application/json; charset=utf-8', '{}', { 'Cache-Control': 'no-store' })],
+  [/^v2\.0\/refresh\/?$/i, fixed('application/json; charset=utf-8', '{}', { 'Cache-Control': 'no-store' })],
+  [/^game\/(?:clientpresence|placevisit)\.ashx\/?$/i, fixed('text/plain; charset=utf-8', '', { 'Cache-Control': 'no-store' })],
   [new RegExp(`^login/negotiate\\.ashx${opt}$`, 'i'), fixed('text/plain; charset=utf-8', 'true')],
   // RCC asks this before accepting a player (api.<domain>); the retired
   // Roblox service answered true for a place the player may join.

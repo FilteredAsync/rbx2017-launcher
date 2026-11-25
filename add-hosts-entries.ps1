@@ -26,7 +26,8 @@ $names = @(
     "www.localhost", "api.localhost", "data.localhost", "assetgame.localhost",
     "versioncompatibility.api.localhost", "clientsettings.api.localhost",
     "ephemeralcounters.api.localhost", "gamepersistence.api.localhost",
-    "setup.localhost", "chat.localhost", "avatar.localhost", "thumbnails.localhost"
+    "setup.localhost", "chat.localhost", "avatar.localhost", "thumbnails.localhost",
+    "gameinstances.api.localhost", "games.api.localhost"
 )
 $begin = "# >>> RobloxClient local web server (add-hosts-entries.ps1)"
 $end = "# <<< RobloxClient local web server"

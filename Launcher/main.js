@@ -265,7 +265,7 @@ async function updateFilesBeforePlay(centralUrl, log) {
 const engineFilesModules = new Map();
 function engineFiles(engine) {
   if (!engineFilesModules.has(engine)) {
-    const folder = lib('engines').get(engine).client;
+    const folder = lib('engines').clientFolder(engine);
     engineFilesModules.set(engine, require('./gamefiles')({
       root: ROOT,
       kind: `client${engine}`,
@@ -278,10 +278,11 @@ function engineFiles(engine) {
   return engineFilesModules.get(engine);
 }
 
-// The Roblox versions this launcher can play (sent with each join).
+// The Roblox versions this launcher can play (sent with each join): the ones
+// it knows, and with anyYear any other year the server names (its client
+// comes as client-files-<year> into Client<year>/).
 function playableEngines() {
-  const engines = lib('engines');
-  return Object.keys(engines.ENGINES).filter((id) => id === engines.DEFAULT_ENGINE || require('./gamefiles').KINDS[`client${id}`]);
+  return Object.keys(lib('engines').ENGINES);
 }
 
 // Makes sure the client of a game's engine is here and current. True when it
@@ -289,9 +290,9 @@ function playableEngines() {
 async function engineFilesBeforePlay(centralUrl, engine, log) {
   const engines = lib('engines');
   if (!engine || engine === engines.DEFAULT_ENGINE) return false;
-  if (!playableEngines().includes(engine)) throw new Error(`This game runs on Roblox ${engine}. Update the launcher to play it.`);
-  const exe = path.join(ROOT, engines.get(engine).client, 'RobloxPlayerBeta.exe');
-  // A host plays from the folder it packs (tools/make-engine-2016.py), when it has one.
+  if (!/^\d{4}$/.test(engine)) throw new Error(`This game runs on Roblox ${engine}. Update the launcher to play it.`);
+  const exe = path.join(ROOT, engines.clientFolder(engine), 'RobloxPlayerBeta.exe');
+  // A host plays from the folder it packs (tools/make-engine.py), when it has one.
   if (capabilities().canHost && fs.existsSync(exe)) return false;
   const files = engineFiles(engine);
   if (files.isBusy()) throw new Error(`The ${engine} game files are downloading. Try again when that is done.`);
@@ -1088,7 +1089,7 @@ function registerIpc() {
     await engineFilesBeforePlay(url, listed, log);
     if (playSession) throw new Error('The client is already running. Close it first.');
     // The ticket comes after any update, so a long download cannot outlast it.
-    const askTicket = () => account.joinTicket(url, Object.assign({}, request || { gameId: game && game.id }, { engines: playableEngines() }), Boolean(guest), {
+    const askTicket = () => account.joinTicket(url, Object.assign({}, request || { gameId: game && game.id }, { engines: playableEngines(), anyYear: true }), Boolean(guest), {
       onWait: (text) => send('play-progress', { text }),
       cancelled: () => joinCancelled,
     });
