@@ -29,9 +29,11 @@ const unionshapes = require('./unionshapes');
 const gamepatches = require('./gamepatches');
 const attributes = require('./attributes');
 const luaulower = require('./luaulower');
+const apidump = require('./apidump');
 
 const LOCAL = 'http://localhost./';
-const API_DUMP = path.join(__dirname, '..', '..', '..', 'Client', 'apidump.txt');
+// The engines a place can be converted for (lib/engines.js; options.engine).
+const ENGINE_TARGETS = ['2016', '2017', '2018'];
 
 // --- XML text ----------------------------------------------------------------
 
@@ -111,7 +113,19 @@ const FONT_FAMILIES = {
   highwaygothic: 11, zekton: 12, pressstart2p: 13, balthazar: 14, romanantique: 15,
 };
 
-function fontEnum(fontXml) {
+function fontEnum(fontXml, api) {
+  return fontFor(fontEnum2017(fontXml), api);
+}
+
+// A 2017 Font value the engine lacks (2016 has 0-6) -> the nearest it has.
+const FONT_DOWN = { 7: 3, 8: 3, 9: 4, 10: 3, 11: 4, 12: 4, 13: 4, 14: 4, 15: 3 };
+function fontFor(value, api) {
+  const fonts = api && api.enum('Font');
+  if (!fonts || [...fonts.values()].includes(value)) return value;
+  return FONT_DOWN[value] !== undefined ? FONT_DOWN[value] : 3;
+}
+
+function fontEnum2017(fontXml) {
   const family = /<Family>\s*<url>([^<]*)<\/url>/i.exec(fontXml);
   const name = family ? path.basename(family[1].trim(), '.json').toLowerCase() : '';
   const weight = parseInt((/<Weight>(\d+)<\/Weight>/i.exec(fontXml) || [])[1] || '400', 10);
@@ -122,6 +136,17 @@ function fontEnum(fontXml) {
   if (italic) return 6;
   if (weight <= 300) return 5;
   return 3;
+}
+
+// TextSize -> the nearest FontSize (Size8 0 ... Size96 14) for engines before 2017.
+const FONT_SIZES = [[8, 0], [9, 1], [10, 2], [11, 3], [12, 4], [14, 5], [18, 6], [24, 7], [28, 10], [32, 11], [36, 8], [42, 12], [48, 9], [60, 13], [96, 14]];
+function fontSizeFor(size) {
+  let best = 5;
+  let distance = Infinity;
+  for (const [points, value] of FONT_SIZES) {
+    if (Math.abs(points - size) < distance) { best = value; distance = Math.abs(points - size); }
+  }
+  return best;
 }
 
 // --- Scripts -----------------------------------------------------------------
@@ -153,7 +178,7 @@ function expandCompound(line) {
   return `${indent}${target} = ${target} ${op} (${expr})${comment}`;
 }
 
-function convertScript(source, counts, scriptName) {
+function convertScript(source, counts, scriptName, api) {
   // Fixes for single games' own scripts (lib/gamepatches.js).
   let text = gamepatches.apply(source, counts.gamePatches);
   let changed = text !== source;
@@ -181,7 +206,7 @@ function convertScript(source, counts, scriptName) {
   }
   if (changed) text = lines.join('\n');
   // Functions and features newer than 2017 (lib/luacompat.js).
-  const compat = luacompat.convertSource(text, { attributes: counts.attributesInUse, newerProperties: counts.newerProperties });
+  const compat = luacompat.convertSource(text, { api, attributes: counts.attributesInUse, newerProperties: counts.newerProperties });
   if (compat.changes.length > 0) {
     text = compat.text;
     changed = true;
@@ -249,15 +274,17 @@ const MATERIAL_MAP = {
   788: 800, 804: 800, 820: 816, 836: 816, 896: 800, 912: 1296, 1284: 1280, 1328: 1296, 1344: 1296, 1360: 1296,
   1376: 816, 1392: 1296, 1552: 1536, 1568: 272, 1584: 272,
 };
-function material2017(value) {
+function material2017(value, api) {
   const n = Number(value);
-  if (MATERIALS_2017.has(n)) return n;
-  return MATERIAL_MAP[n] !== undefined ? MATERIAL_MAP[n] : 256;
+  const materials = api && api.enum('Material') ? new Set(api.enum('Material').values()) : MATERIALS_2017;
+  if (materials.has(n)) return n;
+  return MATERIAL_MAP[n] !== undefined && materials.has(MATERIAL_MAP[n]) ? MATERIAL_MAP[n] : 256;
 }
 const SCRIPT_CLASSES = new Set(['Script', 'LocalScript', 'ModuleScript']);
 
 function convertProperties(className, props, options, counts) {
   let out = props;
+  const api = options.api || null;
 
   // 2017 unions carry their geometry in ChildData/MeshData or load it from
   // AssetId; newer ones keep it only in shared strings (ChildData2/MeshData2).
@@ -365,7 +392,7 @@ function convertProperties(className, props, options, counts) {
     });
   }
   out = out.replace(/<token\s+name="Material">(\d+)<\/token>/, (match, value) => {
-    const mapped = material2017(value);
+    const mapped = material2017(value, api);
     if (mapped === Number(value)) return match;
     counts.materials++;
     return `<token name="Material">${mapped}</token>`;
@@ -374,14 +401,14 @@ function convertProperties(className, props, options, counts) {
   // FontFace -> Font; a Font past the 2017 list (0-15) takes the FontFace's.
   const face = /<Font\s+name="FontFace">([\s\S]*?)<\/Font>/.exec(out);
   out = out.replace(/<token\s+name="Font">(\d+)<\/token>/, (match, value) => {
-    if (Number(value) <= 15) return match;
+    if (Number(value) <= 15 && fontFor(Number(value), api) === Number(value)) return match;
     counts.fonts++;
-    return `<token name="Font">${face ? fontEnum(face[1]) : 3}</token>`;
+    return `<token name="Font">${face ? fontEnum(face[1], api) : fontFor(Number(value) <= 15 ? Number(value) : 3, api)}</token>`;
   });
   out = out.replace(/(\r?\n[ \t]*)?<Font\s+name="FontFace">([\s\S]*?)<\/Font>/g, (match, lead, body) => {
     counts.fonts++;
     if (/<token\s+name="Font">/.test(out)) return '';
-    return `${lead || ''}<token name="Font">${fontEnum(body)}</token>`;
+    return `${lead || ''}<token name="Font">${fontEnum(body, api)}</token>`;
   });
 
   out = out.replace(DROPPED_PROPERTY, () => {
@@ -392,6 +419,35 @@ function convertProperties(className, props, options, counts) {
     if (!/<BinaryString\s+name="AttributesSerialize">\s*<\/BinaryString>/.test(match)) counts.attributes++;
     return '';
   });
+
+  // Engines older than 2017 (2016) have no TextSize (the FontSize list
+  // instead) and no AnchorPoint: the nearest FontSize, and the anchor folded
+  // into Position (Position - AnchorPoint * Size, exact for scale and offset).
+  if (api && Number(api.engine) < 2017) {
+    out = out.replace(/(\r?\n[ \t]*)?<float\s+name="TextSize">([^<]*)<\/float>/, (match, lead, value) => {
+      counts.oldGui++;
+      if (/<token\s+name="FontSize">/.test(out)) return '';
+      return `${lead || ''}<token name="FontSize">${fontSizeFor(Number(value))}</token>`;
+    });
+    const anchor = /(?:\r?\n[ \t]*)?<Vector2\s+name="AnchorPoint">\s*<X>([^<]*)<\/X>\s*<Y>([^<]*)<\/Y>\s*<\/Vector2>/.exec(out);
+    if (anchor) {
+      const [ax, ay] = [Number(anchor[1]) || 0, Number(anchor[2]) || 0];
+      const udim2 = (name) => {
+        const m = new RegExp(`<UDim2\\s+name="${name}">\\s*<XS>([^<]*)</XS>\\s*<XO>([^<]*)</XO>\\s*<YS>([^<]*)</YS>\\s*<YO>([^<]*)</YO>\\s*</UDim2>`).exec(out);
+        return m ? m.slice(1, 5).map(Number) : null;
+      };
+      const position = udim2('Position') || [0, 0, 0, 0];
+      const size = udim2('Size') || [0, 0, 0, 0];
+      out = out.replace(anchor[0], '');
+      if (ax !== 0 || ay !== 0) {
+        const moved = [position[0] - ax * size[0], position[1] - ax * size[1], position[2] - ay * size[2], position[3] - ay * size[3]];
+        const xml = `<UDim2 name="Position"><XS>${moved[0]}</XS><XO>${Math.round(moved[1])}</XO><YS>${moved[2]}</YS><YO>${Math.round(moved[3])}</YO></UDim2>`;
+        if (/<UDim2\s+name="Position">/.test(out)) out = out.replace(/<UDim2\s+name="Position">[\s\S]*?<\/UDim2>/, xml);
+        else out = out.replace(/(\r?\n[ \t]*)?(<\/?[A-Za-z]+[\s>])/, (match, lead, tag) => `${lead || ''}${xml}${lead || ''}${tag}`);
+        counts.oldGui++;
+      }
+    }
+  }
 
   // UIAspectRatioConstraint.AspectRatio must be above 0 in 2017: one at 0
   // stops the whole file from loading, in Studio and on the game server
@@ -408,11 +464,11 @@ function convertProperties(className, props, options, counts) {
     out = out.replace(/(<ProtectedString\s+name="Source">)([\s\S]*?)(<\/ProtectedString>)/, (match, open, body, close) => {
       const cdata = /^<!\[CDATA\[([\s\S]*)\]\]>$/.exec(body);
       if (cdata && !cdata[1].includes(']]>')) {
-        const converted = convertScript(cdata[1], counts, name);
+        const converted = convertScript(cdata[1], counts, name, api);
         return converted === null ? match : `${open}<![CDATA[${converted}]]>${close}`;
       }
       if (body.includes('<![CDATA[')) return match;
-      const converted = convertScript(xmlUnescape(body), counts, name);
+      const converted = convertScript(xmlUnescape(body), counts, name, api);
       return converted === null ? match : `${open}${xmlEscape(converted).replace(/\r/g, '&#13;')}${close}`;
     });
   }
@@ -421,41 +477,19 @@ function convertProperties(className, props, options, counts) {
 
 // --- Whole file ------------------------------------------------------------------
 
-let knownClasses = null;
-function classesOf2017() {
-  if (knownClasses === null) {
-    knownClasses = new Set();
-    try {
-      for (const match of fs.readFileSync(API_DUMP, 'latin1').matchAll(/^Class (\w+)/gm)) knownClasses.add(match[1]);
-    } catch (error) {
-      knownClasses = null;
-      return null;
-    }
+// Part classes of the engine: BasePart and every class under it (API dump),
+// or the usual ones without a dump.
+const USUAL_PARTS = ['Part', 'WedgePart', 'CornerWedgePart', 'TrussPart', 'MeshPart', 'UnionOperation', 'NegateOperation',
+  'SpawnLocation', 'Seat', 'VehicleSeat', 'SkateboardPlatform', 'Terrain'];
+const partClasses = new Map(); // engine -> Set
+function partClassesOf(api) {
+  const key = api ? api.engine : '';
+  if (!partClasses.has(key)) {
+    const set = new Set();
+    if (api) for (const name of api.classes.keys()) if (api.isA(name, 'BasePart')) set.add(name);
+    partClasses.set(key, set.size > 0 ? set : new Set(USUAL_PARTS));
   }
-  return knownClasses;
-}
-
-// Part classes of the 2017 engine: BasePart and every class under it (API
-// dump), or the usual ones when the dump is missing.
-let partClasses = null;
-function partClassesOf2017() {
-  if (partClasses === null) {
-    const parents = new Map();
-    try {
-      for (const match of fs.readFileSync(API_DUMP, 'latin1').matchAll(/^Class (\w+)(?: : (\w+))?/gm)) parents.set(match[1], match[2] || null);
-    } catch (error) { /* the usual ones below */ }
-    partClasses = new Set();
-    for (const name of parents.keys()) {
-      for (let c = name; c; c = parents.get(c)) {
-        if (c === 'BasePart') { partClasses.add(name); break; }
-      }
-    }
-    if (partClasses.size === 0) {
-      for (const name of ['Part', 'WedgePart', 'CornerWedgePart', 'TrussPart', 'MeshPart', 'UnionOperation', 'NegateOperation',
-        'SpawnLocation', 'Seat', 'VehicleSeat', 'SkateboardPlatform', 'Terrain']) partClasses.add(name);
-    }
-  }
-  return partClasses;
+  return partClasses.get(key);
 }
 
 // Objects the 2017 engine allows only under certain parents. It refuses the
@@ -482,8 +516,8 @@ function wrapScriptItem(n) {
     + `<ProtectedString name="Source"><![CDATA[${source}]]></ProtectedString></Properties></Item>`;
 }
 
-function misplaced(className, parentClass) {
-  if (className === 'Attachment') return !partClassesOf2017().has(parentClass);
+function misplaced(className, parentClass, api) {
+  if (className === 'Attachment') return !partClassesOf(api).has(parentClass);
   if (className === 'Team') return parentClass !== 'Teams';
   return false;
 }
@@ -696,7 +730,11 @@ function unsetAside(name) {
 // the place came from, for rbxgameasset:// names.
 // -> { output: Buffer, counts, summary: [lines] }
 function convertPlace(input, options) {
-  options = options || {};
+  options = Object.assign({}, options || {});
+  // The engine it is converted for, and that engine's API (lib/apidump.js).
+  const api = options.api !== undefined ? options.api : apidump.get(options.engine);
+  options.api = api;
+  const engine = ENGINE_TARGETS.includes(String(options.engine)) ? String(options.engine) : '2017';
   const head = input.subarray(0, 16).toString('latin1');
   if (head.startsWith('<roblox!')) {
     throw new Error('This is a binary place file (.rbxl): read it into XML first (lib/rbxbinary.js placeXml).');
@@ -706,11 +744,13 @@ function convertPlace(input, options) {
   }
   const counts = {
     robloxLinks: 0, thumbnails: 0, gameAssets: 0, contentIds: 0, fonts: 0, droppedProperties: 0, intValues: 0,
-    attributes: 0, attributeSets: 0, attributeValues: 0, attributesInUse: false, wrappingLists: 0, sharedStrings: 0, newCsg: 0, compoundAssignments: 0, materials: 0, unionCollision: 0, unionShapes: 0, filteringEnabled: 0, aspectRatios: 0, pgsSolver: 0, streaming: 0, gamePatches: new Set(),
+    attributes: 0, attributeSets: 0, attributeValues: 0, attributesInUse: false, wrappingLists: 0, sharedStrings: 0, newCsg: 0, compoundAssignments: 0, materials: 0, unionCollision: 0, unionShapes: 0, filteringEnabled: 0, aspectRatios: 0, pgsSolver: 0, streaming: 0, oldGui: 0, gamePatches: new Set(),
     compatScripts: 0, compatChanges: new Map(), madeFolders: new Map(), standIns: new Map(), chatSetAside: 0, coreGuiSetAside: 0, localizationTables: 0, playerModule: false,
     gameAssetNames: new Set(), unsupportedThumbnails: new Set(), luauScripts: [], unknownClasses: new Map(),
   };
-  const known = classesOf2017();
+  counts.engine = engine;
+  counts.apiDumpMissing = !api || api.fallback;
+  const known = api ? new Set(api.classes.keys()) : null;
   const output = [];
   // Classes of the open <Item>s (as written out), across pieces; a model's
   // top-level items have no parent and are left as they are.
@@ -725,7 +765,7 @@ function convertPlace(input, options) {
   counts.attributesInUse = [...pieces(input)].some((piece) => /AttributesSerialize">[^<]|:SetAttribute\s*\(/.test(piece.toString('latin1')));
   // Newer properties the file has: scripts setting them are guarded.
   counts.newerProperties = new Set();
-  for (const piece of pieces(input)) luacompat.newerPropertyNames(piece.toString('latin1'), counts.newerProperties);
+  for (const piece of pieces(input)) luacompat.newerPropertyNames(piece.toString('latin1'), counts.newerProperties, { api });
   for (const piece of pieces(dropSharedStrings(input, counts))) {
     // Latin-1 keeps every byte as it was; only ASCII markup is touched.
     let text = piece.toString('latin1');
@@ -740,7 +780,7 @@ function convertPlace(input, options) {
         openItems.push(standIn);
         return `<Item class="${standIn}"${rest}>`;
       }
-      if (openItems.length > 0 && misplaced(className, openItems[openItems.length - 1])) {
+      if (openItems.length > 0 && misplaced(className, openItems[openItems.length - 1], api)) {
         counts.madeFolders.set(className, (counts.madeFolders.get(className) || 0) + 1);
         openItems.push('Folder');
         return `<Item class="Folder"${rest}>`;
@@ -903,40 +943,43 @@ function dropSharedStrings(input, counts) {
 
 function summarize(counts, options) {
   const lines = [];
+  const year = counts.engine || '2017';
   const changed = (n, what) => { if (n > 0) lines.push(`  ${n} ${what}`); };
-  lines.push('Changed:');
+  lines.push(year === '2017' ? 'Changed:' : `Changed (for Roblox ${year}):`);
   changed(counts.robloxLinks, 'roblox.com asset links -> rbxassetid://');
   changed(counts.thumbnails, 'rbxthumb:// thumbnails -> local thumbnail addresses');
   changed(counts.gameAssets, `rbxgameasset:// names -> universe ${options.universeId} lookups`);
   changed(counts.contentIds, 'newer Content values (ContentId, <uri>, MeshContent...) rewritten');
   changed(counts.fonts, 'FontFace values -> the old Font list');
   changed(counts.intValues, 'IntValue values int64 -> int (2017 would read them as 0)');
-  changed(counts.droppedProperties, 'values of types the 2017 engine cannot read removed');
+  changed(counts.droppedProperties, `values of types the ${year} engine cannot read removed`);
   changed(counts.attributeValues, 'attributes kept as Value objects (in a __2017Attributes child; scripts read them through stand-ins)');
   changed(counts.attributes - counts.attributeSets, 'attribute sets removed (unreadable)');
   changed(counts.sharedStrings, 'shared strings removed');
   changed(counts.compoundAssignments, 'compound assignments (x += 1) written out');
   changed(counts.unionShapes, 'unions given collision shaped like them (made from their mesh; 2017 cannot read their newer collision data)');
   changed(counts.unionCollision, 'unions given box collision (2017 cannot read their newer collision data)');
-  changed(counts.materials, 'part materials the 2017 engine lacks (Glass, ForceField...) -> the nearest it has');
-  if (counts.chatSetAside > 0) lines.push('  a newer chat system the 2017 engine cannot run set aside; the game gets the 2017 chat');
+  changed(counts.oldGui, `GUI sizes and anchors ${year} lacks (TextSize, AnchorPoint) -> FontSize and Position`);
+  changed(counts.materials, `part materials the ${year} engine lacks (Glass, ForceField...) -> the nearest it has`);
+  if (counts.chatSetAside > 0) lines.push(`  a newer chat system the ${year} engine cannot run set aside; the game gets the ${year} chat`);
   if (counts.coreGuiSetAside > 0) lines.push('  a copy of Roblox\'s own UI scripts saved into StarterGui (RobloxGui) set aside; players get the 2017 topbar, backpack and player list');
   if (counts.playerModule) lines.push('  a stand-in PlayerModule (move input) added to StarterPlayerScripts, which the game\'s scripts look for');
   if (counts.localizationTables > 0) lines.push(`  ${counts.localizationTables} localization table${counts.localizationTables === 1 ? '' : 's'} given to clients as ModuleScripts (ReplicatedStorage.${LOCALIZATION_FOLDER}) for the GetTranslator stand-in`);
   changed(counts.wrappingLists, 'wrapping lists (UIListLayout.Wraps) -> grids of the same name');
   if (counts.standIns.size > 0) lines.push(`  newer classes as the nearest 2017 one: ${[...counts.standIns].map(([from, to]) => `${from} -> ${to}`).join(", ")}`);
   if (counts.madeFolders.size > 0) {
-    lines.push(`  ${[...counts.madeFolders].map(([name, n]) => `${n} ${name}${n === 1 ? '' : 's'}`).join(', ')} where the 2017 engine does not allow them (it would refuse the whole place) -> folders of the same name`);
+    lines.push(`  ${[...counts.madeFolders].map(([name, n]) => `${n} ${name}${n === 1 ? '' : 's'}`).join(', ')} where the ${year} engine does not allow them (it would refuse the whole place) -> folders of the same name`);
   }
   if (counts.aspectRatios > 0) lines.push(`  ${counts.aspectRatios} UIAspectRatioConstraint AspectRatio set to 1 (0 stops 2017 from loading the file)`);
-  if (counts.filteringEnabled > 0) lines.push('  FilteringEnabled turned on (the file leaves it out, and the 2017 engine would run the game with it off)');
+  if (counts.filteringEnabled > 0) lines.push(`  FilteringEnabled turned on (the file leaves it out, and the ${year} engine would run the game with it off)`);
   if (counts.pgsSolver > 0) lines.push('  the PGS physics solver turned on (the file leaves it out; with the older 2017 solver, forces and newer constraints do nothing)');
   if (counts.streaming > 0) lines.push('  StreamingEnabled turned off (with 2017 streaming, newer games wait for parts that never arrive)');
   for (const name of counts.gamePatches) lines.push(`  Fixed: ${name}`);
   if (counts.compatScripts > 0) {
     lines.push(`  ${counts.compatScripts} scripts made to run on 2017: ${[...counts.compatChanges].sort((a, b) => b[1] - a[1]).map(([name, n]) => `${name} x${n}`).join(', ')}`);
   }
-  if (lines.length === 1) lines.push('  nothing - the file already uses the 2017 format');
+  if (lines.length === 1) lines.push(`  nothing - the file already uses the ${year} format`);
+  if (counts.apiDumpMissing && year !== '2017') lines.push(`  (no API list for ${year} on this server: converted with 2017's)`);
 
   const notes = [];
   if (counts.gameAssetNames.size > 0 && !options.universeId) {
@@ -944,10 +987,10 @@ function summarize(counts, options) {
       + ' give the Roblox place ID it came from, or set gameUniverseId in config/assets.json.');
   }
   if (counts.unsupportedThumbnails.size > 0) notes.push(`rbxthumb:// types with no local route left as they were: ${[...counts.unsupportedThumbnails].join(', ')}.`);
-  if (counts.newCsg > 0) notes.push(`${counts.newCsg} unions use the newer CSG format and will not show in the 2017 engine. Separate them in Studio, or re-union them in a 2017-era Studio.`);
+  if (counts.newCsg > 0) notes.push(`${counts.newCsg} unions use the newer CSG format and will not show in the ${year} engine. Separate them in Studio, or re-union them in a 2017-era Studio.`);
   if (counts.unknownClasses.size > 0) {
     const list = [...counts.unknownClasses.entries()].sort((a, b) => b[1] - a[1]).map(([name, n]) => `${name} x${n}`);
-    notes.push(`Classes the 2017 engine does not have (skipped when the place loads): ${list.slice(0, 20).join(', ')}${list.length > 20 ? ', ...' : ''}.`);
+    notes.push(`Classes the ${year} engine does not have (skipped when the place loads): ${list.slice(0, 20).join(', ')}${list.length > 20 ? ', ...' : ''}.`);
   }
   if (counts.luauScripts.length > 0) {
     notes.push(`${counts.luauScripts.length} scripts use Luau syntax Lua 5.1 cannot run; edit these by hand:`);
@@ -959,6 +1002,33 @@ function summarize(counts, options) {
     for (const note of notes) lines.push(note.startsWith('    ') ? note : `  - ${note}`);
   }
   return lines;
+}
+
+// Every script of a place (Buffer of an .rbxlx): [{ path, className, source,
+// disabled }], path as Instance:GetFullName() gives it (Workspace.Model.Script).
+function scriptsOf(input) {
+  const list = [];
+  const stack = [];
+  const pattern = /<Item\s+class="([^"]+)"[^>]*>|<\/Item>|<string\s+name="Name">([^<]*)<\/string>|<bool\s+name="Disabled">(true|false)<\/bool>|<ProtectedString\s+name="Source">(?:<!\[CDATA\[([\s\S]*?)\]\]>|([^<]*))<\/ProtectedString>|<!\[CDATA\[[\s\S]*?\]\]>/g;
+  for (const piece of pieces(input)) {
+    const text = piece.toString('latin1');
+    for (const match of text.matchAll(pattern)) {
+      if (match[1] !== undefined) {
+        stack.push({ className: match[1], name: null, source: null, disabled: false });
+      } else if (match[0] === '</Item>') {
+        const item = stack.pop();
+        if (item && item.source !== null && SCRIPT_CLASSES.has(item.className)) {
+          list.push({ path: [...stack, item].map((i) => (i.name === null ? i.className : i.name)).join('.'), className: item.className, source: item.source, disabled: item.disabled });
+        }
+      } else if (stack.length > 0) {
+        const top = stack[stack.length - 1];
+        if (match[2] !== undefined) { if (top.name === null) top.name = xmlUnescape(match[2]); }
+        else if (match[3] !== undefined) top.disabled = match[3] === 'true';
+        else if (match[4] !== undefined || match[5] !== undefined) top.source = match[4] !== undefined ? match[4] : xmlUnescape(match[5]);
+      }
+    }
+  }
+  return list;
 }
 
 // Roblox place ID -> universe ID (for rbxgameasset:// names), or null.
@@ -974,4 +1044,4 @@ async function universeForPlace(placeId) {
   }
 }
 
-module.exports = { convertPlace, unionsNeedingShapes, universeForPlace, convertUrl, expandCompound, fontEnum };
+module.exports = { convertPlace, unionsNeedingShapes, universeForPlace, convertUrl, expandCompound, fontEnum, scriptsOf, pieces, ENGINE_TARGETS };

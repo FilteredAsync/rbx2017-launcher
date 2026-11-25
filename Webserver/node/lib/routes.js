@@ -28,7 +28,6 @@ const rbxbinary = require('./rbxbinary');
 const marketplace = require('./marketplace');
 const ownership = require('./ownership');
 const robux = require('./robux');
-const unionshapes = require('./unionshapes');
 const missingassets = require('./missingassets');
 const places = require('./places');
 const engines = require('./engines');
@@ -37,6 +36,8 @@ const rbxm = require('./rbxm');
 const reports = require('./reports');
 const publicnet = require('./publicnet');
 const restorevalues = require('./restorevalues');
+// Converting places for their game's engine, with a report per game (lib/placeconvert.js).
+const placeconvert = require('./placeconvert')({ assetBytes, log: (line) => console.log(`[converter] ${line}`) });
 const social = require('./social');
 const thumbs = require('./thumbs');
 const www = require('./www');
@@ -1458,8 +1459,8 @@ async function placeUpload(ctx) {
   return { bytes };
 }
 
-// The uploaded place, converted for the 2017 engine -> { bytes, notes, universeId } or { error }.
-async function convertUpload(ctx, query) {
+// The uploaded place, converted for `engine` -> { bytes, notes, universeId, original, converted } or { error }.
+async function convertUpload(ctx, query, engine) {
   const upload = await placeUpload(ctx);
   if (upload.error) return upload;
   const { bytes } = upload;
@@ -1469,37 +1470,17 @@ async function convertUpload(ctx, query) {
     if (universeId === null) return { error: `could not find the universe of Roblox place ${query.fromplace}` };
   }
   try {
-    return Object.assign(await convertPlaceFile(bytes, universeId), { universeId });
+    const converted = await placeconvert.convert(bytes, { universeId, engine });
+    return { bytes: converted.bytes, notes: converted.notes, universeId, original: bytes, converted };
   } catch (error) {
     return { error: error.message };
   }
 }
 
-// A place file (XML, or binary read into XML: lib/rbxbinary.js) through the
-// converter -> { bytes, notes }; bytes are what the server stores (binary).
-async function convertPlaceFile(bytes, universeId) {
-  const input = rbxbinary.placeXml(bytes);
-  const result = placefile.convertPlace(input.xml, { universeId, unionShapes: await unionShapes(input.xml) });
-  const stored = rbxbinary.placeToStore(result.output);
-  return { bytes: stored.bytes, notes: [...input.notes, ...result.summary, ...stored.notes] };
-}
-
 // A model (Studio's Toolbox inserts it) through the same converter -> its XML,
 // which 2017 Studio reads.
 async function convertModelFile(bytes) {
-  const input = rbxbinary.placeXml(bytes);
-  return placefile.convertPlace(input.xml, { unionShapes: await unionShapes(input.xml) }).output;
-}
-
-// Collision shapes for a place's unions, made from their meshes (lib/unionshapes.js),
-// which come like any asset (cache, then Roblox). Unions without one keep the
-// converter's old rule.
-async function unionShapes(bytes) {
-  try {
-    return await unionshapes.buildShapes(placefile.unionsNeedingShapes(bytes), assetBytes);
-  } catch (error) {
-    return new Map();
-  }
+  return placeconvert.convertModel(bytes);
 }
 
 async function placesApi(ctx, match) {
@@ -1517,12 +1498,14 @@ async function placesApi(ctx, match) {
 
   if (placeId === null) {
     if (ctx.method !== 'POST') return sendJson(ctx, 405, { error: 'use POST to upload' });
-    const converted = await convertUpload(ctx, query);
+    const converted = await convertUpload(ctx, query, engines.DEFAULT_ENGINE);
     if (converted.error) return sendJson(ctx, 400, { error: converted.error });
     const place = places.create({
       name: query.name, description: query.description, universeId: converted.universeId,
       enabled: query.enabled === '1' || query.enabled === 'true', bytes: converted.bytes, notes: converted.notes, from,
     });
+    places.storeOriginal(place.placeId, converted.original, place.version);
+    placeconvert.stored(place.placeId, converted.converted, places.filePath(place));
     return sendJson(ctx, 200, { place, notes: converted.notes });
   }
   if (!places.get(placeId)) return sendJson(ctx, 404, { error: 'no such place' });
@@ -1531,7 +1514,7 @@ async function placesApi(ctx, match) {
     return sendJson(ctx, 200, { ok: true });
   }
   if (action === 'file') {
-    const converted = await convertUpload(ctx, query);
+    const converted = await convertUpload(ctx, query, places.get(placeId).engine);
     if (converted.error) return sendJson(ctx, 400, { error: converted.error });
     let place;
     try {
@@ -1540,6 +1523,8 @@ async function placesApi(ctx, match) {
       if (error.busy) return sendJson(ctx, 409, { error: PLACE_FILE_BUSY });
       throw error;
     }
+    places.storeOriginal(placeId, converted.original, place.version);
+    placeconvert.stored(placeId, converted.converted, places.filePath(place));
     return sendJson(ctx, 200, { place, notes: converted.notes });
   }
   if (action === 'restart') {
@@ -1547,23 +1532,28 @@ async function placesApi(ctx, match) {
     return sendJson(ctx, 200, { ok: true });
   }
   if (action === 'reconvert') {
-    // The stored file through the current converter again (it learns new
-    // fixes over time): a new version, the old one kept in places/old.
+    // The upload this version came from (else the stored file) through the
+    // current converter again, for the game's engine (it learns new fixes
+    // over time): a new version, the old one kept in places/old.
     const current = places.get(placeId);
+    const original = places.originalFile(current, placeId);
     let result;
     try {
-      result = await convertPlaceFile(fs.readFileSync(places.filePath(current)), current.universeId || null);
+      result = await placeconvert.convert(fs.readFileSync(original || places.filePath(current)), { universeId: current.universeId || null, engine: current.engine });
     } catch (error) {
       return sendJson(ctx, 400, { error: `could not convert the place again: ${error.message}` });
     }
+    const notes = original ? result.notes : [...result.notes, '(converted from the stored file: no original upload kept for this version)'];
     let place;
     try {
-      place = await places.replaceFile(placeId, { bytes: result.bytes, notes: result.notes, universeId: current.universeId, from: 'converted again' });
+      place = await places.replaceFile(placeId, { bytes: result.bytes, notes, universeId: current.universeId, from: 'converted again' });
     } catch (error) {
       if (error.busy) return sendJson(ctx, 409, { error: PLACE_FILE_BUSY });
       throw error;
     }
-    return sendJson(ctx, 200, { place, notes: result.notes });
+    if (original) places.keepOriginal(placeId, place.version);
+    placeconvert.stored(placeId, result, places.filePath(place));
+    return sendJson(ctx, 200, { place, notes });
   }
   if (action === 'restore-values') {
     // IntValues older converters left at 0 (they dropped int64 values),

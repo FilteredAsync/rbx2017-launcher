@@ -38,8 +38,22 @@ function longBracketEnd(src, at) {
 function quotedEnd(src, at) {
   const q = src[at];
   let j = at + 1;
-  while (j < src.length && src[j] !== q && src[j] !== '\n') j += src[j] === '\\' ? 2 : 1;
+  while (j < src.length && src[j] !== q && src[j] !== '\n') j = afterChar(src, j);
   return Math.min(src.length, j + 1);
+}
+
+// Index after the character (or escape) at j inside a quoted string. \z
+// takes the spaces and line breaks after it (Luau), \ before a CRLF line
+// break takes both.
+function afterChar(src, j) {
+  if (src[j] !== '\\') return j + 1;
+  if (src[j + 1] === 'z') {
+    let k = j + 2;
+    while (k < src.length && /\s/.test(src[k])) k++;
+    return k;
+  }
+  if (src[j + 1] === '\r' && src[j + 2] === '\n') return j + 3;
+  return j + 2;
 }
 
 // An interpolated string starting at `at` (a backtick) -> { end, parts },
@@ -384,7 +398,8 @@ function lowerTokens(text, changes) {
       changes.add('number literals');
     } else if (t.type === 'string' && !t.long && raw.includes('\\')) {
       const body = lowerEscapes(raw.slice(1, -1));
-      if (body !== raw.slice(1, -1)) { edits.push([t.start, t.end, raw[0] + body + raw[raw.length - 1]]); changes.add('string escapes'); }
+      // (line breaks a \z took go after the string, so line numbers stay)
+      if (body !== raw.slice(1, -1)) { edits.push([t.start, t.end, keepLines(raw, raw[0] + body + raw[raw.length - 1])]); changes.add('string escapes'); }
     } else if (t.type === 'interp') {
       edits.push([t.start, t.end, keepLines(raw, lowerInterpolated(raw))]);
       changes.add('interpolated strings');

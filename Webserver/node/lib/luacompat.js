@@ -28,51 +28,31 @@
 //
 //   convertSource(text) -> { text, changes: [names] } (text unchanged: changes empty)
 
-const fs = require('fs');
-const path = require('path');
 const luaulower = require('./luaulower');
+const apidump = require('./apidump');
 
 const MARK = '--[[2017]]';
 
-// Member names the 2017 engine has (any class), from the client's API dump.
-// An event no 2017 class has (e.g. MarketplaceService.PromptGamePassPurchaseFinished)
+// The API of the engine a script is converted for (lib/apidump.js; 2017
+// unless options.engine names another). Member names no class of it has: an
+// event no 2017 class has (e.g. MarketplaceService.PromptGamePassPurchaseFinished)
 // stops a whole script at :Connect; such connections get a stand-in.
-const API_DUMP = path.join(__dirname, '..', '..', '..', 'Client', 'apidump.txt');
 const NEWER_EVENTS = new Set(['PromptGamePassPurchaseFinished', 'PromptBundlePurchaseFinished', 'PromptPremiumPurchaseFinished',
   'PlayerMembershipChanged', 'PromptSubscriptionPurchaseFinished', 'AttributeChanged', 'Destroying', 'PromptShown', 'PromptHidden',
   'Triggered', 'TriggerEnded', 'PlayerChatted', 'LocalToolEquipped', 'LocalToolUnequipped']);
-let members2017 = null;
-function unknownTo2017(name) {
-  if (members2017 === null) {
-    try {
-      members2017 = new Set();
-      for (const m of fs.readFileSync(API_DUMP, 'latin1').matchAll(/^\t(?:Property|Function|YieldFunction|Event|Callback) .*?\w+[.:](\w+)/gm)) members2017.add(m[1]);
-    } catch (error) {
-      members2017 = false;
-    }
-  }
-  return members2017 ? !members2017.has(name) : NEWER_EVENTS.has(name);
+// The API in use (set by convertSource for the script it converts).
+let API = null;
+function apiFor(options) {
+  if (options && options.api !== undefined) return options.api;
+  return apidump.get(options && options.engine);
+}
+function unknownTo2017(name, api = API) {
+  return api ? !api.hasMember(name) : NEWER_EVENTS.has(name);
 }
 
-// Enums the 2017 engine has: enum -> Set(item names), or null without the dump.
-let enums2017;
-function enumsOf2017() {
-  if (enums2017 === undefined) {
-    try {
-      enums2017 = new Map();
-      let current = null;
-      for (const line of fs.readFileSync(API_DUMP, 'latin1').split(/\r?\n/)) {
-        const type = /^Enum (\w+)/.exec(line);
-        if (type) { current = new Set(); enums2017.set(type[1], current); continue; }
-        const item = /^\tEnumItem \w+\.(\w+)/.exec(line);
-        if (item && current) current.add(item[1]);
-        else if (!line.startsWith('\t')) current = null;
-      }
-    } catch (error) {
-      enums2017 = null;
-    }
-  }
-  return enums2017;
+// Enums the engine has: enum -> Map(item -> value), or null without a dump.
+function enumsOf2017(api = API) {
+  return api ? api.enums : null;
 }
 // Newer items of 2017 enums -> the nearest item it has (others become their name).
 const ENUM_NEAREST = new Map([
@@ -84,33 +64,15 @@ const ENUM_NEAREST = new Map([
   ['UserCFrame', { Floor: 'Head' }],
 ]);
 
-// Classes the 2017 engine has (for GetService of newer services).
-let classes2017 = null;
-// Members of PlayerGui (and Instance) in 2017: x.PlayerGui.<anything else> is
-// a child, which the converter waits for (see the step-1 loop).
-let playerGuiMembers = null;
-function playerGuiMember(name) {
-  if (playerGuiMembers === null) {
-    playerGuiMembers = new Set();
-    try {
-      for (const m of fs.readFileSync(API_DUMP, 'latin1').matchAll(/^\t(?:Property|Function|YieldFunction|Event|Callback) .*?\b(?:Instance|BasePlayerGui|PlayerGui)[.:](\w+)/gm)) playerGuiMembers.add(m[1]);
-    } catch (error) {
-      return true; // without the dump, change nothing
-    }
-  }
-  return playerGuiMembers.has(name);
+// Members of PlayerGui (and Instance): x.PlayerGui.<anything else> is a
+// child, which the converter waits for (see the step-1 loop).
+function playerGuiMember(name, api = API) {
+  return api ? Boolean(api.member('PlayerGui', name)) : true;
 }
 
-function classKnownTo2017(name) {
-  if (classes2017 === null) {
-    try {
-      classes2017 = new Set();
-      for (const m of fs.readFileSync(API_DUMP, 'latin1').matchAll(/^Class (\w+)/gm)) classes2017.add(m[1]);
-    } catch (error) {
-      classes2017 = false;
-    }
-  }
-  return classes2017 ? classes2017.has(name) : true;
+// Classes the engine has (for GetService of newer services).
+function classKnownTo2017(name, api = API) {
+  return api ? api.hasClass(name) : true;
 }
 
 // Newer properties scripts read, and the value they get when the 2017
@@ -149,10 +111,11 @@ const NEWER_COMMON = ['TextEditable', 'AutomaticCanvasSize', 'TextDirection', 'S
   'JumpHeight', 'AutomaticScalingEnabled', 'EnvironmentDiffuseScale', 'EnvironmentSpecularScale', 'ExposureCompensation', 'ShadowSoftness',
   'LevelOfDetail', 'ModelStreamingMode', 'WorldPivot', 'EmissiveStrength', 'EmissiveTint', 'DoubleSided', 'RenderFidelity', 'CollisionFidelity',
   'OpenTypeFeatures', 'TextTruncate', 'MaxBubbles', 'BubbleDuration'];
-let newerCommon = null;
-function newerCommonProperty(name) {
-  if (newerCommon === null) newerCommon = new Set(NEWER_COMMON.filter((n) => unknownTo2017(n)));
-  return newerCommon.has(name);
+const newerCommon = new Map(); // engine -> Set
+function newerCommonProperty(name, api = API) {
+  const key = api ? api.engine : '';
+  if (!newerCommon.has(key)) newerCommon.set(key, new Set(NEWER_COMMON.filter((n) => unknownTo2017(n, api))));
+  return newerCommon.get(key).has(name);
 }
 
 // Newer properties read through a helper of their own: property -> helper.
@@ -191,7 +154,12 @@ function tokenize(src) {
     }
     if (c === '"' || c === "'" || c === '`') {
       let j = i + 1;
-      while (j < n && src[j] !== c && !(c !== '`' && src[j] === '\n')) j += src[j] === '\\' ? 2 : 1;
+      // (\z takes the spaces and line breaks after it; \ before CRLF takes both.)
+      while (j < n && src[j] !== c && !(c !== '`' && src[j] === '\n')) {
+        if (src[j] !== '\\') j++;
+        else if (src[j + 1] === 'z') { j += 2; while (j < n && /\s/.test(src[j])) j++; }
+        else j += src[j + 1] === '\r' && src[j + 2] === '\n' ? 3 : 2;
+      }
       tokens.push({ type: 'string', start: i, end: Math.min(n, j + 1) });
       i = j + 1;
       continue;
@@ -349,7 +317,7 @@ const METHODS = {
   // Spatial queries (2021); Model:GetScale/ScaleTo (2023); PathfindingService:CreatePath (2018).
   GetPartBoundsInBox: [2, 3], GetPartBoundsInRadius: [2, 3], GetPartsInPart: [1, 2], GetScale: [0], ScaleTo: [1], CreatePath: [0, 1],
   // Color3:ToHSV, Model:GetBoundingBox, AnimationTrack:GetMarkerReachedSignal; Actor messages (2021).
-  ToHSV: [0], GetBoundingBox: [0], GetMarkerReachedSignal: [1],
+  ToHSV: [0], GetBoundingBox: [0], GetMarkerReachedSignal: [1], GetPlayingAnimationTracks: [0],
   // Chat:RegisterChatCallback (2018): 2017's chat has no callbacks.
   RegisterChatCallback: [2],
   // RunService:BindToRenderStep: 2017 calls the function without the frame time.
@@ -472,6 +440,33 @@ const ACTOR_BIND = `${ACTOR_ENTRY} e.h[topic] = fn local q = e.q[topic] if q the
 const SIGNAL_EXTRAS = 'function s:Once(fn) local c c = s:Connect(function(...) if c then c:Disconnect() end fn(...) end) return c end '
   + 'function s:Wait() local e = Instance.new("BindableEvent") local r local c = s:Connect(function(...) r = {...} e:Fire() end) e.Event:wait() c:Disconnect() e:Destroy() return unpack(r) end '
   + 's.wait = s.Wait s.once = s.Once';
+
+// The TweenService stand-in (2016): Create(o, info, goal) -> a tween that
+// moves numbers, Vector3, CFrame, UDim2 and Color3 values on wait().
+const TWEEN_SERVICE = 'local styles = {Linear = function(a) return a end, Sine = function(a) return 1 - math.cos(a * math.pi / 2) end, '
+  + 'Quad = function(a) return a * a end, Cubic = function(a) return a ^ 3 end, Quart = function(a) return a ^ 4 end, Quint = function(a) return a ^ 5 end, '
+  + 'Exponential = function(a) return a == 0 and 0 or 2 ^ (10 * a - 10) end, Circular = function(a) return 1 - math.sqrt(1 - a * a) end, '
+  + 'Back = function(a) return a * a * (2.70158 * a - 1.70158) end, Bounce = function(a) a = 1 - a local r if a < 1 / 2.75 then r = 7.5625 * a * a '
+  + 'elseif a < 2 / 2.75 then a = a - 1.5 / 2.75 r = 7.5625 * a * a + 0.75 elseif a < 2.5 / 2.75 then a = a - 2.25 / 2.75 r = 7.5625 * a * a + 0.9375 '
+  + 'else a = a - 2.625 / 2.75 r = 7.5625 * a * a + 0.984375 end return 1 - r end, '
+  + 'Elastic = function(a) if a == 0 or a == 1 then return a end return -(2 ^ (10 * a - 10)) * math.sin((a * 10 - 10.75) * (2 * math.pi) / 3) end} '
+  + 'local function name(e, d) return tostring(e or d):match("([%w]+)$") or d end '
+  + 'local function ease(info, a) local f = styles[name(info.EasingStyle, "Quad")] or styles.Quad local dir = name(info.EasingDirection, "Out") '
+  + 'if dir == "In" then return f(a) elseif dir == "Out" then return 1 - f(1 - a) end if a < 0.5 then return f(a * 2) / 2 end return 1 - f((1 - a) * 2) / 2 end '
+  + 'local function mix(x, y, t) if type(x) == "number" then return x + (y - x) * t end if type(x) ~= "userdata" then return t >= 1 and y or x end '
+  + 'local ok, r = pcall(function() return x:lerp(y, t) end) if ok then return r end '
+  + 'ok, r = pcall(function() return UDim2.new(x.X.Scale + (y.X.Scale - x.X.Scale) * t, x.X.Offset + (y.X.Offset - x.X.Offset) * t, x.Y.Scale + (y.Y.Scale - x.Y.Scale) * t, x.Y.Offset + (y.Y.Offset - x.Y.Offset) * t) end) if ok then return r end '
+  + 'ok, r = pcall(function() return Color3.new(x.r + (y.r - x.r) * t, x.g + (y.g - x.g) * t, x.b + (y.b - x.b) * t) end) if ok then return r end return t >= 1 and y or x end '
+  + 'local TS = {} function TS:Create(o, info, goal) info = info or {} local done = Instance.new("BindableEvent") local run = 0 '
+  + 'local tw = {Instance = o, TweenInfo = info, PlaybackState = "Begin", Completed = done.Event} '
+  + 'function tw:Play() run = run + 1 local me = run tw.PlaybackState = "Playing" spawn(function() if (info.DelayTime or 0) > 0 then wait(info.DelayTime) end '
+  + 'local from = {} for k in pairs(goal) do from[k] = o[k] end local d, reps, n = info.Time or 1, info.RepeatCount or 0, 0 '
+  + 'repeat for pass = 1, info.Reverses and 2 or 1 do local t0 = tick() repeat if run ~= me then return end local a = d > 0 and math.min(1, (tick() - t0) / d) or 1 '
+  + 'local e = ease(info, a) if pass == 2 then e = 1 - e end for k, v in pairs(goal) do pcall(function() o[k] = mix(from[k], v, e) end) end if a < 1 then wait() end until a >= 1 end '
+  + 'n = n + 1 until reps >= 0 and n > reps tw.PlaybackState = "Completed" done:Fire("Completed") end) end '
+  + 'function tw:Cancel() run = run + 1 tw.PlaybackState = "Cancelled" end function tw:Pause() run = run + 1 tw.PlaybackState = "Paused" end '
+  + 'function tw:Destroy() run = run + 1 end tw.play = tw.Play tw.cancel = tw.Cancel tw.pause = tw.Pause return tw end '
+  + 'function TS:GetValue(a, style, dir) return ease({EasingStyle = style, EasingDirection = dir}, a) end return TS';
 
 const HELPERS = {
   GetDescendants: `function(o) ${own('GetDescendants', '')} local r = {} local function w(x) for _, c in ipairs(x:GetChildren()) do if c.Name ~= "__2017Attributes" then r[#r + 1] = c w(c) end end end w(o) return r end`,
@@ -695,6 +690,39 @@ const HELPERS = {
   // BasePart.ExtentsSize/ExtentsCFrame (newer): a part's own size and CFrame.
   ExtentsSize: 'function(p) local ok, v = pcall(function() return p.ExtentsSize end) if ok then return v end return p.Size end',
   ExtentsCFrame: 'function(p) local ok, v = pcall(function() return p.ExtentsCFrame end) if ok then return v end return p.CFrame end',
+  // Animator:GetPlayingAnimationTracks (2019): the Humanoid's or AnimationController's.
+  GetPlayingAnimationTracks: `function(o) ${own('GetPlayingAnimationTracks', '')} local ok, r = pcall(function() return o:GetPlayingAnimationTracks() end) if ok then return r end `
+    + 'local p = o.Parent if p and (p:IsA("Humanoid") or p:IsA("AnimationController")) then return p:GetPlayingAnimationTracks() end return {} end',
+  // 2016: signals have connect/wait/disconnect only (a game's own signal object keeps its own).
+  Connect: 'function(s, f) if type(s) == "table" then return s:Connect(f) end return s:connect(f) end',
+  Wait: 'function(s) if type(s) == "table" then return s:Wait() end return s:wait() end',
+  Disconnect: 'function(c) if type(c) == "table" then return c:Disconnect() end return c:disconnect() end',
+  FindFirstChildOfClass: `function(o, c) ${own('FindFirstChildOfClass', 'c')} for _, x in ipairs(o:GetChildren()) do if x.ClassName == c then return x end end return nil end`,
+  FindFirstChildWhichIsA: `function(o, c, r) ${own('FindFirstChildWhichIsA', 'c, r')} local function w(p) for _, x in ipairs(p:GetChildren()) do if x:IsA(c) then return x end end `
+    + 'if r then for _, x in ipairs(p:GetChildren()) do local f = w(x) if f then return f end end end return nil end return w(o) end',
+  FindFirstAncestor: `function(o, n) ${own('FindFirstAncestor', 'n')} local p = o.Parent while p do if p.Name == n then return p end p = p.Parent end return nil end`,
+  FindFirstAncestorOfClass: `function(o, c) ${own('FindFirstAncestorOfClass', 'c')} local p = o.Parent while p do if p.ClassName == c then return p end p = p.Parent end return nil end`,
+  FindFirstAncestorWhichIsA: `function(o, c) ${own('FindFirstAncestorWhichIsA', 'c')} local p = o.Parent while p do if p:IsA(c) then return p end p = p.Parent end return nil end`,
+  GetPropertyChangedSignal: `function(o, n) ${own('GetPropertyChangedSignal', 'n')} local s = {} function s:connect(f) return o.Changed:connect(function(p) if p == n then f() end end) end `
+    + 'function s:wait() repeat local p = o.Changed:wait() until p == n end s.Connect = s.connect s.Wait = s.wait return s end',
+  // x:Lerp(goal, a): 2016 has CFrame/Vector3 lerp only (Color3's is switched off).
+  Lerp: `function(o, g, a) ${own('Lerp', 'g, a')} local ok, r = pcall(function() return o:lerp(g, a) end) if ok then return r end `
+    + 'ok, r = pcall(function() return UDim2.new(o.X.Scale + (g.X.Scale - o.X.Scale) * a, o.X.Offset + (g.X.Offset - o.X.Offset) * a, o.Y.Scale + (g.Y.Scale - o.Y.Scale) * a, o.Y.Offset + (g.Y.Offset - o.Y.Offset) * a) end) if ok then return r end '
+    + 'return Color3.new(o.r + (g.r - o.r) * a, o.g + (g.g - o.g) * a, o.b + (g.b - o.b) * a) end',
+  // TweenService on 2016 (it has the service, no Create): tweens run on wait().
+  TweenService: `function(game) local ok, s = pcall(function() return game:GetService("TweenService") end) if ok and s and pcall(function() return s.Create end) then return s end ${TWEEN_SERVICE} end`,
+  // TextSize (2016 has FontSize): the nearest size.
+  SetTextSize: 'function(o, n, v) if pcall(function() o.TextSize = v end) then return end local best, d = "Size14", math.huge '
+    + 'for _, x in ipairs({8, 9, 10, 11, 12, 14, 18, 24, 28, 32, 36, 42, 48, 60, 96}) do if math.abs(x - v) < d then best, d = "Size" .. x, math.abs(x - v) end end pcall(function() o.FontSize = Enum.FontSize[best] end) end',
+  TextSize: 'function(o) local ok, v = pcall(function() return o.TextSize end) if ok then return v end local ok2, f = pcall(function() return o.FontSize end) '
+    + 'if ok2 and f then return tonumber(tostring(f):match("Size(%d+)")) or 14 end return 14 end',
+  // typeof (2016 has only type): Instances and the usual value types.
+  typeof: 'function(v) local t = type(v) if t ~= "userdata" then return t end if pcall(function() return v.ClassName end) then return "Instance" end '
+    + 'local function has(k) return (pcall(function() return v[k] end)) end '
+    + 'if has("lookVector") then return "CFrame" elseif has("Origin") and has("Direction") then return "Ray" elseif has("Scale") and has("Offset") then return "UDim" '
+    + 'elseif has("X") and has("Y") then if has("Z") then return "Vector3" end local ok, x = pcall(function() return v.X.Scale end) if ok and x then return "UDim2" end return "Vector2" '
+    + 'elseif has("Number") and has("Color") then return "BrickColor" elseif has("r") and has("g") then return "Color3" elseif has("Min") and has("Max") then return "NumberRange" '
+    + 'elseif has("Keypoints") then return "ColorSequence" elseif has("connect") then return "RBXScriptSignal" elseif has("disconnect") then return "RBXScriptConnection" end return "userdata" end',
   // Enum types 2017 lacks: items are their names.
   EnumType: 'function(n) return setmetatable({}, {__index = function(_, k) if k == "GetEnumItems" then return function() return {} end end return k end, __tostring = function() return n end}) end',
 };
@@ -800,7 +828,11 @@ const LIBRARY = {
     fromScale: 'function(x, y) return UDim2.new(x, 0, y, 0) end',
     fromOffset: 'function(x, y) return UDim2.new(0, x, 0, y) end',
   },
-  CFrame: { lookAt: 'function(a, b) return CFrame.new(a, b) end' },
+  CFrame: {
+    lookAt: 'function(a, b) return CFrame.new(a, b) end',
+    // CFrame.fromMatrix (2019): the columns of the rotation are x, y, z.
+    fromMatrix: 'function(p, x, y, z) z = z or x:Cross(y).unit return CFrame.new(p.X, p.Y, p.Z, x.X, y.X, z.X, x.Y, y.Y, z.Y, x.Z, y.Z, z.Z) end',
+  },
   Color3: {
     fromHex: 'function(h) h = tostring(h):gsub("#", "") return Color3.new(tonumber(h:sub(1, 2), 16) / 255, tonumber(h:sub(3, 4), 16) / 255, tonumber(h:sub(5, 6), 16) / 255) end',
   },
@@ -924,10 +956,46 @@ const LIBRARY = {
   },
 };
 
+// What the 2016 engine lacks that 2017 has (each checked in the 2016 RCC with
+// tools/converter-corpus.js probe), given to scripts converted for an engine
+// older than 2017: library members, methods (-> helpers), properties scripts
+// set that it lacks (guarded), and globals.
+const LIBRARY_2016 = {
+  // Color3.fromRGB/fromHSV are there but switched off ("not yet enabled").
+  Color3: {
+    fromRGB: 'function(r, g, b) return Color3.new((r or 0) / 255, (g or 0) / 255, (b or 0) / 255) end',
+    fromHSV: 'function(h, s, v) local i = math.floor(h * 6) local f = h * 6 - i local p, q, t = v * (1 - s), v * (1 - f * s), v * (1 - (1 - f) * s) i = i % 6 '
+      + 'if i == 0 then return Color3.new(v, t, p) elseif i == 1 then return Color3.new(q, v, p) elseif i == 2 then return Color3.new(p, v, t) '
+      + 'elseif i == 3 then return Color3.new(p, q, v) elseif i == 4 then return Color3.new(t, p, v) end return Color3.new(v, p, q) end',
+    toHSV: 'function(c) local r, g, b = c.r, c.g, c.b local mx, mn = math.max(r, g, b), math.min(r, g, b) local d = mx - mn local h = 0 '
+      + 'if d > 0 then if mx == r then h = ((g - b) / d) % 6 elseif mx == g then h = (b - r) / d + 2 else h = (r - g) / d + 4 end h = h / 6 end '
+      + 'return h, mx > 0 and d / mx or 0, mx end',
+  },
+  CFrame: {
+    fromOrientation: 'function(x, y, z) return CFrame.Angles(0, y, 0) * CFrame.Angles(x, 0, 0) * CFrame.Angles(0, 0, z) end',
+    fromEulerAnglesYXZ: 'function(x, y, z) return CFrame.Angles(0, y, 0) * CFrame.Angles(x, 0, 0) * CFrame.Angles(0, 0, z) end',
+    fromEulerAnglesXYZ: 'function(x, y, z) return CFrame.Angles(x, y, z) end',
+  },
+  TweenInfo: {
+    new: 'function(t, s, d, r, rev, delay) return {Time = t or 1, EasingStyle = s or Enum.EasingStyle.Quad, EasingDirection = d or Enum.EasingDirection.Out, '
+      + 'RepeatCount = r or 0, Reverses = rev or false, DelayTime = delay or 0} end',
+  },
+};
+const METHODS_2016 = {
+  Connect: [1], Wait: [0], Disconnect: [0], FindFirstChildOfClass: [1], FindFirstChildWhichIsA: [1, 2], FindFirstAncestor: [1],
+  FindFirstAncestorOfClass: [1], FindFirstAncestorWhichIsA: [1], GetPropertyChangedSignal: [1], Lerp: [2],
+};
+const SETTABLE_2016 = new Set(['AnchorPoint', 'Enabled', 'ResetOnSpawn', 'LayoutOrder', 'DisplayOrder', 'ZIndexBehavior', 'Orientation', 'PlaybackSpeed']);
+
+// An engine older than 2017 (2016), which lacks the *_2016 things above.
+function olderThan2017(api = API) {
+  return Boolean(api) && Number(api.engine) < 2017;
+}
+
 // Names from scripts index these tables: with no prototype, a Lua name such
 // as constructor or toString finds nothing instead of Object's own.
 for (const table of [NEWER_PROPERTIES, READ_HELPERS, SETTERS, OPEN, CLOSE, METHODS, TAG_BODIES, NEWER_METHODS, CS_METHODS, CS_PARAMS,
-  HELPERS, REFRESHED, LIBRARY, ...Object.values(LIBRARY)]) Object.setPrototypeOf(table, null);
+  HELPERS, REFRESHED, LIBRARY, ...Object.values(LIBRARY), LIBRARY_2016, ...Object.values(LIBRARY_2016), METHODS_2016]) Object.setPrototypeOf(table, null);
 
 // Random did not exist yet: a stand-in on math.random.
 const RANDOM = 'local Random = {new = function(seed) if seed then math.randomseed(seed) end local r = {} '
@@ -940,14 +1008,23 @@ const RANDOM = 'local Random = {new = function(seed) if seed then math.randomsee
 // Enum.Font names the 2017 engine lacks (it has 0-15) -> the nearest it has.
 const FONTS_2017 = new Set(['Legacy', 'Arial', 'ArialBold', 'SourceSans', 'SourceSansBold', 'SourceSansLight', 'SourceSansItalic',
   'Bodoni', 'Garamond', 'Cartoon', 'Code', 'Highway', 'SciFi', 'Arcade', 'Fantasy', 'Antique']);
-function fontFor(name) {
+function fontFor(name, fonts = FONTS_2017) {
+  const pick = (wanted) => (fonts.has(wanted) ? wanted : null);
   if (/Black|Bold|Heavy|Semibold|SemiBold|Medium/.test(name)) return 'SourceSansBold';
   if (/Light|Thin/.test(name)) return 'SourceSansLight';
   if (/Italic/.test(name)) return 'SourceSansItalic';
-  if (/Fredoka|Bangers|Luckiest|Cartoon|Creepster/.test(name)) return 'Cartoon';
-  if (/Mono|Code|Roboto ?Mono|Ubuntu ?Mono/.test(name)) return 'Code';
-  if (/Arcade|PressStart|Pixel/.test(name)) return 'Arcade';
+  if (/Fredoka|Bangers|Luckiest|Cartoon|Creepster/.test(name)) return pick('Cartoon') || 'SourceSansBold';
+  if (/Mono|Code|Roboto ?Mono|Ubuntu ?Mono/.test(name)) return pick('Code') || 'SourceSans';
+  if (/Arcade|PressStart|Pixel/.test(name)) return pick('Arcade') || 'SourceSansBold';
+  // 2017's fonts on an engine without them (2016 has 0-6).
+  if (/^(?:Highway|SciFi|Fantasy)$/.test(name)) return 'SourceSansBold';
   return 'SourceSans';
+}
+
+// Enum.Font names the engine has.
+function fontsOf(api) {
+  const fonts = api && api.enum('Font');
+  return fonts ? new Set(fonts.keys()) : FONTS_2017;
 }
 
 // Is "name" assigned or declared as a local in this script (then it is the
@@ -962,6 +1039,10 @@ function declaresOwn(tokens, name, from = 0) {
     while (j > 0 && isSymbol(tokens[j], ',') && tokens[j - 1].type === 'name') j -= 2;
     const before = tokens[j];
     if (!before) continue;
+    // local Random = Random.new() / local math = math: the value is still the
+    // library (it needs its stand-in first).
+    if (before.type === 'keyword' && before.value === 'local' && j === i - 1 && isSymbol(tokens[i + 1], '=')
+      && tokens[i + 2] && tokens[i + 2].type === 'name' && tokens[i + 2].value === name) continue;
     if (before.type === 'keyword' && (before.value === 'local' || before.value === 'for' || (before.value === 'function' && j === i - 1))) return true;
     if (isSymbol(before, '(')) {
       // function(math) / function a.b:c(math)
@@ -1166,6 +1247,27 @@ function stripTypes(text) {
 // 2017 lacks: setting them is guarded like NEWER_SETTABLE).
 function convertSource(source, options = {}) {
   if (typeof source !== 'string') return { text: source, changes: [] };
+  const previous = API;
+  API = apiFor(options);
+  try {
+    return convertWith(source, options);
+  } finally {
+    API = previous;
+  }
+}
+
+function convertWith(source, options) {
+  // What the engine lacks beyond 2017's gaps (2016: the *_2016 tables).
+  const older = olderThan2017();
+  const methods = older ? Object.assign(Object.create(null), METHODS, METHODS_2016) : METHODS;
+  const readHelpers = older ? Object.assign(Object.create(null), READ_HELPERS, { TextSize: 'TextSize' }) : READ_HELPERS;
+  const library = older ? Object.create(null) : LIBRARY;
+  if (older) {
+    for (const name of new Set([...Object.keys(LIBRARY), ...Object.keys(LIBRARY_2016)])) {
+      library[name] = Object.assign(Object.create(null), LIBRARY[name] || {}, LIBRARY_2016[name] || {});
+    }
+  }
+  const settable = (name) => NEWER_SETTABLE.has(name) || newerCommonProperty(name) || (older && (SETTABLE_2016.has(name) || name === 'TextSize'));
   const newerProperties = options.newerProperties || null;
   // A script converted before gets only the rewrites added since (newer
   // services and properties); everything else was done then.
@@ -1201,7 +1303,7 @@ function convertSource(source, options = {}) {
     for (const helper of lowered.helpers) helpers.add(helper);
   }
   // a.Locked, a.CastShadow = true, false: newer properties among several targets.
-  const split = luaulower.guardMultipleAssignments(text, (name) => NEWER_SETTABLE.has(name) || newerCommonProperty(name) || (newerProperties !== null && newerProperties.has(name)));
+  const split = luaulower.guardMultipleAssignments(text, (name) => settable(name) || (newerProperties !== null && newerProperties.has(name)));
   if (split.count > 0) {
     text = split.text;
     changes.add('newer properties set with others');
@@ -1313,6 +1415,17 @@ function convertSource(source, options = {}) {
       if (isSymbol(tokens[i], ':') && tokens[i + 1].type === 'name' && tokens[i + 1].value === 'GetService' && isSymbol(tokens[i + 2], '(')
         && tokens[i + 3] && tokens[i + 3].type === 'string' && isSymbol(tokens[i + 4], ')')) {
         const literal = /^(["'])(\w+)\1$/.exec(text.slice(tokens[i + 3].start, tokens[i + 3].end));
+        // 2016 has a TweenService without Create: a working stand-in.
+        if (literal && literal[2] === 'TweenService' && older && API && !API.member('TweenService', 'Create')) {
+          const at = prefixStart(tokens, i);
+          if (at >= 0) {
+            text = `${text.slice(0, tokens[at].start)}__rbx2017.TweenService(${text.slice(tokens[at].start, tokens[i].start)})${text.slice(tokens[i + 4].end)}`;
+            helpers.add('TweenService');
+            changes.add('TweenService (2016)');
+            done = false;
+            break;
+          }
+        }
         const start = literal && !classKnownTo2017(literal[2]) ? prefixStart(tokens, i) : -1;
         if (start >= 0) {
           const object = text.slice(tokens[start].start, tokens[i].start);
@@ -1366,14 +1479,14 @@ function convertSource(source, options = {}) {
       }
       // humanoid.RootPart (read; 2018) -> __rbx2017.RootPart(humanoid); player.DisplayName (2020; on
       // 2017 only Roblox's own scripts may read it) -> __rbx2017.DisplayName(player): the name.
-      if (isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && READ_HELPERS[tokens[i + 1].value] !== undefined && !isSymbol(tokens[i + 2], '=') && !isSymbol(tokens[i + 2], '(')
+      if (isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && readHelpers[tokens[i + 1].value] !== undefined && !isSymbol(tokens[i + 2], '=') && !isSymbol(tokens[i + 2], '(')
         && (tokens[i + 1].value !== 'C0' || usesTransform)) {
         const start = prefixStart(tokens, i);
         if (start >= 0 && text.slice(tokens[start].start, tokens[i].start) !== '__rbx2017') {
           const object = text.slice(tokens[start].start, tokens[i].start);
           const name = tokens[i + 1].value;
-          text = `${text.slice(0, tokens[start].start)}__rbx2017.${READ_HELPERS[name]}(${object})${text.slice(tokens[i + 1].end)}`;
-          helpers.add(READ_HELPERS[name]);
+          text = `${text.slice(0, tokens[start].start)}__rbx2017.${readHelpers[name]}(${object})${text.slice(tokens[i + 1].end)}`;
+          helpers.add(readHelpers[name]);
           changes.add(name === 'RootPart' ? 'Humanoid.RootPart' : `.${name}`);
           done = false;
           break;
@@ -1477,7 +1590,7 @@ function convertSource(source, options = {}) {
       // x.NewerProperty = value (one token) -> __rbx2017.Set(x, "NewerProperty", value).
       // The value may be simple operands (literals, a.b.c) joined by and/or/arithmetic.
       const valueEnd = isSymbol(tokens[i], '.') && tokens[i + 1].type === 'name' && isSymbol(tokens[i + 2], '=')
-        && (NEWER_SETTABLE.has(tokens[i + 1].value) || newerCommonProperty(tokens[i + 1].value) || (newerProperties !== null && newerProperties.has(tokens[i + 1].value)))
+        && (settable(tokens[i + 1].value) || (newerProperties !== null && newerProperties.has(tokens[i + 1].value)))
         && (tokens[i + 1].value !== 'C0' || usesTransform)
         ? simpleExpressionEnd(tokens, i + 3) : -1;
       if (valueEnd > 0) {
@@ -1488,7 +1601,7 @@ function convertSource(source, options = {}) {
         if (start >= 0 && object !== GUARD_OBJECT) {
           const value = text.slice(tokens[i + 3].start, tokens[valueEnd].end);
           const name = tokens[i + 1].value;
-          const setter = SETTERS[name] || (ALIASED.has(name) ? 'Set' : null);
+          const setter = SETTERS[name] || (ALIASED.has(name) ? 'Set' : null) || (older && name === 'TextSize' ? 'SetTextSize' : null);
           if (setter) {
             text = `${text.slice(0, tokens[start].start)}__rbx2017.${setter}(${object}, "${name}", ${value})${text.slice(tokens[valueEnd].end)}`;
             helpers.add(setter);
@@ -1608,12 +1721,12 @@ function convertSource(source, options = {}) {
       if (colon.type !== 'symbol' || colon.value !== ':') continue;
       const name = tokens[i + 1];
       const paren = tokens[i + 2];
-      if (name.type !== 'name' || !METHODS[name.value] || paren.type !== 'symbol' || paren.value !== '(') continue;
+      if (name.type !== 'name' || !methods[name.value] || paren.type !== 'symbol' || paren.value !== '(') continue;
       if (name.value === 'GetChildren' && !options.attributes) continue;
       const close = matchForward(tokens, i + 2);
       if (close < 0) continue;
       const count = argumentCount(tokens, i + 2, close);
-      if (!METHODS[name.value].includes(count)) continue;
+      if (!methods[name.value].includes(count)) continue;
       const start = prefixStart(tokens, i);
       if (start < 0) continue;
       const object = text.slice(tokens[start].start, colon.start);
@@ -1635,6 +1748,8 @@ function convertSource(source, options = {}) {
   const needed = {}; // library -> Set(member)
   let random = false;
   const fontEdits = [];
+  // A script with its own Enum table (local Enum = {}) keeps its Enum.x.
+  const ownEnum = declaresOwn(tokens, 'Enum', from);
   for (let i = from; i < tokens.length; i++) {
     const t = tokens[i];
     if (t.type !== 'name') continue;
@@ -1642,9 +1757,10 @@ function convertSource(source, options = {}) {
     if (before && before.type === 'symbol' && (before.value === '.' || before.value === ':')) continue;
     const dot = tokens[i + 1];
     const member = tokens[i + 2];
+    if (t.value === 'Enum' && (ownEnum || isSymbol(tokens[i + 3], '=') || isSymbol(tokens[i + 5], '='))) continue;
     if (t.value === 'Enum' && dot && dot.value === '.' && member && member.value === 'Font' && tokens[i + 3] && tokens[i + 3].value === '.') {
       const font = tokens[i + 4];
-      if (font && font.type === 'name' && !FONTS_2017.has(font.value)) fontEdits.push([font.start, font.end, fontFor(font.value)]);
+      if (font && font.type === 'name' && !fontsOf(API).has(font.value)) fontEdits.push([font.start, font.end, fontFor(font.value, fontsOf(API))]);
       continue;
     }
     // Enum.Newer.Item / Enum.Type.NewerItem (2017 errors on both): the nearest
@@ -1665,8 +1781,8 @@ function convertSource(source, options = {}) {
       continue;
     }
     if (t.value === 'Random' && dot && dot.value === '.' && member && member.value === 'new') { random = true; continue; }
-    if (!LIBRARY[t.value] || !dot || dot.type !== 'symbol' || dot.value !== '.' || !member || member.type !== 'name') continue;
-    if (LIBRARY[t.value][member.value] === undefined) continue;
+    if (!library[t.value] || !dot || dot.type !== 'symbol' || dot.value !== '.' || !member || member.type !== 'name') continue;
+    if (library[t.value][member.value] === undefined) continue;
     (needed[t.value] = needed[t.value] || new Set()).add(member.value);
   }
   for (const [start, end, font] of fontEdits.reverse()) {
@@ -1675,13 +1791,14 @@ function convertSource(source, options = {}) {
   }
 
   const prelude = [];
+  const libraryTables = library;
   for (const [library, all] of Object.entries(needed)) {
     if (declaresOwn(tokens, library, from)) continue;
     const members = [...all].filter((member) => !hasStandIn(existing, library, member));
     if (members.length === 0) continue;
     const fields = members.map((member) => {
       changes.add(`${library}.${member}`);
-      const value = LIBRARY[library][member];
+      const value = libraryTables[library][member];
       if (value.startsWith('HELPER_')) {
         helpers.add(value.slice('HELPER_'.length));
         return `${member} = __rbx2017.${value.slice('HELPER_'.length)}`;
@@ -1694,6 +1811,12 @@ function convertSource(source, options = {}) {
     if (new RegExp(String.raw`\bpairs\s*\(\s*${library}\s*\)`).test(text)) {
       prelude.push(`for k, v in pairs(getmetatable(${library}).__index or {}) do if rawget(${library}, k) == nil then rawset(${library}, k, v) end end;`);
     }
+  }
+  // typeof (2016 has only type).
+  if (older && /\btypeof\s*\(/.test(text) && !declaresOwn(tokens, 'typeof', from) && !existing.includes('local typeof = ')) {
+    helpers.add('typeof');
+    prelude.push('local typeof = __rbx2017.typeof;');
+    changes.add('typeof (2016)');
   }
   if (random && !declaresOwn(tokens, 'Random', from) && !existing.includes('local Random = {new = ')) {
     prelude.push(RANDOM);
@@ -1740,9 +1863,10 @@ function convertSource(source, options = {}) {
 // their own table fields are left out (guarding those only costs time).
 const COMMON_FIELD_NAMES = new Set(['Type', 'State', 'Mode', 'Content', 'Tags', 'Selector', 'Sink', 'Wind', 'Materials', 'Technology',
   'Decoration', 'Pants', 'Shirt', 'Wraps', 'shape', 'AssetId', 'Health_XML', 'Retargeting', 'AttributesSerialize']);
-function newerPropertyNames(xmlText, into = new Set()) {
+function newerPropertyNames(xmlText, into = new Set(), options = {}) {
+  const api = apiFor(options);
   for (const m of xmlText.matchAll(/<(?:bool|int|int64|float|double|string|token|Vector3|Vector2|Color3|Color3uint8|CoordinateFrame|UDim|UDim2|NumberRange|NumberSequence|ColorSequence|Rect2D|Content|Ref|Font|Faces|Axes|PhysicalProperties)\s+name="(\w+)"/g)) {
-    if (!into.has(m[1]) && !COMMON_FIELD_NAMES.has(m[1]) && unknownTo2017(m[1])) into.add(m[1]);
+    if (!into.has(m[1]) && !COMMON_FIELD_NAMES.has(m[1]) && unknownTo2017(m[1], api)) into.add(m[1]);
   }
   return into;
 }
