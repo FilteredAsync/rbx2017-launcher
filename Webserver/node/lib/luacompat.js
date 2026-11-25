@@ -993,8 +993,27 @@ const LIBRARY_2016 = {
 const METHODS_2016 = {
   Connect: [1], Wait: [0], Disconnect: [0], FindFirstChildOfClass: [1], FindFirstChildWhichIsA: [1, 2], FindFirstAncestor: [1],
   FindFirstAncestorOfClass: [1], FindFirstAncestorWhichIsA: [1], GetPropertyChangedSignal: [1], Lerp: [2],
+  // game:BindToClose; ContextActionService:BindActionAtPriority (-> BindAction);
+  // PhysicsService collision groups (2016 has none: parts collide as usual).
+  BindToClose: [1], BindActionAtPriority: [4, 5, 6, 7, 8, 9, 10],
+  CreateCollisionGroup: [1], RemoveCollisionGroup: [1], RenameCollisionGroup: [2], CollisionGroupSetCollidable: [3],
+  CollisionGroupsAreCollidable: [2], SetPartCollisionGroup: [2], GetCollisionGroupId: [1], GetCollisionGroupName: [1],
+  GetCollisionGroups: [0], CollisionGroupContainsPart: [2], GetMaxCollisionGroups: [0],
+};
+// The collision group methods: the engine's own if it has them, else what they would answer with no groups.
+const COLLISION_DEFAULTS = {
+  CreateCollisionGroup: '0', RemoveCollisionGroup: 'nil', RenameCollisionGroup: 'nil', CollisionGroupSetCollidable: 'nil',
+  CollisionGroupsAreCollidable: 'true', SetPartCollisionGroup: 'nil', GetCollisionGroupId: '0', GetCollisionGroupName: '"Default"',
+  GetCollisionGroups: '{}', CollisionGroupContainsPart: 'false', GetMaxCollisionGroups: '32',
 };
 const SETTABLE_2016 = new Set(['AnchorPoint', 'Enabled', 'ResetOnSpawn', 'LayoutOrder', 'DisplayOrder', 'ZIndexBehavior', 'Orientation', 'PlaybackSpeed']);
+
+for (const [name, value] of Object.entries(COLLISION_DEFAULTS)) {
+  HELPERS[name] = `function(o, ...) ${own(name, '...')} local r = {pcall(function(...) return o:${name}(...) end, ...)} if r[1] then return unpack(r, 2) end return ${value} end`;
+}
+HELPERS.BindToClose = `function(o, f) ${own('BindToClose', 'f')} pcall(function() o:BindToClose(f) end) end`;
+HELPERS.BindActionAtPriority = `function(o, n, f, t, p, ...) ${own('BindActionAtPriority', 'n, f, t, p, ...')} `
+  + 'local args = {...} if not pcall(function() o:BindActionAtPriority(n, f, t, p, unpack(args)) end) then o:BindAction(n, f, t, unpack(args)) end end';
 
 // An engine older than 2017 (2016), which lacks the *_2016 things above.
 function olderThan2017(api = API) {
@@ -1876,12 +1895,10 @@ function convertWith(source, options) {
       prelude.push(`for k, v in pairs(getmetatable(${library}).__index or {}) do if rawget(${library}, k) == nil then rawset(${library}, k, v) end end;`);
     }
   }
-  // typeof (2016 has only type).
-  if (older && /\btypeof\s*\(/.test(text) && !declaresOwn(tokens, 'typeof', from) && !existing.includes('local typeof = ')) {
-    helpers.add('typeof');
-    prelude.push('local typeof = __rbx2017.typeof;');
-    changes.add('typeof (2016)');
-  }
+  // typeof (2016 has only type): declared before the helpers, which use it
+  // too (attributes, spatial queries); see the end.
+  const typeofFirst = older && !declaresOwn(tokens, 'typeof', from) && !existing.includes('local typeof = ');
+  if (typeofFirst && /\btypeof\s*\(/.test(text)) changes.add('typeof (2016)');
   if (random && !declaresOwn(tokens, 'Random', from) && !existing.includes('local Random = {new = ')) {
     prelude.push(RANDOM);
     changes.add('Random');
@@ -1913,14 +1930,22 @@ function convertWith(source, options) {
       const parts = [...(fields ? [`local __rbx2017 = {${fields}};`] : []), ...prelude];
       text = `${MARK} ${parts.join(' ')} ${text.slice(MARK.length).replace(/^ /, '')}`;
     }
+    if (typeofFirst && /\btypeof\s*\(/.test(text)) text = `${MARK} ${TYPEOF_LOCAL} ${text.slice(MARK.length).replace(/^ /, '')}`;
     return { text, changes: [...changes] };
   }
   if (helpers.size > 0) {
     prelude.unshift(`local __rbx2017 = {${[...helpers].map((name) => `${name} = ${HELPERS[name]}`).join(', ')}};`);
   }
+  if (typeofFirst && /\btypeof\s*\(/.test(`${prelude.join(' ')} ${text}`)) {
+    prelude.unshift(TYPEOF_LOCAL);
+    changes.add('typeof (2016)');
+  }
   if (changes.size === 0) return { text: source, changes: [] };
   return { text: `${MARK} ${prelude.join(' ')} ${text}`, changes: [...changes] };
 }
+
+// The global typeof where the engine has one, else the stand-in.
+const TYPEOF_LOCAL = `local typeof = typeof or ${HELPERS.typeof};`;
 
 // Property names a place file has that 2017 lacks (convertSource's
 // newerProperties), from the names in its XML. Names that games also use for
