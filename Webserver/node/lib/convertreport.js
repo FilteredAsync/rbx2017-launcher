@@ -16,6 +16,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const core = require('./core');
+const { setupError } = require('./convertcheck');
 
 const REPORTS_DIR = path.join(__dirname, '..', 'data', 'convert-reports');
 const CONVERTER_FILES = ['placefile.js', 'luacompat.js', 'luaulower.js', 'attributes.js', 'unionshapes.js', 'gamepatches.js', 'rbxbinary.js', 'apidump.js'];
@@ -68,10 +69,13 @@ function checkIssues(result) {
     // unchanged: the converter left the script as it was (same error in the original).
     issues.push({ severity: e.unchanged ? 'warning' : 'error', kind: 'compile', path: e.path, message: e.unchanged ? `${e.error} (as in the original)` : e.error });
   }
+  // (data store and teleport errors come from the check: info, not counted)
+  const real = (result.runErrors || []).filter((e) => !setupError(e.message));
   for (const e of result.runErrors || []) {
-    issues.push({ severity: 'error', kind: 'runtime', path: e.path || '', message: `${e.message}${e.count > 1 ? ` (x${e.count})` : ''}` });
+    const setup = setupError(e.message);
+    issues.push({ severity: setup ? 'info' : 'error', kind: 'runtime', path: e.path || '', message: `${e.message}${e.count > 1 ? ` (x${e.count})` : ''}${setup ? ' (test run)' : ''}` });
   }
-  const runErrors = result.loads ? (result.runErrors || []).length : null;
+  const runErrors = result.loads ? real.length : null;
   return {
     checks: {
       loads: result.loads === undefined ? null : result.loads,

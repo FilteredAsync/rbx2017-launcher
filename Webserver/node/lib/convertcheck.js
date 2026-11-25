@@ -347,4 +347,11 @@ async function check(options) {
   return result;
 }
 
-module.exports = { check, soap, Rcc };
+// Errors the check itself causes: its game has no place ID, so data stores
+// and teleports refuse (a real server has them).
+const SETUP_ERRORS = [/publish this place to the web/i, /DataStore/i, /TeleportService/i];
+function setupError(message) {
+  return SETUP_ERRORS.some((pattern) => pattern.test(String(message)));
+}
+
+module.exports = { check, soap, Rcc, setupError };
