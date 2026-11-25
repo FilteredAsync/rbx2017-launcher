@@ -159,7 +159,7 @@ function renderPlayerPanel() {
       fact('Last login', account.lastLoginAt ? `${when(account.lastLoginAt)} (${ago(account.lastLoginAt)})` : 'Never'),
       fact('Robux', h('span', {}, `R$ ${Number(account.robux || 0).toLocaleString()} `, h('button', { type: 'button', class: 'linkish', text: 'Change', onclick: () => changeRobux(account) }))),
       fact('Admin', h('label', { class: 'inline check' }, adminSwitch(account), account.admin ? 'Yes' : 'No')),
-      fact('Reported', by.length ? plural(by.length, 'player') : 'Nobody')),
+      fact('Reports sent', by.length ? String(by.length) : 'None')),
     owns.length || edits.length ? h('div', {}, h('h3', { text: 'Games' }),
       h('div', { class: 'card list' }, [...owns.map((place) => [place, 'Owner']), ...edits.map((place) => [place, 'Editor'])].map(([place, role]) => h('a', { class: 'list-row', href: `#games/${place.placeId}` },
         thumb(place), h('div', { class: 'text' }, h('b', { text: place.name }), h('small', { text: role })))))) : null,
@@ -220,7 +220,8 @@ function reportCard(report, options) {
     pick,
     h('div', { class: 'body' },
       h('div', { class: 'head' },
-        report.reportedId !== null && report.reportedId !== undefined && !compact
+        // In a player's panel the name is already at the top.
+        compact ? null : report.reportedId !== null && report.reportedId !== undefined
           ? link(who, `players/${encodeURIComponent(report.reportedName || '')}`, 'who') : h('span', { class: 'who', text: who }),
         report.reason ? h('span', { class: 'reason', text: report.reason }) : null),
       report.text ? h('div', { class: 'text', text: report.text }) : null,
