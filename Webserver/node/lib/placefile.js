@@ -520,6 +520,12 @@ function convertProperties(className, props, options, counts) {
   if (className === 'UIAspectRatioConstraint') {
     const before = out;
     out = out.replace(/(<float\s+name="AspectRatio">)([^<]*)(<\/float>)/, (match, open, value, close) => (Number(value) > 0 ? match : `${open}1${close}`));
+    // Newer files leave the default (1) out, and 2017 then refuses the place
+    // the same way (6 places of the corpus).
+    if (!/<float\s+name="AspectRatio">/.test(out)) {
+      out = out.replace(/(\r?\n[ \t]*)?(<\/?[A-Za-z]+[\s>])/, (match, lead, tag) => `${lead || ''}<float name="AspectRatio">1</float>${lead || ''}${tag}`);
+      if (!/<float\s+name="AspectRatio">/.test(out)) out = `<float name="AspectRatio">1</float>${out}`;
+    }
     if (out !== before) counts.aspectRatios++;
   }
 

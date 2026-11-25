@@ -165,6 +165,13 @@ test('a guarded property set keeps a space before a following word', ['2017'], (
   assert.ok(/end end$/.test(out), out);
 });
 
+test('a UIAspectRatioConstraint without AspectRatio gets 1', [], () => {
+  const xml = Buffer.from('<roblox version="4"><Item class="UIAspectRatioConstraint" referent="A"><Properties><BinaryString name="Tags"></BinaryString></Properties></Item>'
+    + '<Item class="UIAspectRatioConstraint" referent="B"><Properties></Properties></Item></roblox>', 'latin1');
+  const out = placefile.convertPlace(xml, { engine: '2017' }).output.toString('latin1');
+  assert.strictEqual((out.match(/<float name="AspectRatio">1<\/float>/g) || []).length, 2, out);
+});
+
 test('scriptsOf gives full names', [], () => {
   const xml = Buffer.from('<roblox><Item class="Workspace" referent="A"><Properties><string name="Name">Workspace</string></Properties>'
     + '<Item class="Model" referent="B"><Properties><string name="Name">M</string></Properties><Item class="Script" referent="C"><Properties>'

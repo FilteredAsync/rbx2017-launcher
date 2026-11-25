@@ -77,7 +77,11 @@ function classKnownTo2017(name, api = API) {
 
 // Newer properties scripts read, and the value they get when the 2017
 // engine lacks them.
-const NEWER_PROPERTIES = { RobloxLocaleId: '"en-us"', PlaceholderText: '""', Massless: 'false' };
+const NEWER_PROPERTIES = { RobloxLocaleId: '"en-us"', PlaceholderText: '""', Massless: 'false',
+  // game.PrivateServerId/OwnerId (2017: VIPServerId), GuiService.TopbarInset (2023),
+  // Camera.NearPlaneZ, ParticleEmitter.Squash (2023): what a plain server, an
+  // ordinary topbar, the usual near plane and no squash read as.
+  PrivateServerId: '""', PrivateServerOwnerId: '0', TopbarInset: 'Rect.new(0, 0, 0, 36)', NearPlaneZ: '-0.5', Squash: 'NumberSequence.new(0)' };
 // Newer properties scripts set (x.AutoLocalize = false); on 2017 such a line
 // stops the script, so the setting is skipped when the engine lacks it.
 // Sound's RollOff distances fall back to their 2017 names (in the Set helper).
@@ -119,7 +123,7 @@ function newerCommonProperty(name, api = API) {
 }
 
 // Newer properties read through a helper of their own: property -> helper.
-const READ_HELPERS = { RootPart: 'RootPart', DisplayName: 'DisplayName', ClockTime: 'ClockTime', Transform: 'GetTransform', C0: 'C0', ExtentsSize: 'ExtentsSize', ExtentsCFrame: 'ExtentsCFrame' };
+const READ_HELPERS = { FloorMaterial: 'FloorMaterial', RootPart: 'RootPart', DisplayName: 'DisplayName', ClockTime: 'ClockTime', Transform: 'GetTransform', C0: 'C0', ExtentsSize: 'ExtentsSize', ExtentsCFrame: 'ExtentsCFrame' };
 // Setters with a helper of their own; Set for those with a 2017 fallback
 // name; the others are guarded inline: do local __o2017, __v2017 = x, v
 // pcall(function() __o2017.Name = __v2017 end) end.
@@ -343,8 +347,8 @@ const METHODS = {
   GetPartBoundsInBox: [2, 3], GetPartBoundsInRadius: [2, 3], GetPartsInPart: [1, 2], GetScale: [0], ScaleTo: [1], CreatePath: [0, 1],
   // Color3:ToHSV, Model:GetBoundingBox, AnimationTrack:GetMarkerReachedSignal; Actor messages (2021).
   ToHSV: [0], GetBoundingBox: [0], GetMarkerReachedSignal: [1], GetPlayingAnimationTracks: [0],
-  // Enum.X:FromName / FromValue (2023).
-  FromName: [1], FromValue: [1],
+  // Enum.X:FromName / FromValue (2023); UserSettings():IsUserFeatureEnabled (flags 2017 lacks error).
+  FromName: [1], FromValue: [1], IsUserFeatureEnabled: [1],
   // Chat:RegisterChatCallback (2018): 2017's chat has no callbacks.
   RegisterChatCallback: [2],
   // RunService:BindToRenderStep: 2017 calls the function without the frame time.
@@ -724,6 +728,11 @@ const HELPERS = {
   SteppedDt: 'function(rs) local s = {} function s:connect(f) return rs.Stepped:connect(function(_, dt) f(dt) end) end s.Connect = s.connect '
     + 'function s:wait() local _, dt = rs.Stepped:wait() return dt end s.Wait = s.wait '
     + 'function s:Once(f) local c c = rs.Stepped:connect(function(_, dt) c:disconnect() f(dt) end) return c end return s end',
+  // Humanoid.FloorMaterial (2018): Air while jumping or falling, else Plastic.
+  FloorMaterial: 'function(h) local ok, v = pcall(function() return h.FloorMaterial end) if ok then return v end local s = h:GetState() '
+    + 'if s == Enum.HumanoidStateType.Freefall or s == Enum.HumanoidStateType.Jumping then return Enum.Material.Air end return Enum.Material.Plastic end',
+  // A user feature flag the engine does not have: off.
+  IsUserFeatureEnabled: `function(o, f) ${own('IsUserFeatureEnabled', 'f')} local ok, v = pcall(function() return o:IsUserFeatureEnabled(f) end) return ok and v or false end`,
   // Enum.X:FromName(name) / FromValue(value) (2023).
   FromName: `function(e, n) ${own('FromName', 'n')} local ok, v = pcall(function() return e[n] end) if ok then return v end return nil end`,
   FromValue: `function(e, v) ${own('FromValue', 'v')} for _, item in ipairs(e:GetEnumItems()) do if item.Value == v then return item end end return nil end`,
