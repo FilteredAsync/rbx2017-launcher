@@ -285,7 +285,12 @@ function main() {
     const missing = [];
     for (const file of files) {
       if (!file.path.endsWith('.js')) continue;
-      for (const match of file.data.toString('utf8').matchAll(/require\(\s*['"](\.{1,2}\/[^'"]+)['"]\s*\)/g)) {
+      const text = file.data.toString('utf8');
+      for (const match of text.matchAll(/require\(\s*['"](\.{1,2}\/[^'"]+)['"]\s*\)/g)) {
+        // Not code: a comment line, or the text inside a string (the
+        // converter writes Lua's require("./Module") in its reports).
+        const line = text.slice(text.lastIndexOf('\n', match.index) + 1, match.index);
+        if (/^\s*(\/\/|\/?\*)/.test(line) || /['"`]$/.test(line)) continue;
         let target = path.posix.normalize(path.posix.join(path.posix.dirname(file.path), match[1]));
         if (!/\.(js|json)$/.test(target)) target += '.js';
         if (!inPackage.has(target)) missing.push(`${file.path} needs ${target}`);
