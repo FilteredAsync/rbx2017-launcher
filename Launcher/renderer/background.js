@@ -467,7 +467,7 @@
   function frame(now) {
     requestAnimationFrame(frame);
     // The website theme has a plain page: nothing to draw.
-    if (document.hidden || window.backgroundPaused || document.documentElement.dataset.theme === 'site') { last = now; return; }
+    if (document.hidden || window.backgroundPaused || document.documentElement.dataset.theme !== 'xbox') { last = now; return; }
     if (now - last < 24) return; // ~40 fps
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;

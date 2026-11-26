@@ -975,6 +975,59 @@ async function hostThumbnail({ action, centralUrl, placeId, hostKey }) {
 
 // --- IPC ----------------------------------------------------------------------------
 
+// --- theme packs (Settings > Theme > Import) -------------------------------------------
+// Imported themes stay on this PC, in the launcher's app data (themes\<id>.json),
+// checked and cleaned by renderer/themepack.js: CSS and pictures only, nothing
+// fetched from elsewhere. They are never sent anywhere.
+const THEME_LIMIT = 30;
+function themesDir() {
+  return path.join(app.getPath('userData'), 'themes');
+}
+
+function storedThemes() {
+  const ThemePack = require('./renderer/themepack.js');
+  let files = [];
+  try { files = fs.readdirSync(themesDir()).filter((name) => /^[a-z0-9-]{1,48}\.json$/.test(name)); } catch (error) { return []; }
+  const themes = [];
+  for (const file of files) {
+    try {
+      const pack = ThemePack.check(fs.readFileSync(path.join(themesDir(), file), 'utf8'));
+      pack.added = fs.statSync(path.join(themesDir(), file)).mtimeMs;
+      themes.push(pack);
+    } catch (error) { /* a file that no longer passes: left out */ }
+  }
+  return themes.sort((a, b) => a.added - b.added);
+}
+
+function registerThemeIpc() {
+  ipcMain.handle('themes:list', () => storedThemes());
+  ipcMain.handle('themes:import', async () => {
+    const ThemePack = require('./renderer/themepack.js');
+    const pick = await dialog.showOpenDialog(win, {
+      title: 'Import a theme',
+      filters: [{ name: 'Theme pack', extensions: ['json'] }],
+      properties: ['openFile'],
+    });
+    if (pick.canceled || pick.filePaths.length === 0) return { canceled: true };
+    const file = pick.filePaths[0];
+    if (fs.statSync(file).size > ThemePack.LIMITS.file) throw new Error('That file is too big for a theme (8 MB at most).');
+    const pack = ThemePack.check(fs.readFileSync(file, 'utf8'));
+    fs.mkdirSync(themesDir(), { recursive: true });
+    const target = path.join(themesDir(), `${pack.id}.json`);
+    if (!fs.existsSync(target) && storedThemes().length >= THEME_LIMIT) throw new Error(`You have ${THEME_LIMIT} themes. Remove one first.`);
+    fs.writeFileSync(target, JSON.stringify(pack));
+    logger('launcher')(`Theme imported: ${pack.name} (${pack.id}).`);
+    pack.added = Date.now();
+    return { theme: pack };
+  });
+  ipcMain.handle('themes:remove', (event, id) => {
+    if (!/^[a-z0-9-]{1,48}$/.test(String(id))) throw new Error('Unknown theme.');
+    const target = path.join(themesDir(), `${id}.json`);
+    if (fs.existsSync(target)) fs.unlinkSync(target);
+    return true;
+  });
+}
+
 function registerIpc() {
   ipcMain.handle('files:download', (event, centralUrl) => downloadGameFiles(centralUrl));
   ipcMain.handle('studio:open', (event, centralUrl) => openStudio(centralUrl));
@@ -1014,6 +1067,8 @@ function registerIpc() {
       filesVersion: (installedFiles() || {}).version || null,
     };
   });
+
+  registerThemeIpc();
 
   // Tailscale is no longer needed once the server answers on a public
   // address (the VPS relay): offer to remove it, once, on player installs.

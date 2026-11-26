@@ -2,10 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: launcher-net:; font-src 'self' launcher-net:; media-src 'self' launcher-media: launcher-net:; connect-src launcher-net:">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: launcher-net:; font-src 'self' data: launcher-net:; media-src 'self' launcher-media: launcher-net:; connect-src launcher-net:">
   <title>RobloxClient Launcher</title>
   <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="theme-site.css">
+  <link rel="stylesheet" href="theme-web.css">
+  <link rel="stylesheet" href="themes.css">
   <script src="theme.js"></script>
 </head>
 <body class="on-start">
@@ -74,13 +75,13 @@
     </header>
 
     <nav class="tabs" id="tabs">
-      <button class="tab-link active" data-view="home">Home</button>
-      <button class="tab-link" data-view="avatar">Avatar</button>
-      <button class="tab-link" data-view="games">Games</button>
-      <button class="tab-link" data-view="players">People<span class="tab-badge hidden" id="friends-badge"></span></button>
-      <button class="tab-link" data-view="groups">Groups</button>
-      <button class="tab-link" data-view="chat">Chat<span class="tab-badge hidden" id="chat-badge"></span></button>
-      <button class="tab-link" data-view="settings">Settings</button>
+      <button class="tab-link active" data-view="home"><svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h5v-6h4v6h5V10"/></svg><span class="tab-label">Home</span></button>
+      <button class="tab-link" data-view="avatar"><svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="2.5" width="8" height="7" rx="1"/><rect x="6.5" y="10.5" width="11" height="6.5" rx="1"/><path d="M4 11v6M20 11v6M9.5 17v4.5M14.5 17v4.5"/></svg><span class="tab-label">Avatar</span></button>
+      <button class="tab-link" data-view="games"><svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="7" width="19" height="11" rx="3"/><path d="M7 10.5v4M5 12.5h4"/><circle cx="15.5" cy="11.5" r=".6"/><circle cx="17.8" cy="13.8" r=".6"/></svg><span class="tab-label">Games</span></button>
+      <button class="tab-link" data-view="players"><svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-4 3-6 6.5-6s6.5 2 6.5 6"/><path d="M15.5 4.8a3.5 3.5 0 0 1 0 6.4M18 14.5c2.2.7 3.5 2.6 3.5 5.5"/></svg><span class="tab-label">People</span><span class="tab-badge hidden" id="friends-badge"></span></button>
+      <button class="tab-link" data-view="groups"><svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></svg><span class="tab-label">Groups</span></button>
+      <button class="tab-link" data-view="chat"><svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg><span class="tab-label">Chat</span><span class="tab-badge hidden" id="chat-badge"></span></button>
+      <button class="tab-link" data-view="settings"><svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></svg><span class="tab-label">Settings</span></button>
     </nav>
 
     <!-- HOME -->
@@ -88,11 +89,13 @@
       <div class="news hidden" id="news"></div>
       <div class="home-friends hidden" id="home-friends">
         <div class="col-title">Friends <span class="section-note" id="home-friends-note"></span></div>
+        <button class="more nav-target friends-more" data-goto="players" title="People"><span class="more-dots">· · ·</span><span class="more-text">See all</span></button>
         <div class="friends-strip" id="friends-strip"></div>
       </div>
       <div class="home-grid">
         <div class="col col-me">
           <div class="col-title" id="home-username">Guest</div>
+          <div class="home-hello" id="home-hello">Hello, <b id="home-hello-name">Guest</b>!</div>
           <button class="avatar-panel nav-target" id="avatar-panel" data-goto="avatar">
             <img id="avatar-img" class="hidden" alt="">
             <svg id="avatar-silhouette" viewBox="0 0 100 120" aria-hidden="true"><rect x="34" y="8" width="32" height="30" rx="4"/><rect x="26" y="42" width="48" height="44" rx="3"/><rect x="12" y="44" width="12" height="38" rx="3"/><rect x="76" y="44" width="12" height="38" rx="3"/><rect x="28" y="88" width="20" height="30" rx="3"/><rect x="52" y="88" width="20" height="30" rx="3"/></svg>
@@ -105,13 +108,13 @@
         <div class="col col-recent">
           <div class="col-title">Recently played</div>
           <div class="recent-grid" id="recent-grid"></div>
-          <button class="more nav-target" data-goto="games" title="All games">· · ·</button>
+          <button class="more nav-target" data-goto="games" title="All games"><span class="more-dots">· · ·</span><span class="more-text">See all</span></button>
         </div>
 
         <div class="col col-online">
           <div class="col-title">Online games</div>
           <div class="online-grid" id="online-grid"></div>
-          <button class="more nav-target" data-goto="games" title="All games">· · ·</button>
+          <button class="more nav-target" data-goto="games" title="All games"><span class="more-dots">· · ·</span><span class="more-text">See all</span></button>
         </div>
       </div>
     </section>
@@ -311,7 +314,7 @@
         <div class="settings-nav" id="settings-nav">
           <button class="set-link active" data-panel="account">Account</button>
           <button class="set-link" data-panel="storage">Storage</button>
-          <button class="set-link" data-panel="menu">Menu</button>
+          <button class="set-link" data-panel="menu">Sound</button>
           <button class="set-link" data-panel="theme">Theme</button>
           <button class="set-link" data-panel="host">Host a game</button>
           <button class="set-link" data-panel="server">Web server</button>
@@ -452,20 +455,16 @@
           </div>
 
           <div class="set-panel hidden" id="set-theme">
-            <div class="panel">
+            <div class="panel theme-panel">
               <div class="label">Theme</div>
-              <div class="theme-picks" role="radiogroup" aria-label="Theme">
-                <button class="theme-pick" data-theme-pick="xbox" role="radio" aria-checked="true">
-                  <span class="theme-preview xbox" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-                  <span class="theme-name">Xbox</span>
-                </button>
-                <button class="theme-pick" data-theme-pick="site" role="radio" aria-checked="false">
-                  <span class="theme-preview site" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-                  <span class="theme-name">Website</span>
-                </button>
+              <div class="theme-gallery" id="theme-gallery" role="radiogroup" aria-label="Theme"></div>
+              <div class="row theme-import-row">
+                <button class="ghost" id="theme-import">Import a theme…</button>
+                <span class="status" id="theme-status"></span>
               </div>
+              <p class="hint">Ctrl+Shift+T puts the default look back.</p>
             </div>
-            <div class="panel xbox-only">
+            <div class="panel console-only">
               <div class="label">Background</div>
               <div class="row tight">
                 <button class="ghost" id="toggle-background">Background: Classic</button>
@@ -697,17 +696,22 @@
         <div class="vote-note" id="vote-note"></div>
       </div>
       <div class="detail-info">
+        <div class="detail-main">
         <div class="detail-name" id="detail-name"></div>
         <div class="detail-meta" id="detail-meta"></div>
-        <div class="detail-desc" id="detail-desc"></div>
-        <button class="detail-more hidden" id="detail-more">More</button>
         <div class="detail-actions">
-          <button class="play-button" id="detail-play">Play</button>
+          <button class="play-button" id="detail-play"><svg class="play-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg><span>Play</span></button>
+          <!-- Room for a "Play in <year>" picker (engines lane) -->
+          <div class="detail-engine hidden" id="detail-engine"></div>
           <button class="ghost with-icon" id="detail-share" title="Copy a link that opens this game in the launcher"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>Share</button>
           <button class="ghost" id="detail-back">Back</button>
         </div>
         <div class="detail-note" id="detail-note"></div>
         <div class="detail-as" id="detail-as"></div>
+        </div>
+        <div class="detail-stats" id="detail-stats"></div>
+        <div class="detail-desc" id="detail-desc"></div>
+        <button class="detail-more hidden" id="detail-more">More</button>
         <div class="detail-section hidden" id="detail-badges-box">
           <div class="detail-head"><span>Badges</span><span class="detail-count" id="detail-badges-count"></span></div>
           <div class="item-row" id="detail-badges"></div>
@@ -764,6 +768,7 @@
   <script src="groups.js"></script>
   <script src="trades.js"></script>
   <script src="sfx.js"></script>
+  <script src="themepack.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

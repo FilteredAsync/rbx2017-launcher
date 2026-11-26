@@ -1,0 +1,801 @@
+/* The built-in themes (theme.js lists them). Each sets the custom properties
+   theme-web.css draws with, plus a few touches of its own. The variables are
+   also set on the gallery's previews (.theme-preview[data-theme=...]), so
+   every picture there is drawn from the theme's own colors.
+
+   The year looks are our own recreations of the Roblox site of that year,
+   from its colors, sizes and type (checked against Wayback captures): no
+   Roblox CSS, logo or art. The default, 2017, is theme-web.css itself. */
+
+/* 2014: a glossy navy bar, a white page, square grey-and-silver buttons. ------- */
+[data-theme="web2014"] {
+  --font: "Source Sans Pro", Arial, Helvetica, sans-serif;
+  --w-head: 600;
+  --title: 22px;
+  --tab-size: 15px;
+  --w-tab: 600;
+  --page: #fff;
+  --content-w: 970px;
+  --text: #343434;
+  --muted: #888;
+  --faint: #aaa;
+  --line: #ccc;
+  --link: #0055b3;
+  --card: #fff;
+  --card-line: #ccc;
+  --card-shadow: none;
+  --card-hover: 0 0 0 1px #888;
+  --r: 0;
+  --soft: #f1f1f1;
+  --pale: #e6eefa;
+  --hdr: #114081;
+  --hdr-img: linear-gradient(#3a76c8, #2360b3 48%, #114081 52%, #0f3a76);
+  --hdr-h: 36px;
+  --hdr-shadow: none;
+  --hdr-hover: rgba(255, 255, 255, .14);
+  --hdr-on: rgba(255, 255, 255, .2);
+  --r-btn: 0;
+  --r-btn-big: 0;
+  --accent: #0852b7;
+  --accent-hover: #1a66cc;
+  --play: #007001;
+  --play-hover: #128a14;
+  --btn: #e6e6e6;
+  --btn-line: #777;
+  --btn-text: #000;
+  --btn-hover-line: #333;
+  --btn-shadow: none;
+  --input-line: #a7a7a7;
+  --select: #00a1da;
+  --side-on-line: #0055b3;
+}
+[data-theme="web2014"] .wordmark { font-weight: 700; letter-spacing: -1px; }
+[data-theme="web2014"] .top-mark { font-size: 22px; text-shadow: 0 1px 0 rgba(0, 0, 0, .35); }
+[data-theme="web2014"] .tab-link { text-shadow: 0 1px 0 rgba(0, 0, 0, .3); }
+[data-theme="web2014"] button.primary, [data-theme="web2014"] button.icon-btn.accent { background: linear-gradient(#2a76d6, #0852b7); border-color: #063f8c; }
+[data-theme="web2014"] button.primary:hover, [data-theme="web2014"] button.icon-btn.accent:hover { background: linear-gradient(#4a8de6, #1a66cc); }
+[data-theme="web2014"] button.ghost, [data-theme="web2014"] button.icon-btn, [data-theme="web2014"] .more, [data-theme="web2014"] .news-dismiss { background: linear-gradient(#fafafa, #d4d4d4); }
+[data-theme="web2014"] button.ghost:hover, [data-theme="web2014"] .more:hover { background: linear-gradient(#fff, #e2e2e2); }
+[data-theme="web2014"] .play-button, [data-theme="web2014"] .start-press { background: linear-gradient(#2f9a2f, #007001); border: 1px solid #005200; }
+[data-theme="web2014"] .play-button:hover, [data-theme="web2014"] .start-press:hover { background: linear-gradient(#45b045, #128a14); }
+[data-theme="web2014"] .game-tile { border-color: transparent; box-shadow: none; }
+[data-theme="web2014"] .game-tile > .cover { aspect-ratio: 16 / 9; border-radius: 0; }
+[data-theme="web2014"] .tile-name { font-size: 14px; font-weight: 600; }
+[data-theme="web2014"] .tile-info { padding: 4px 0 2px; }
+[data-theme="web2014"] .recent-grid, [data-theme="web2014"] .online-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+[data-theme="web2014"] .col-title, [data-theme="web2014"] .section-title, [data-theme="web2014"] .detail-name, [data-theme="web2014"] .home-hello { letter-spacing: -1px; }
+[data-theme="web2014"] .settings-nav, [data-theme="web2014"] .cat-list { padding: 0; background: #d6d6d6; border: 1px solid #9e9e9e; }
+[data-theme="web2014"] .set-link, [data-theme="web2014"] .cat-link { border-left: 0; border-bottom: 1px solid #9e9e9e; color: #363636; font-weight: 700; font-size: 15px; }
+[data-theme="web2014"] .set-link:last-child { border-bottom: 0; }
+[data-theme="web2014"] .set-link:hover, [data-theme="web2014"] .cat-link:hover { background: #e9e9e9; }
+[data-theme="web2014"] .set-link.active, [data-theme="web2014"] .cat-link.active { background: #fff; }
+[data-theme="web2014"] .panel > .label:first-child { padding-bottom: 6px; border-bottom: 1px solid #ccc; }
+
+/* 2015: the first flat site: a blue bar, a light page, capitals in light type. */
+[data-theme="web2015"] {
+  --w-text: 300;
+  --title-case: uppercase;
+  --title: 22px;
+  --page: #f2f2f2;
+  --content-w: 1154px;
+  --card-shadow: 0 1px 3px rgba(150, 150, 150, .74);
+  --card-hover: 0 1px 6px rgba(150, 150, 150, .9);
+  --r-btn: 4px;
+  --r-btn-big: 5px;
+  --play: #02b757;
+  --btn-text: #757575;
+}
+[data-theme="web2015"] button.primary, [data-theme="web2015"] button.ghost, [data-theme="web2015"] button.danger { padding-left: 26px; padding-right: 26px; }
+[data-theme="web2015"] .tab-link { margin: 6px 0; height: 28px; padding: 0 9px; }
+[data-theme="web2015"] .home-hello, [data-theme="web2015"] .detail-name { text-transform: none; }
+[data-theme="web2015"] .col-title, [data-theme="web2015"] .section-title, [data-theme="web2015"] .detail-head span { letter-spacing: .5px; }
+
+/* 2016: the blue bar with rounded tab highlights, a grey page, light type. ---- */
+[data-theme="web2016"] {
+  --w-text: 300;
+  --hdr-on: rgba(25, 25, 25, .16);
+}
+[data-theme="web2016"] .tab-link { height: 30px; margin: 5px 1px; padding: 0 10px; border-radius: 5px; }
+[data-theme="web2016"] .status-row b, [data-theme="web2016"] .chip-name { font-weight: 400; }
+
+/* 2017 dark: our own night version of the default. ------------------------------- */
+[data-theme="web2017-dark"] {
+  --page: #191b1d;
+  --text: #f0f1f2;
+  --muted: #a3a8ad;
+  --faint: #6f757b;
+  --line: #383c40;
+  --link: #4cb8ff;
+  --card: #26292c;
+  --card-shadow: 0 1px 4px rgba(0, 0, 0, .55);
+  --card-hover: 0 1px 8px rgba(0, 0, 0, .8);
+  --soft: #303337;
+  --pale: #123a57;
+  --hdr: #005a94;
+  --side: #212427;
+  --side-text: #f0f1f2;
+  --side-icon: #9aa1a8;
+  --side-hover: #2c2f33;
+  --side-on: #303337;
+  --side-on-line: #32b5ff;
+  --side-shadow: 0 0 4px rgba(0, 0, 0, .6);
+  --btn: #26292c;
+  --btn-line: #5b6066;
+  --btn-text: #f0f1f2;
+  --btn-hover-line: #9aa1a8;
+  --btn-shadow: 0 1px 3px rgba(0, 0, 0, .6);
+  --input: #1f2124;
+  --input-line: #4b5056;
+  --input-text: #f0f1f2;
+  --select: #32b5ff;
+  --good-text: #3fd17f;
+  --good-bg: #133222;
+  --bad-text: #ff8a80;
+  --bad-bg: #3a1e1e;
+  --warn: #ffab40;
+  --warn-bg: #3a2c12;
+  --rbx-text: #3fd17f;
+  --silhouette: rgba(255, 255, 255, .14);
+  --overlay: rgba(0, 0, 0, .7);
+  --tile: #303337;
+  color-scheme: dark;
+}
+
+/* 2018: 2017's site with the late-2018 rounded green buttons. ---------------- */
+[data-theme="web2018"] {
+  --r-btn: 8px;
+  --r-btn-big: 8px;
+  --play: #00b06f;
+  --play-hover: #1cc086;
+  --btn: transparent;
+  --btn-line: #7b7c7d;
+  --btn-text: #393b3d;
+  --btn-hover-line: #393b3d;
+}
+
+/* 2018 dark: the blue bar over the first dark theme's greys. ------------------- */
+[data-theme="web2018-dark"] {
+  --page: #232527;
+  --text: #fff;
+  --muted: #bdbebe;
+  --faint: #8a8c8e;
+  --line: #656668;
+  --link: #fff;
+  --card: #393b3d;
+  --card-shadow: 0 1px 4px rgba(0, 0, 0, .5);
+  --card-hover: 0 1px 8px rgba(0, 0, 0, .8);
+  --soft: #2f3133;
+  --pale: #1d4258;
+  --side: #1f2123;
+  --side-text: #fff;
+  --side-icon: #bdbebe;
+  --side-hover: #2b2d2f;
+  --side-on: #393b3d;
+  --side-on-line: #fff;
+  --side-shadow: 0 0 8px rgba(0, 0, 0, .3);
+  --r-btn: 8px;
+  --r-btn-big: 8px;
+  --play: #00b06f;
+  --play-hover: #1cc086;
+  --btn: transparent;
+  --btn-line: #bdbebe;
+  --btn-text: rgba(255, 255, 255, .8);
+  --btn-hover-line: #fff;
+  --btn-shadow: none;
+  --input: rgba(0, 0, 0, .55);
+  --input-line: rgba(0, 0, 0, .7);
+  --input-text: #e6e6e6;
+  --good-text: #3fd17f;
+  --good-bg: #1d3a2b;
+  --bad-text: #ff8a80;
+  --bad-bg: #452626;
+  --warn: #ffab40;
+  --warn-bg: #3d3118;
+  --rbx-text: #3fd17f;
+  --silhouette: rgba(255, 255, 255, .16);
+  --overlay: rgba(0, 0, 0, .7);
+  --tile: #393b3d;
+  color-scheme: dark;
+}
+
+/* 2019: Gotham-style heavy titles, flat cards, round buttons. ------------------- */
+[data-theme="web2019"], [data-theme="web2019-dark"] {
+  --font: "Gotham SSm", "Gotham", "Montserrat", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --w-head: 700;
+  --w-strong: 600;
+  --title: 20px;
+  --card-shadow: none;
+  --card-hover: 0 2px 8px rgba(0, 0, 0, .15);
+  --r-btn: 8px;
+  --r-btn-big: 8px;
+  --play: #00b06f;
+  --play-hover: #1cc086;
+  --hdr-shadow: none;
+  --hdr-hover: transparent;
+  --hdr-on: transparent;
+  --side-w: 186px;
+}
+[data-theme="web2019"] {
+  --page: #f2f4f5;
+  --text: #393b3d;
+  --muted: #767879;
+  --faint: #a3a5a6;
+  --line: #d8dbde;
+  --link: #393b3d;
+  --soft: #eaedef;
+  --pale: #e1f2fb;
+  --hdr: #eaedef;
+  --hdr-text: #393b3d;
+  --hdr-line: 1px solid #d8dbde;
+  --hdr-on-line: #393b3d;
+  --side: #eaedef;
+  --side-text: #393b3d;
+  --side-icon: #767879;
+  --side-hover: #e1e4e6;
+  --side-on: #dde1e4;
+  --side-on-line: #393b3d;
+  --side-shadow: 0 0 8px rgba(0, 0, 0, .1);
+  --accent: #393b3d;
+  --accent-hover: #4d5052;
+  --accent-text: #f2f4f5;
+  --btn: transparent;
+  --btn-line: #767879;
+  --btn-text: #393b3d;
+  --btn-hover-line: #393b3d;
+  --btn-shadow: none;
+  --input-line: #bdbebe;
+  --select: #0099ff;
+}
+[data-theme="web2019-dark"] {
+  --page: #232527;
+  --text: #fff;
+  --muted: #bdbebe;
+  --faint: #8a8c8e;
+  --line: #656668;
+  --link: #fff;
+  --card: #393b3d;
+  --card-hover: 0 2px 10px rgba(0, 0, 0, .5);
+  --soft: #2f3133;
+  --pale: #1d4258;
+  --hdr: #1f2123;
+  --hdr-line: 1px solid #18191b;
+  --hdr-on-line: #fff;
+  --side: #1f2123;
+  --side-text: #fff;
+  --side-icon: #bdbebe;
+  --side-hover: #2b2d2f;
+  --side-on: #393b3d;
+  --side-on-line: #fff;
+  --side-shadow: 0 0 8px rgba(0, 0, 0, .3);
+  --accent: #fff;
+  --accent-hover: #e6e6e6;
+  --accent-text: #232527;
+  --btn: transparent;
+  --btn-line: #bdbebe;
+  --btn-text: rgba(255, 255, 255, .8);
+  --btn-hover-line: #fff;
+  --btn-shadow: none;
+  --input: rgba(0, 0, 0, .55);
+  --input-line: rgba(0, 0, 0, .7);
+  --input-text: #e6e6e6;
+  --select: #33b3ff;
+  --good-text: #3fd17f;
+  --good-bg: #1d3a2b;
+  --bad-text: #ff8a80;
+  --bad-bg: #452626;
+  --warn: #ffab40;
+  --warn-bg: #3d3118;
+  --rbx-text: #3fd17f;
+  --silhouette: rgba(255, 255, 255, .16);
+  --overlay: rgba(0, 0, 0, .7);
+  --tile: #393b3d;
+  color-scheme: dark;
+}
+[data-theme="web2019"] .home-hello, [data-theme="web2019-dark"] .home-hello,
+[data-theme="web2019"] .detail-name, [data-theme="web2019-dark"] .detail-name { font-weight: 800; letter-spacing: -.5px; }
+[data-theme="web2019"] .tab-link.active, [data-theme="web2019-dark"] .tab-link.active { font-weight: 600; }
+[data-theme="web2019"] .tile-meta, [data-theme="web2019-dark"] .tile-meta { font-size: 13px; font-weight: 500; }
+[data-theme="web2019"] .tile-name, [data-theme="web2019-dark"] .tile-name { font-size: 15px; font-weight: 600; }
+[data-theme="web2019"] button.primary, [data-theme="web2019"] button.ghost, [data-theme="web2019"] .more,
+[data-theme="web2019-dark"] button.primary, [data-theme="web2019-dark"] button.ghost, [data-theme="web2019-dark"] .more { font-weight: 500; }
+
+/* Studio: Roblox Studio's panels, square and small. ---------------------------- */
+[data-theme="studio-dark"], [data-theme="studio-light"] {
+  --font: "Segoe UI", "Source Sans Pro", Arial, sans-serif;
+  --w-head: 400;
+  --w-strong: 600;
+  --title: 20px;
+  --tab-size: 14px;
+  --r: 0;
+  --r-btn: 2px;
+  --r-btn-big: 2px;
+  --card-hover: none;
+  --hdr-h: 38px;
+  --side-w: 180px;
+  --btn-shadow: none;
+}
+[data-theme="studio-dark"] {
+  --page: #2e2e2e;
+  --text: #cccccc;
+  --muted: #9a9a9a;
+  --faint: #6e6e6e;
+  --line: #222;
+  --link: #5aa7ff;
+  --card: #353535;
+  --card-line: #222;
+  --card-shadow: none;
+  --soft: #3c3c3c;
+  --pale: #1b4b7a;
+  --hdr: #252525;
+  --hdr-text: #e6e6e6;
+  --hdr-line: 1px solid #1a1a1a;
+  --hdr-shadow: none;
+  --hdr-hover: #3a3a3a;
+  --hdr-on: #2e2e2e;
+  --side: #2e2e2e;
+  --side-text: #cccccc;
+  --side-icon: #9a9a9a;
+  --side-hover: #3a3a3a;
+  --side-on: #0b5aaf;
+  --side-on-line: #0b5aaf;
+  --side-on-text: #fff;
+  --side-on-icon: #fff;
+  --side-shadow: inset -1px 0 0 #1a1a1a;
+  --accent: #0b5aaf;
+  --accent-hover: #136fd0;
+  --play: #3d9a46;
+  --play-hover: #4cae55;
+  --btn: #3c3c3c;
+  --btn-line: #222;
+  --btn-text: #cccccc;
+  --btn-hover-line: #5a5a5a;
+  --input: #252525;
+  --input-line: #1a1a1a;
+  --input-text: #e6e6e6;
+  --select: #4a9eff;
+  --good-text: #6fd27a;
+  --good-bg: #24382a;
+  --bad-text: #ff8a80;
+  --bad-bg: #432828;
+  --warn: #ffb74d;
+  --warn-bg: #3d3420;
+  --rbx-text: #6fd27a;
+  --silhouette: rgba(255, 255, 255, .14);
+  --overlay: rgba(0, 0, 0, .6);
+  --dialog-shadow: 0 6px 24px rgba(0, 0, 0, .6);
+  --tile: #3c3c3c;
+  color-scheme: dark;
+}
+[data-theme="studio-light"] {
+  --page: #f0f0f0;
+  --text: #1f1f1f;
+  --muted: #6d6d6d;
+  --faint: #a0a0a0;
+  --line: #dadada;
+  --link: #0066cc;
+  --card: #fff;
+  --card-line: #dadada;
+  --card-shadow: none;
+  --soft: #f3f3f3;
+  --pale: #cce8ff;
+  --hdr: #fff;
+  --hdr-text: #1f1f1f;
+  --hdr-line: 1px solid #dadada;
+  --hdr-shadow: none;
+  --hdr-hover: #e5f1fb;
+  --hdr-on: #cce4f7;
+  --side: #fff;
+  --side-text: #1f1f1f;
+  --side-icon: #6d6d6d;
+  --side-hover: #e5f3ff;
+  --side-on: #cce8ff;
+  --side-on-line: #3399ff;
+  --side-shadow: inset -1px 0 0 #dadada;
+  --accent: #2b78d0;
+  --accent-hover: #3d8be0;
+  --play: #2fa33d;
+  --play-hover: #3db74b;
+  --btn: #f7f7f7;
+  --btn-line: #adadad;
+  --btn-text: #1f1f1f;
+  --btn-hover-line: #0078d7;
+  --input-line: #adadad;
+  --select: #0078d7;
+}
+[data-theme="studio-light"] .top-mark b { color: #2b78d0; }
+
+/* Builders Club: black and gold. ------------------------------------------------ */
+[data-theme="bc"] {
+  --page: #141414;
+  --text: #f2f2f2;
+  --muted: #b3ab98;
+  --faint: #6f6a5f;
+  --line: #3a362d;
+  --link: #f6b702;
+  --card: #1f1e1b;
+  --card-line: #3a362d;
+  --card-shadow: 0 1px 4px rgba(0, 0, 0, .6);
+  --card-hover: 0 0 0 1px #f6b702;
+  --soft: #2a2824;
+  --pale: #3d3216;
+  --hdr: #0d0d0d;
+  --hdr-text: #f6b702;
+  --hdr-line: 2px solid #f6b702;
+  --hdr-hover: rgba(246, 183, 2, .12);
+  --hdr-on: rgba(246, 183, 2, .2);
+  --side-on-line: #f6b702;
+  --accent: #f6b702;
+  --accent-hover: #ffc933;
+  --accent-text: #1b1b1b;
+  --play: #02b757;
+  --btn: #1f1e1b;
+  --btn-line: #6f6a5f;
+  --btn-text: #f2f2f2;
+  --btn-hover-line: #f6b702;
+  --btn-shadow: none;
+  --input: #0f0f0f;
+  --input-line: #4a453a;
+  --input-text: #f2f2f2;
+  --select: #f6b702;
+  --good-text: #3fd17f;
+  --good-bg: #17301f;
+  --bad-text: #ff8a80;
+  --bad-bg: #3a1e1e;
+  --warn: #f6b702;
+  --warn-bg: #2e2614;
+  --rbx-text: #3fd17f;
+  --silhouette: rgba(246, 183, 2, .18);
+  --overlay: rgba(0, 0, 0, .75);
+  --tile: #2a2824;
+  color-scheme: dark;
+}
+[data-theme="bc"] .wordmark b { color: #fff; }
+
+/* Midnight: deep blue, rounded. -------------------------------------------------- */
+[data-theme="midnight"] {
+  --font: "Segoe UI", "Source Sans Pro", Arial, sans-serif;
+  --w-head: 600;
+  --title: 21px;
+  --page: #0e1522;
+  --text: #e6ecf5;
+  --muted: #8b9ab3;
+  --faint: #5d6b82;
+  --line: #22314b;
+  --link: #7ea6ff;
+  --card: #162238;
+  --card-shadow: 0 2px 6px rgba(0, 0, 0, .35);
+  --card-hover: 0 4px 14px rgba(0, 0, 0, .5);
+  --r: 10px;
+  --soft: #1c2a44;
+  --pale: #233a6b;
+  --hdr: #101a2b;
+  --hdr-line: 1px solid #1c2a44;
+  --hdr-shadow: none;
+  --hdr-hover: #1c2a44;
+  --hdr-on: #22345a;
+  --side: #101a2b;
+  --side-text: #dfe6f2;
+  --side-icon: #7d8ca6;
+  --side-hover: #1a2740;
+  --side-on: #22345a;
+  --side-on-line: #7ea6ff;
+  --side-shadow: inset -1px 0 0 #1c2a44;
+  --r-btn: 8px;
+  --r-btn-big: 10px;
+  --accent: #5b8cff;
+  --accent-hover: #7aa2ff;
+  --play: #2fbf71;
+  --play-hover: #45d386;
+  --btn: #1a2740;
+  --btn-line: #2e4166;
+  --btn-text: #e6ecf5;
+  --btn-hover-line: #5b8cff;
+  --btn-shadow: none;
+  --input: #0b111c;
+  --input-line: #2e4166;
+  --input-text: #e6ecf5;
+  --select: #7ea6ff;
+  --good-text: #45d386;
+  --good-bg: #13302a;
+  --bad-text: #ff8f8f;
+  --bad-bg: #3a1f2b;
+  --warn: #ffb25b;
+  --warn-bg: #36291a;
+  --rbx-text: #45d386;
+  --silhouette: rgba(230, 236, 245, .14);
+  --overlay: rgba(3, 7, 15, .72);
+  --tile: #1c2a44;
+  color-scheme: dark;
+}
+
+/* Light: plain white, rounded, tabs in the bar. -------------------------------- */
+[data-theme="light"] {
+  --font: "Segoe UI", "Source Sans Pro", Arial, sans-serif;
+  --w-head: 600;
+  --title: 21px;
+  --page: #f6f6f7;
+  --text: #1d1d1f;
+  --muted: #6e6e73;
+  --faint: #a1a1a6;
+  --line: #e5e5ea;
+  --link: #2f6fed;
+  --card: #fff;
+  --card-line: #e5e5ea;
+  --card-shadow: none;
+  --card-hover: 0 4px 14px rgba(0, 0, 0, .08);
+  --r: 10px;
+  --soft: #f2f2f5;
+  --pale: #e8f0fe;
+  --hdr: #fff;
+  --hdr-text: #1d1d1f;
+  --hdr-line: 1px solid #e5e5ea;
+  --hdr-shadow: none;
+  --hdr-hover: #f2f2f5;
+  --hdr-on: transparent;
+  --hdr-on-line: #2f6fed;
+  --r-btn: 8px;
+  --r-btn-big: 10px;
+  --accent: #2f6fed;
+  --accent-hover: #4a82f0;
+  --play: #1aa260;
+  --play-hover: #21b86e;
+  --btn-line: #d2d2d7;
+  --btn-hover-line: #86868b;
+  --btn-shadow: none;
+  --input-line: #d2d2d7;
+  --select: #2f6fed;
+}
+[data-theme="light"] .top-mark b { color: #2f6fed; }
+
+/* High contrast: black, white and yellow, thick lines. ------------------------- */
+[data-theme="contrast"] {
+  --font: "Segoe UI", Arial, sans-serif;
+  --w-text: 400;
+  --w-head: 700;
+  --page: #000;
+  --text: #fff;
+  --muted: #e6e6e6;
+  --faint: #c8c8c8;
+  --line: #fff;
+  --link: #ffff00;
+  --card: #000;
+  --card-line: #fff;
+  --card-shadow: none;
+  --card-hover: 0 0 0 2px #ffff00;
+  --r: 0;
+  --soft: #1a1a1a;
+  --pale: #333300;
+  --hdr: #000;
+  --hdr-text: #fff;
+  --hdr-line: 2px solid #fff;
+  --hdr-shadow: none;
+  --hdr-hover: #333;
+  --hdr-on: #ffff00;
+  --r-btn: 0;
+  --r-btn-big: 0;
+  --accent: #ffff00;
+  --accent-hover: #ffff66;
+  --accent-text: #000;
+  --play: #00ff66;
+  --play-hover: #66ff99;
+  --play-text: #000;
+  --btn: #000;
+  --btn-line: #fff;
+  --btn-text: #fff;
+  --btn-hover-line: #ffff00;
+  --btn-shadow: none;
+  --input: #000;
+  --input-line: #fff;
+  --input-text: #fff;
+  --select: #00ffff;
+  --danger: #ff4040;
+  --good: #00ff66;
+  --good-text: #00ff66;
+  --good-bg: #002b11;
+  --bad: #ff6060;
+  --bad-text: #ff8080;
+  --bad-bg: #2b0000;
+  --warn: #ffff00;
+  --warn-bg: #2b2b00;
+  --rbx: #00ff66;
+  --rbx-text: #00ff66;
+  --online: #00ffff;
+  --silhouette: rgba(255, 255, 255, .35);
+  --overlay: rgba(0, 0, 0, .85);
+  --dialog-shadow: 0 0 0 2px #fff;
+  --tile: #1a1a1a;
+  color-scheme: dark;
+}
+[data-theme="contrast"] .tab-link.active { color: #000; font-weight: 700; }
+[data-theme="contrast"] .card-main, [data-theme="contrast"] .game-tile, [data-theme="contrast"] .panel, [data-theme="contrast"] .theme-card { border-width: 2px; }
+[data-theme="contrast"] .nav-target:focus-visible, [data-theme="contrast"] .game-tile.focused, [data-theme="contrast"] button:focus-visible { outline-width: 3px !important; }
+[data-theme="contrast"] .tile-meta, [data-theme="contrast"] .hint, [data-theme="contrast"] .lead { color: #fff; }
+[data-theme="contrast"] .rbx-badge { color: #000; }
+
+/* Xbox One: the 2016 console app, rebuilt from its own screens (numbers in the
+   shared notes, xbox-app-design.md) with our own art: a navy city at night
+   (xbox-city.svg), the "rbx2017" wordmark in the app's white-and-red logo
+   style, blue tab names in capitals, square flat tiles with a white frame and
+   a blue glow, captions that slide up, panes that slide in from the right.
+   The console family's layout is in style.css; this changes its looks. ---- */
+[data-theme="xbox2016"] {
+  --bg: #0d1f2d;
+  --tab: #0074bd;
+  --tab-hover: #32b5ff;
+  --accent: #32b5ff;
+  --panel: rgba(26, 57, 76, .9);
+  --tile: #274552;
+  --line: #4e4e4e;
+  --text: #fff;
+  --muted: #b8b8b8;
+  --good: #02b757;
+  --bad: #d86868;
+  --online: #32b5ff;
+  --select: #fff;
+  --x16-ease: cubic-bezier(.25, .46, .45, .94);
+  --x16-glow: 0 0 0 6px rgba(0, 162, 255, .5), 0 0 14px 7px rgba(0, 162, 255, .3);
+}
+[data-theme="xbox2016"] .backdrop, .theme-preview[data-theme="xbox2016"], [data-theme="xbox2016"] #overlay {
+  background: #0d1f2d url("xbox-city.svg") center / cover no-repeat;
+}
+[data-theme="xbox2016"] #bg-canvas, [data-theme="xbox2016"] .console-only { display: none; }
+
+/* The wordmark in the logo's style: white, a red outline, a darker drop. */
+[data-theme="xbox2016"] .top .logo, [data-theme="xbox2016"] .start-logo, [data-theme="xbox2016"] .account-logo { display: none; }
+[data-theme="xbox2016"] .wordmark {
+  display: block; font-weight: 700; line-height: 1; letter-spacing: -1px; color: #fff; white-space: nowrap; transform: rotate(-2deg);
+  text-shadow: -2px -2px 0 #e2231a, 2px -2px 0 #e2231a, -2px 2px 0 #e2231a, 2px 2px 0 #e2231a, 0 -2px 0 #e2231a, 0 2px 0 #e2231a, -2px 0 0 #e2231a, 2px 0 0 #e2231a, 0 5px 0 #9b120c;
+}
+[data-theme="xbox2016"] .wordmark b { font-weight: inherit; }
+[data-theme="xbox2016"] .top-mark { font-size: 38px; }
+[data-theme="xbox2016"] .start-mark { font-size: 120px; letter-spacing: -3px; animation: logo-in .8s cubic-bezier(.2, .9, .3, 1.2); }
+[data-theme="xbox2016"] .account-mark { align-self: center; margin-bottom: 8px; font-size: 48px; }
+
+/* Header and tabs: the logo top left, the tab names in blue capitals. */
+[data-theme="xbox2016"] .top { height: 96px; padding: 3.7vh 5.2vw 0; }
+[data-theme="xbox2016"] .tabs { top: max(108px, 15.5vh); left: 5.2vw; gap: 22px; }
+[data-theme="xbox2016"] .tab-link { padding: 0 0 2px; font-size: 40px; font-weight: 300; letter-spacing: 0; text-transform: uppercase; color: var(--tab); border-bottom: 3px solid transparent; transition: none; }
+[data-theme="xbox2016"] .tab-link:hover { color: var(--tab-hover); }
+[data-theme="xbox2016"] .tab-link.active { color: #fff; border-bottom-color: transparent; }
+/* The underline only while the tab row has the selection, as on the console. */
+[data-theme="xbox2016"] .tab-link:focus-visible, [data-theme="xbox2016"] .tabs:focus-within .tab-link.active { border-bottom-color: #32b5ff; }
+[data-theme="xbox2016"] .tab-link:focus-visible { color: #fff; text-shadow: none; }
+[data-theme="xbox2016"] .tab-badge { min-width: 22px; height: 22px; font-size: 13px; }
+[data-theme="xbox2016"] .user-chip, [data-theme="xbox2016"] .robux-chip { background: rgba(26, 57, 76, .6); border: 0; outline: 3px solid transparent; }
+[data-theme="xbox2016"] .user-chip:focus-visible, [data-theme="xbox2016"] .robux-chip:focus-visible, [data-theme="xbox2016"] .user-chip:hover, [data-theme="xbox2016"] .robux-chip:hover { outline-color: #fff; box-shadow: var(--x16-glow); }
+[data-theme="xbox2016"] .chip-pic { background: var(--tile); }
+
+/* Panes slide in from the right and fade in. */
+[data-theme="xbox2016"] .view { top: max(178px, 24vh); bottom: 56px; padding: 6px 5.2vw 16px; }
+[data-theme="xbox2016"] .view.active { animation: x16-in .5s var(--x16-ease); }
+@keyframes x16-in { from { opacity: 0; transform: translateX(15%); } to { opacity: 1; transform: none; } }
+
+/* Hints: only "X Settings", bottom right; the glyphs are rings. */
+[data-theme="xbox2016"] .hints { height: 56px; padding: 0 5.2vw; }
+[data-theme="xbox2016"] .hint-item { display: none; }
+[data-theme="xbox2016"] .btn { background: transparent; border: 2px solid currentColor; color: #fff; }
+[data-theme="xbox2016"] .btn-a { color: #02b757; }
+[data-theme="xbox2016"] .btn-b { color: #e2231a; }
+[data-theme="xbox2016"] .btn-y { color: #f6b702; }
+[data-theme="xbox2016"] .btn-x { width: 40px; height: 40px; color: #00a2ff; border-width: 2px; font-size: 21px; }
+[data-theme="xbox2016"] .settings-hint { font-size: 27px; font-weight: 400; }
+[data-theme="xbox2016"] .start-press { margin-top: 10vh; font-size: 24px; font-weight: 400; animation: none; }
+[data-theme="xbox2016"] .start-press:active { color: #808080; }
+
+/* Section titles: small capitals. */
+[data-theme="xbox2016"] .col-title, [data-theme="xbox2016"] .section-title { font-size: 19px; font-weight: 400; letter-spacing: .3px; text-transform: uppercase; }
+[data-theme="xbox2016"] .section-note { text-transform: uppercase; font-size: 15px; }
+
+/* Home: you and friend activity on the left, then recently played (one big
+   tile, two small) and online games in tiles. */
+[data-theme="xbox2016"] #view-home.active { display: grid; grid-template-columns: 300px 252px minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr); column-gap: 24px; align-items: start; align-content: start; }
+[data-theme="xbox2016"] .home-grid { display: contents; }
+[data-theme="xbox2016"] .news { grid-column: 1 / -1; grid-row: 1; }
+[data-theme="xbox2016"] .col-me { grid-column: 1; grid-row: 2; }
+[data-theme="xbox2016"] .home-friends { grid-column: 1; grid-row: 3; margin: 16px 0 0; }
+[data-theme="xbox2016"] .col-recent { grid-column: 2; grid-row: 2 / 4; }
+[data-theme="xbox2016"] .col-online { grid-column: 3; grid-row: 2 / 4; }
+[data-theme="xbox2016"] .col-me .col-title.second, [data-theme="xbox2016"] .status-list, [data-theme="xbox2016"] .panel-caption { display: none; }
+[data-theme="xbox2016"] .avatar-panel { aspect-ratio: 3 / 2; max-height: none; background: var(--tile); box-shadow: 3px 3px 6px rgba(0, 0, 0, .5); }
+[data-theme="xbox2016"] .avatar-panel svg { height: 80%; }
+[data-theme="xbox2016"] .friends-strip { flex-direction: column; gap: 0; padding: 0; overflow: visible; }
+[data-theme="xbox2016"] .friend-bubble { display: grid; grid-template-columns: 64px minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 12px; align-content: center; width: 100%; padding: 8px 0; border-bottom: 2px solid #4e4e4e; text-align: left; }
+[data-theme="xbox2016"] .friend-bubble:nth-child(n+4) { display: none; }
+[data-theme="xbox2016"] .friend-bubble .bubble-pic { grid-row: 1 / 3; width: 64px; height: 64px; margin: 0; border: 0; border-radius: 0; background: var(--tile); }
+[data-theme="xbox2016"] .friend-bubble .bubble-name { align-self: end; margin: 0; font-size: 20px; }
+[data-theme="xbox2016"] .friend-bubble .bubble-where { align-self: start; font-size: 15px; color: #b8b8b8; }
+[data-theme="xbox2016"] .friend-bubble .bubble-where::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 50%; background: #02b757; }
+[data-theme="xbox2016"] .friend-bubble.p-studio .bubble-where::before { background: var(--studio); }
+[data-theme="xbox2016"] .friend-bubble:focus-visible, [data-theme="xbox2016"] .friend-bubble:hover { outline: 3px solid #fff; outline-offset: 2px; box-shadow: var(--x16-glow); }
+[data-theme="xbox2016"] .friend-bubble:focus-visible .bubble-pic, [data-theme="xbox2016"] .friend-bubble:hover .bubble-pic { border: 0; }
+[data-theme="xbox2016"] .recent-grid { gap: 8px; }
+[data-theme="xbox2016"] .online-grid { gap: 14px 12px; }
+
+/* Tiles: black, square, a drop shadow; the name slides up on selection. */
+[data-theme="xbox2016"] .game-tile { background: #000; box-shadow: 3px 3px 6px rgba(0, 0, 0, .5); transition: none; }
+[data-theme="xbox2016"] .tile-badge { display: none; }
+[data-theme="xbox2016"] .tile-info {
+  display: block; position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; padding: 8px 12px 10px; background: rgba(0, 0, 0, .7);
+  transform: translateY(101%); transition: transform .3s var(--x16-ease);
+}
+[data-theme="xbox2016"] .game-tile:hover .tile-info, [data-theme="xbox2016"] .game-tile.focused .tile-info, [data-theme="xbox2016"] .game-tile:focus-visible .tile-info { transform: none; }
+[data-theme="xbox2016"] .tile-name { font-size: 22px; font-weight: 300; line-height: 1.15; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+[data-theme="xbox2016"] .tile-meta { margin-top: 2px; font-size: 14px; color: #b8b8b8; }
+[data-theme="xbox2016"] .tile-meta.live { color: #02b757; }
+[data-theme="xbox2016"] .tile-meta:empty { display: none; }
+[data-theme="xbox2016"] .game-tile.placeholder { background: #4e5460; color: rgba(255, 255, 255, .75); box-shadow: 3px 3px 6px rgba(0, 0, 0, .5); }
+[data-theme="xbox2016"] .game-tile.placeholder b { font-size: 60px; font-weight: 300; color: #fff; }
+[data-theme="xbox2016"] .game-tile.placeholder.filler { box-shadow: none; opacity: .6; }
+[data-theme="xbox2016"] .more { width: 72px; height: 33px; margin-top: 8px; padding: 0; background: #4e5460; box-shadow: 2px 2px 4px rgba(0, 0, 0, .5); }
+[data-theme="xbox2016"] .more-dots { display: block; font-size: 22px; font-weight: 900; letter-spacing: 1px; line-height: 1; }
+
+/* Selection: a white frame on the edge with a blue glow; no zoom, no delay. */
+[data-theme="xbox2016"] .nav-target:focus-visible, [data-theme="xbox2016"] .game-tile:focus-visible, [data-theme="xbox2016"] .avatar-panel:focus-visible,
+[data-theme="xbox2016"] .more:focus-visible, [data-theme="xbox2016"] .item-tile:focus-visible, [data-theme="xbox2016"] .card-main:focus-visible,
+[data-theme="xbox2016"] .game-tile.focused, [data-theme="xbox2016"] .avatar-panel.focused, [data-theme="xbox2016"] .more.focused,
+[data-theme="xbox2016"] .item-tile.focused, [data-theme="xbox2016"] .card-main.focused {
+  outline: 4px solid #fff; outline-offset: 0; box-shadow: var(--x16-glow); transform: none; transition: none; z-index: 2;
+}
+[data-theme="xbox2016"] .more:focus-visible, [data-theme="xbox2016"] .more.focused { background: #32b5ff; }
+
+/* Buttons: flat grey or green squares in capitals; selected ones turn blue
+   (or light green) with dark text. */
+[data-theme="xbox2016"] button.primary, [data-theme="xbox2016"] button.ghost, [data-theme="xbox2016"] button.danger, [data-theme="xbox2016"] button.icon-btn {
+  border: 0; outline: 3px solid transparent; outline-offset: -3px; font-weight: 400; text-transform: uppercase; letter-spacing: .3px; box-shadow: 2px 2px 4px rgba(0, 0, 0, .45);
+}
+[data-theme="xbox2016"] button.ghost, [data-theme="xbox2016"] button.icon-btn, [data-theme="xbox2016"] .news-dismiss { background: #4e5460; color: #fff; }
+[data-theme="xbox2016"] button.primary { background: #32b5ff; color: #131313; }
+[data-theme="xbox2016"] button.small { text-transform: none; }
+[data-theme="xbox2016"] button.ghost:hover, [data-theme="xbox2016"] button.ghost:focus-visible, [data-theme="xbox2016"] button.icon-btn:hover, [data-theme="xbox2016"] button.icon-btn:focus-visible,
+[data-theme="xbox2016"] .news-dismiss:hover, [data-theme="xbox2016"] .news-dismiss:focus-visible { background: #32b5ff; color: #131313; }
+[data-theme="xbox2016"] button.primary:focus-visible, [data-theme="xbox2016"] button.ghost:focus-visible, [data-theme="xbox2016"] button.danger:focus-visible,
+[data-theme="xbox2016"] button.icon-btn:focus-visible, [data-theme="xbox2016"] .play-button:focus-visible { outline-color: #fff; box-shadow: var(--x16-glow); }
+[data-theme="xbox2016"] .play-button { background: #02a34d; color: #fff; border: 0; outline: 3px solid transparent; outline-offset: -3px; padding: 11px 46px; font-size: 24px; font-weight: 400; text-transform: uppercase; box-shadow: 2px 2px 4px rgba(0, 0, 0, .45); }
+[data-theme="xbox2016"] .play-button:hover, [data-theme="xbox2016"] .play-button:focus-visible { background: #3fc679; color: #131313; filter: none; }
+[data-theme="xbox2016"] input, [data-theme="xbox2016"] select { background: rgba(0, 0, 0, .45); border: 2px solid #4e5460; }
+[data-theme="xbox2016"] input:focus, [data-theme="xbox2016"] select:focus { border-color: #fff; box-shadow: var(--x16-glow); }
+
+/* Panels and side lists: the app's dark teal, selected rows filled blue. */
+[data-theme="xbox2016"] .panel, [data-theme="xbox2016"] .log-box, [data-theme="xbox2016"] .account-box, [data-theme="xbox2016"] .whats-new,
+[data-theme="xbox2016"] .chat-side, [data-theme="xbox2016"] .chat-main, [data-theme="xbox2016"] .avatar-guest, [data-theme="xbox2016"] .friends-guest,
+[data-theme="xbox2016"] .news-item, [data-theme="xbox2016"] .robux-pop { background: var(--panel); border: 0; backdrop-filter: none; }
+[data-theme="xbox2016"] .set-link, [data-theme="xbox2016"] .cat-link { border-left: 0; padding: 9px 16px; font-size: 22px; font-weight: 400; color: #fff; }
+[data-theme="xbox2016"] .set-link.active, [data-theme="xbox2016"] .cat-link.active { background: rgba(50, 181, 255, .16); color: #fff; }
+[data-theme="xbox2016"] .set-link:hover, [data-theme="xbox2016"] .cat-link:hover { background: #54636d; color: #fff; }
+[data-theme="xbox2016"] .set-link:focus-visible, [data-theme="xbox2016"] .cat-link:focus-visible { background: #32b5ff; color: #131313; }
+[data-theme="xbox2016"] .theme-card { background: rgba(26, 57, 76, .6); }
+[data-theme="xbox2016"] .theme-card:focus-visible { border-color: #fff; box-shadow: var(--x16-glow); }
+
+/* Dialogs: the page dims to 70% black; the game page is a screen of its own. */
+[data-theme="xbox2016"] .overlay { background: rgba(0, 0, 0, .7); backdrop-filter: none; animation: fade .25s cubic-bezier(.45, 0, .55, 1); }
+[data-theme="xbox2016"] .detail { width: 100%; height: 100%; max-height: none; padding: 7vh 5.2vw 5vh; gap: 3.4vw; animation: x16-in .5s var(--x16-ease); }
+[data-theme="xbox2016"] .detail-side { width: 31%; }
+[data-theme="xbox2016"] .detail-cover { background: #000; box-shadow: 3px 3px 6px rgba(0, 0, 0, .5); }
+[data-theme="xbox2016"] .detail-info { max-height: 100%; justify-content: flex-start; }
+[data-theme="xbox2016"] .detail-name { font-size: 40px; font-weight: 300; text-transform: uppercase; }
+[data-theme="xbox2016"] .detail-meta { color: #b8b8b8; }
+[data-theme="xbox2016"] .detail-desc { padding-top: 14px; border-top: 2px solid #4e4e4e; font-size: 20px; font-weight: 300; color: #fff; }
+[data-theme="xbox2016"] .detail-section { border-top: 2px solid #4e4e4e; }
+[data-theme="xbox2016"] .detail-head span { font-size: 19px; font-weight: 400; text-transform: uppercase; }
+[data-theme="xbox2016"] .detail-actions > button { align-self: stretch; height: auto; }
+[data-theme="xbox2016"] .detail-actions button.ghost { padding: 0 30px; }
+[data-theme="xbox2016"] .vote.up, [data-theme="xbox2016"] .vote.up.mine { color: #02b757; }
+[data-theme="xbox2016"] .vote.down, [data-theme="xbox2016"] .vote.down.mine { color: #d86868; }
+[data-theme="xbox2016"] .vote-bar { height: 10px; background: #d86868; -webkit-mask: repeating-linear-gradient(90deg, #000 0 calc(20% - 2px), transparent calc(20% - 2px) 20%); }
+[data-theme="xbox2016"] .vote-bar:not(.rated) { background: #808080; }
+[data-theme="xbox2016"] .vote-fill { background: #02b757; }
+[data-theme="xbox2016"] .server-row { background: rgba(26, 57, 76, .8); }
+[data-theme="xbox2016"] .profile { animation: x16-in .5s var(--x16-ease); }
+[data-theme="xbox2016"] .profile-name { text-transform: uppercase; }
+
+/* Loading: the blue tapered arc, one turn a second. */
+[data-theme="xbox2016"] .loading-spinner {
+  border: 0; background: conic-gradient(from 0deg, rgba(49, 180, 255, 0), #31b4ff 75%, transparent 75%);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 6px), #000 calc(100% - 5px)); animation-duration: 1s;
+}
+
+@media (max-width: 1150px) {
+  [data-theme="xbox2016"] .tab-link { font-size: 31px; }
+  [data-theme="xbox2016"] .tabs { gap: 16px; }
+  [data-theme="xbox2016"] #view-home.active { grid-template-columns: 240px 200px minmax(0, 1fr); }
+}
