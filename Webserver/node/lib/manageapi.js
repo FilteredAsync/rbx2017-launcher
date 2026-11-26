@@ -160,8 +160,12 @@ function readClientYears() {
 // place: its library entry, when the caller has it already.
 function clientYearsOf(placeId, place = places.get(placeId)) {
   const own = places.engineOf(place);
+  // Games of the self-hosted years (2009, 2013) play in their own year only,
+  // and other games never in those years (lib/launcherapi.js yearsFor).
+  if (engines.selfHosted(own)) return { years: [own], engine: own, saved: false };
   const saved = readClientYears()[placeId];
-  const years = Array.isArray(saved) ? saved.filter((year) => engines.known(year)) : Object.keys(engines.ENGINES);
+  const years = (Array.isArray(saved) ? saved.filter((year) => engines.known(year)) : Object.keys(engines.ENGINES))
+    .filter((year) => !engines.selfHosted(year));
   if (!years.includes(own)) years.unshift(own);
   return { years, engine: own, saved: Array.isArray(saved) };
 }
