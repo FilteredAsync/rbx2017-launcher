@@ -175,7 +175,7 @@ def main():
     # on a player's first game of that year.
     year = re.fullmatch(r'client(\d{4})', kind_name)
     if year:
-        # The 2009 client is RobloxApp.exe (lib/engines.js selfHosted.exe).
+        # The 2009 and 2011 clients are RobloxApp.exe (lib/engines.js selfHosted.exe).
         exe = 'RobloxApp.exe' if os.path.isfile(os.path.join(ROOT, f'Client{year.group(1)}', 'RobloxApp.exe')) else 'RobloxPlayerBeta.exe'
         KINDS[kind_name] = {'folder': f'Client{year.group(1)}', 'exe': exe, 'name': f'client-files-{year.group(1)}', 'exclude': []}
     if kind_name not in KINDS:

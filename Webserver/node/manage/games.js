@@ -551,7 +551,7 @@ function settingsForm(place) {
   version.value = engineOf(place);
   // Client years players may pick on the launcher's game page.
   const savedYears = game.years.placeId === id && game.years.value ? game.years.value.years : [engineOf(place)];
-  // Not 2009 and 2013 (self-hosted): their games play in their own year only.
+  // Not 2009, 2011 and 2013 (self-hosted): their games play in their own year only.
   const yearBoxes = engineChoices.filter((engine) => !engine.selfHosted).map((engine) => {
     const box = h('input', { type: 'checkbox', value: engine.id, checked: savedYears.includes(engine.id) || engine.id === engineOf(place) });
     return { engine, box, label: h('label', { class: 'inline check year' }, box, engine.label) };

@@ -233,7 +233,7 @@ async function joinGame({ centralUrl, username, ticket = null, name = null, game
     }
   }
   let args = ['--play', '-a', 'http://localhost./Login/Negotiate.ashx/', '-t', 'Test', '-j', joinUrl];
-  // Self-hosted years (2009, 2013; lib/engines.js): our own join script
+  // Self-hosted years (2009, 2011, 2013; lib/engines.js): our own join script
   // (lib/oldyears.js), which connects to "localhost", the relay. 2013 runs it
   // as its -j script; 2009 loads it with -script.
   const selfHosted = year ? engines.ENGINES[year].selfHosted : null;

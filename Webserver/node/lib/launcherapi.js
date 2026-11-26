@@ -420,7 +420,7 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
     const own = places.engineOf(place);
     let allowed = [own];
     try { allowed = require('./manageapi').clientYearsOf(String(placeId), place || null).years; } catch (error) { /* only its own */ }
-    // The self-hosted years (2009, 2013) take places only as they were made
+    // The self-hosted years (2009, 2011, 2013) take places only as they were made
     // then: their games play in their own year only, and other games never
     // in those years (the converter targets 2016-2018).
     if (engines.selfHosted(own)) return [own];

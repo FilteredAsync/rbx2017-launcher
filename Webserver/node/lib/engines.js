@@ -37,7 +37,7 @@
 //                  from lib/oldyears.js; players get a join script from there
 //                  too. exe: the client's exe; run: 'joinScript' (the exe runs
 //                  "-j <script address>", 2013) or 'script' ("-script
-//                  loadfile('<address>')()", 2009). Their scripts carry the
+//                  loadfile('<address>')()", 2009, 2011). Their scripts carry the
 //                  old "%signature%" form. Games of these years play only in
 //                  their own year (lib/launcherapi.js yearsFor), and their
 //                  places are stored as uploaded (lib/placeconvert.js).
@@ -50,9 +50,10 @@ const core = require('./core');
 const DEFAULT_ENGINE = '2017';
 
 const ENGINES = {
-  // 2009 (RobloxApp 0.20.12.1, November 2009) and 2013 (0.98.0.31956, April
-  // 2013): self-hosted. The 2009 app needs a patch for PCs with 32 or more
-  // logical CPUs (tools/make-engine.py).
+  // 2009 (RobloxApp 0.20.12.1, November 2009), 2011 (RobloxApp 0.49.1.466,
+  // December 2011) and 2013 (0.98.0.31956, April 2013): self-hosted, with
+  // patches from tools/make-engine.py (one for PCs with 32 or more logical
+  // CPUs in each).
   2009: {
     id: '2009',
     label: '2009',
@@ -60,6 +61,18 @@ const ENGINES = {
     server: 'Server2009',
     client: 'Client2009',
     clientFiles: 'client-files-2009',
+    selfHosted: { exe: 'RobloxApp.exe', run: 'script' },
+    placeIdArgument: false,
+    playerAuthentication: false,
+    memoryPatches: [],
+  },
+  2011: {
+    id: '2011',
+    label: '2011',
+    build: '0.49.1.466',
+    server: 'Server2011',
+    client: 'Client2011',
+    clientFiles: 'client-files-2011',
     selfHosted: { exe: 'RobloxApp.exe', run: 'script' },
     placeIdArgument: false,
     playerAuthentication: false,

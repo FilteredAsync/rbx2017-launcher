@@ -7,6 +7,7 @@ year on /manage) and, for years with their own game server, Server<year>/.
     python tools/make-engine.py 2014 --client <full player folder>
     python tools/make-engine.py 2018 --client <full player folder> --rcc <exe>
     python tools/make-engine.py 2013 --client <full player folder>
+    python tools/make-engine.py 2011 --client <RobloxApp folder>
     python tools/make-engine.py 2009 --client <RobloxApp folder>
     --force   replace existing folders
 
@@ -27,9 +28,12 @@ version and MD5 and never runs anything):
         Roblox_Builds_2014_2020 archive (2018-05-15_Mid-Spring_Build/Server)
   2013 (0.98.0.31956, April 2013): the player folder from archive.org item
         roblox_client_version-5c703d6176af434b_zork
+  2011 (0.49.1.466, December 2011, version-09a201d8e5f247c7): RobloxApp from
+        archive.org item ROBLOX20072013 ("ROBLOX 2007-2013.zip", 2011/Late
+        2011); the April 2011 copy there is modified (signature HashMismatch)
   2009 (0.20.12.1, November 2009): RobloxApp from archive.org item
         roblox_client_version-a00995fdd72842a2 (setup.roblox.com packages)
-  No RCC survives from before 2015, so for 2013 and 2009 the client itself
+  No RCC survives from before 2015, so for 2013, 2011 and 2009 the client itself
   hosts the game ("self-hosted", lib/engines.js): Server<year>/ is the same
   patched folder as Client<year>/.
 
@@ -94,6 +98,29 @@ YEARS = {
                    'strings': [
                        (b'https://%s.api.localhost./%s/?apiKey=%s\0', b'http://%s.api.localhost./%s/?apiKey=%s\0\0'),
                        (b'https://%s.api.%s%s/%s/?apiKey=%s\0', b'http://%s.api.%s%s/%s/?apiKey=%s\0\0'),
+                   ]},
+        'base_url': 'http://www.localhost.',
+        'client_flags': '{\n}\n',
+        'self_hosted': True,
+    },
+    '2011': {
+        'client': {'version': '0.49.1.466', 'md5': '0f585630393251344270650a59e73493', 'exe': 'RobloxApp.exe',
+                   # No one-at-a-time rule in this build either.
+                   'single_instance': False,
+                   'patches': [
+                       # 2013's CPU count fix (same loop, mask in eax).
+                       ('CPU count past 32 CPUs', 0x9071E9, bytes.fromhex('B8010000008BCED3E085C00F85'),
+                        bytes.fromhex('31C0408BCED3E09083FE200F82')),
+                       # 2009's player locks (below), here as an identity-4
+                       # check in the Player.userId and Player.Name setters
+                       # that throws a bare "Unknown exception". jne -> jmp.
+                       ('player ID permission', 0x52DAF5, bytes.fromhex('84C07519'), bytes.fromhex('84C0EB19')),
+                       ('player name permission', 0x5144E8, bytes.fromhex('84C07519'), bytes.fromhex('84C0EB19')),
+                   ],
+                   # Its flags come over https too (2013, below): plain http.
+                   'strings': [
+                       b'https://clientsettings%s.api.localhost./Setting/QuietGet/%s/',
+                       b'https://clientsettings%s.api.localhost./Setting/QuietGet/ClientSharedSettings/',
                    ]},
         'base_url': 'http://www.localhost.',
         'client_flags': '{\n}\n',
@@ -273,7 +300,16 @@ def patch_exe(source, target, key, registry, code_patches=(), string_patches=())
     data = bytearray(bytes(data).replace(b'roblox.com', b'localhost.'))
     data = bytearray(bytes(data).replace('roblox.com'.encode('utf-16-le'), 'localhost.'.encode('utf-16-le')))
     # Same-length string changes (after the roblox.com one), each found once.
-    for old, new in string_patches:
+    # A bare https:// prefix stands for the one string that starts with it,
+    # made http:// (one more NUL at the end).
+    for patch in string_patches:
+        if isinstance(patch, bytes):
+            if not patch.startswith(b'https://') or data.count(patch) != 1:
+                sys.exit(f'{source}: string {patch!r} not found once')
+            start = bytes(data).index(patch)
+            old = bytes(data[start:bytes(data).index(b'\0', start) + 1])
+            patch = (old, b'http://' + old[len(b'https://'):] + b'\0')
+        old, new = patch
         if len(old) != len(new) or data.count(old) != 1:
             sys.exit(f'{source}: string patch {old!r} not found once (or not the same length)')
         data = bytearray(bytes(data).replace(old, new))

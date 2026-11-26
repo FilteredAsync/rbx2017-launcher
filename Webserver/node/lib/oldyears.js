@@ -1,6 +1,6 @@
 'use strict';
 
-// Games of the self-hosted years (lib/engines.js selfHosted: 2009, 2013). No
+// Games of the self-hosted years (lib/engines.js selfHosted: 2009, 2011, 2013). No
 // RCC survives from before 2015, so a copy of that year's client hosts the
 // game (lib/hosting.js): it runs the server script below, which loads the
 // place, starts NetworkServer and reports who is playing. Players' clients
