@@ -185,7 +185,13 @@ function engineDir(corpus, root, engine) {
     || fs.statSync(path.join(to, 'RCCService.exe')).size !== fs.statSync(path.join(from, 'RCCService.exe')).size;
   if (stale) {
     if (fs.existsSync(to)) fs.rmSync(to, { recursive: true, force: true });
-    linkTree(from, to, (file, entry) => entry.isDirectory() && (/[\\/]content[\\/]places$/.test(file) || /[\\/]internalscripts$/.test(file) || entry.name === 'ClientSettings' || entry.name === 'logs'));
+    linkTree(from, to, (file, entry) => (entry.isFile() && entry.name === 'AppSettings.xml')
+      || (entry.isDirectory() && (/[\\/]content[\\/]places$/.test(file) || /[\\/]internalscripts$/.test(file) || entry.name === 'ClientSettings' || entry.name === 'logs')));
+    // Its own web address, one that never resolves: the game's asset and
+    // settings requests would otherwise go to whatever holds port 80 here
+    // (the launcher's proxy to the live server while someone plays).
+    fs.writeFileSync(path.join(to, 'AppSettings.xml'), '<?xml version="1.0" encoding="UTF-8"?>\r\n<Settings>\r\n\t<ContentFolder>content</ContentFolder>\r\n'
+      + '\t<BaseUrl>http://www.convertcheck.invalid/</BaseUrl>\r\n</Settings>\r\n');
     const settings = path.join(to, 'ClientSettings');
     fs.mkdirSync(settings, { recursive: true });
     const own = path.join(from, 'ClientSettings', 'RCCService.json');
