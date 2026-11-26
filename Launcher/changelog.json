@@ -1,5 +1,16 @@
 [
   {
+    "version": "1.20.0",
+    "date": "2026-11-26",
+    "title": "New look",
+    "items": [
+      "The launcher looks like the 2017 website now. If you picked the Xbox look before, you keep it.",
+      "Settings > Theme has 17 themes, from the 2014 site to 2019 dark, Studio and the Xbox One app. You can import your own too.",
+      "Play a game in another Roblox year from its page, if the game allows it.",
+      "Fixed: 2018 games like Tower of Hell failing to join."
+    ]
+  },
+  {
     "version": "1.19.0",
     "date": "2026-11-25",
     "title": "2018 games",
