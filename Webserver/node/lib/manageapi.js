@@ -204,7 +204,9 @@ function current() {
     const slot = byEngine[engine] || (byEngine[engine] = { id: engine, label: engine, installed: false, servers: 0, players: 0, games: 0 });
     if (server.state === 'running') slot.servers++;
     slot.players += Array.isArray(server.players) ? server.players.length : 0;
-    if (!gamesSeen.has(server.placeId)) { gamesSeen.add(server.placeId); slot.games++; }
+    // A game with servers of two years counts under both.
+    const key = `${engine}:${server.placeId}`;
+    if (!gamesSeen.has(key)) { gamesSeen.add(key); slot.games++; }
   }
   const list = Object.values(byEngine);
   return {
