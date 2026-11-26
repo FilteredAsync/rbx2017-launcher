@@ -7,6 +7,8 @@
 //
 //   Server/content/places/years/<placeId>-<year>-v<version>.rbxl(x)   the converted file
 //   Server/content/places/years/<placeId>-<year>.json   { version, file, from, convertedAt, notes } or { version, error }
+//   Webserver/node/data/convert-reports/<placeId>-<year>.json   the converter's report on it (lib/convertreport.js;
+//                                                    /manage shows only the game's own <placeId>.json)
 //
 // dedicated.js calls prepare() before it starts such a server. It converts in
 // a worker thread (big places take a while; the runner keeps answering) with
@@ -145,12 +147,23 @@ async function convert(place, placeId, year, centralUrl, log) {
       convertedAt: new Date().toISOString(), notes: result.notes,
     }, null, 2));
     removeOlder(placeId, year, result.file);
+    writeReport(placeId, year, result.counts);
     log(`converted for ${year} in ${Math.round((Date.now() - started) / 1000)} s`);
     return `${RELATIVE}/${result.file}`;
   } catch (error) {
     core.writeFileAtomic(metaPath(placeId, year), JSON.stringify({ placeId: String(placeId), year, version, error: error.message, at: new Date().toISOString() }, null, 2));
     throw error;
   }
+}
+
+// The converter's report on a year's file, beside the game's own report.
+function writeReport(placeId, year, counts) {
+  try {
+    const convertreport = require('./convertreport');
+    const report = convertreport.build({ placeId, engine: year, counts: counts || null, check: null });
+    fs.mkdirSync(convertreport.REPORTS_DIR, { recursive: true });
+    core.writeFileAtomic(path.join(convertreport.REPORTS_DIR, `${placeId}-${year}.json`), `${JSON.stringify(report, null, 1)}\n`);
+  } catch (error) { /* no converter reports on this server */ }
 }
 
 // The file a server of that year should load (under Server/content),
@@ -209,7 +222,7 @@ async function workerJob(job) {
   const ext = bytes.toString('latin1', 0, 8) === '<roblox!' ? 'rbxl' : 'rbxlx';
   const file = `${job.placeId}-${job.year}-v${job.version}.${ext}`;
   if (!core.writeFileAtomic(path.join(job.dir, file), bytes)) throw new Error('could not save the converted file');
-  return { file, notes: Array.isArray(converted.notes) ? converted.notes.length : 0 };
+  return { file, notes: Array.isArray(converted.notes) ? converted.notes.length : 0, counts: converted.counts || null };
 }
 
 if (!isMainThread && workerData && workerData.yearPlaceJob) {
