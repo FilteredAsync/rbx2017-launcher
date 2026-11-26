@@ -60,3 +60,4 @@ host-key.txt
 roblox-api-key.txt
 .roblosecurity
 menu-music.mp3
+__pycache__/
