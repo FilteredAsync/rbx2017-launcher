@@ -21,7 +21,7 @@ const CLIENT_EXE = core.rootPath('Client', 'RobloxPlayerBeta.exe');
 // The client of the game's Roblox version (game.engine from the join answer,
 // lib/engines.js): Client/ for 2017, Client<year>/ for the others.
 function clientExe(engine) {
-  return core.rootPath(engines.clientFolder(engine), 'RobloxPlayerBeta.exe');
+  return core.rootPath(engines.clientFolder(engine), engines.clientExeName(engine));
 }
 
 // A client that closes this soon after starting did not get into the game
@@ -232,8 +232,23 @@ async function joinGame({ centralUrl, username, ticket = null, name = null, game
       throw new Error(`could not get the join script: ${error.message}`);
     }
   }
+  let args = ['--play', '-a', 'http://localhost./Login/Negotiate.ashx/', '-t', 'Test', '-j', joinUrl];
+  // Self-hosted years (2009, 2013; lib/engines.js): our own join script
+  // (lib/oldyears.js), which connects to "localhost", the relay. 2013 runs it
+  // as its -j script; 2009 loads it with -script.
+  const selfHosted = year ? engines.ENGINES[year].selfHosted : null;
+  if (selfHosted || game.joinMode === 'oldscript') {
+    if (!ticket) {
+      closeAll();
+      throw new Error('this game needs a join ticket; join it from the launcher');
+    }
+    joinUrl = `http://www.localhost./game/oldyears/join.lua?game=${encodeURIComponent(game.id)}&ticket=${ticket}&relayport=${gameRelay.port}`;
+    args = selfHosted && selfHosted.run === 'script'
+      ? ['-script', `loadfile('${joinUrl}')()`]
+      : ['-a', 'http://www.localhost./Login/Negotiate.ashx', '-t', 'Test', '-j', joinUrl];
+  }
   if (dryRun) {
-    log(`Would start the client with -j ${joinUrl}`);
+    log(`Would start the client with ${args.join(' ')}`);
     closeAll();
     return { userId, exited: Promise.resolve(), stop() {} };
   }
@@ -243,7 +258,7 @@ async function joinGame({ centralUrl, username, ticket = null, name = null, game
   let stopped = false;
   let child;
   try {
-    child = spawn(exe, ['--play', '-a', 'http://localhost./Login/Negotiate.ashx/', '-t', 'Test', '-j', joinUrl], {
+    child = spawn(exe, args, {
       cwd: path.dirname(exe),
       stdio: 'ignore',
       env: isolatedEnv(),

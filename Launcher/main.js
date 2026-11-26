@@ -270,7 +270,7 @@ function engineFiles(engine) {
       root: ROOT,
       kind: `client${engine}`,
       normalizeUrl: (url) => lib('proxy').normalizeCentralUrl(url),
-      canPlay: () => fs.existsSync(path.join(ROOT, folder, 'RobloxPlayerBeta.exe')),
+      canPlay: () => fs.existsSync(path.join(ROOT, folder, lib('engines').clientExeName(engine))),
       onProgress: (info) => send('files-progress', Object.assign({ engine }, info)),
       log: logger('play'),
     }));
@@ -291,7 +291,7 @@ async function engineFilesBeforePlay(centralUrl, engine, log) {
   const engines = lib('engines');
   if (!engine || engine === engines.DEFAULT_ENGINE) return false;
   if (!/^\d{4}$/.test(engine)) throw new Error(`This game runs on Roblox ${engine}. Update the launcher to play it.`);
-  const exe = path.join(ROOT, engines.clientFolder(engine), 'RobloxPlayerBeta.exe');
+  const exe = path.join(ROOT, engines.clientFolder(engine), engines.clientExeName(engine));
   // A host plays from the folder it packs (tools/make-engine.py), when it has one.
   if (capabilities().canHost && fs.existsSync(exe)) return false;
   const files = engineFiles(engine);

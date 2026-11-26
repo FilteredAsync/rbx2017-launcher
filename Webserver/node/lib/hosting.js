@@ -24,6 +24,7 @@ const os = require('os');
 const path = require('path');
 const core = require('./core');
 const engines = require('./engines');
+const oldyears = require('./oldyears');
 const proxy = require('./proxy');
 
 const CONFIG = core.rootPath('config', 'host.json');
@@ -585,6 +586,9 @@ async function startHosting(rawConfig, { log = console.log, startRcc = true, ded
   let rccExe = engines.rccExe(engine.id);
   // The place file as this RCC loads it (linkPlaceFile).
   let rccPlaceFile = placeFile;
+  // A self-hosted year's server reports its players under its job ID, which
+  // its script needs before the game is listed.
+  const selfJobId = engine.selfHosted ? (/^[0-9a-f]{16,32}$/.test(String(config.jobId || '')) ? String(config.jobId) : crypto.randomBytes(8).toString('hex')) : null;
   if (!dedicated && startRcc && dedicatedServerPid()) {
     throw new Error('the always-on server (startServer.bat) is running on this PC and hosts its games; stop it first to host from here');
   }
@@ -631,7 +635,45 @@ async function startHosting(rawConfig, { log = console.log, startRcc = true, ded
     }
 
     // 2. RCCService ------------------------------------------------------------
-    if (startRcc) {
+    if (startRcc && engine.selfHosted) {
+      // A year with no RCC (lib/engines.js selfHosted): its own client hosts
+      // the game, running the server script from lib/oldyears.js (place,
+      // NetworkServer, characters, player reports).
+      if (process.platform !== 'win32') throw new Error(`the ${engine.label} game server runs on Windows only`);
+      if (!core.isFile(rccExe)) {
+        throw new Error(`this game is set to ${engine.label}, but the ${engine.label} game server is not installed (${engine.server}\\${engine.selfHosted.exe})`);
+      }
+      rccExe = fs.realpathSync.native(rccExe);
+      rccPlaceFile = linkPlaceFile(engine, placeFile);
+      let portFree = false;
+      for (let i = 0; i < 20 && !portFree; i++) {
+        portFree = await udpPortFree(gamePort);
+        if (!portFree) await sleep(250);
+      }
+      if (!portFree) throw new Error(`UDP port ${gamePort} is already in use by another program`);
+      const token = oldyears.hostToken(hostKey, selfJobId);
+      const scriptUrl = `${oldyears.BASE}game/oldyears/server.lua?job=${selfJobId}&port=${gamePort}&place=${placeId}`
+        + `&max=${Number(config.maxPlayers) || 12}&file=${encodeURIComponent(rccPlaceFile)}&token=${token}`;
+      const args = engine.selfHosted.run === 'script'
+        ? ['-script', `loadfile('${scriptUrl}')()`]
+        : ['-a', `${oldyears.BASE}Login/Negotiate.ashx`, '-t', '0', '-j', scriptUrl];
+      log(`starting the ${engine.label} game server (that year's client hosts it: place ${placeId}, ${rccPlaceFile})...`);
+      rcc = spawn(rccExe, args, {
+        cwd: path.dirname(rccExe),
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+        env: require('./joining').isolatedEnv(),
+      });
+      const loadStarted = Date.now();
+      const loadLimit = (Number(config.loadTimeoutSeconds) || 600) * 1000;
+      while (await udpPortFree(gamePort)) {
+        if (rcc.exitCode !== null) throw new Error(`the ${engine.label} game server stopped while loading the place (exit code ${rcc.exitCode})`);
+        if (Date.now() - loadStarted > loadLimit) throw new Error(`the ${engine.label} game server did not start within ${Math.round(loadLimit / 1000)} seconds`);
+        await sleep(500);
+      }
+      log(`the ${engine.label} game server takes players on UDP port ${gamePort} (after ${Math.round((Date.now() - loadStarted) / 1000)} s)`);
+    } else if (startRcc) {
       if (process.platform !== 'win32') throw new Error('RCCService runs on Windows only');
       if (!core.isFile(rccExe)) {
         throw new Error(engine.id === engines.DEFAULT_ENGINE ? `RCCService not found at ${rccExe}`
@@ -723,6 +765,7 @@ async function startHosting(rawConfig, { log = console.log, startRcc = true, ded
   // The always-on server's own job ID (kept when it registers again), private
   // server and player limit (lib/games.js).
   if (config.jobId) fields.jobId = config.jobId;
+  if (selfJobId) fields.jobId = selfJobId;
   if (config.privateId) fields.privateId = config.privateId;
   if (config.maxPlayers) fields.maxPlayers = config.maxPlayers;
   const listed = !config.cloudEdit;
@@ -794,7 +837,8 @@ async function startHosting(rawConfig, { log = console.log, startRcc = true, ded
     if (gameId) {
       try { await api(config.centralUrl, `/api/games/${gameId}/close`, { key: hostKey }); } catch (error) { /* offline */ }
     }
-    if (options.kickMessage && rcc && rcc.exitCode === null) await savePlayers(options.kickMessage, options.saveWaitSeconds);
+    // A self-hosted year's server has no SOAP to kick and save players with.
+    if (options.kickMessage && rcc && rcc.exitCode === null && !engine.selfHosted) await savePlayers(options.kickMessage, options.saveWaitSeconds);
     cleanup();
     resolveStopped({ crashed });
     return stopped;
@@ -803,12 +847,25 @@ async function startHosting(rawConfig, { log = console.log, startRcc = true, ded
     rcc.on('exit', (code) => {
       if (stopping) return;
       crashed = true;
-      stop(`RCCService stopped by itself (exit code ${code}); taking the game off the list.`);
+      stop(`${engine.selfHosted ? `The ${engine.label} game server` : 'RCCService'} stopped by itself (exit code ${code}); taking the game off the list.`);
     });
   }
 
-  // True when RCC answers a trivial script within the time limit.
+  // A self-hosted year's player list, from its server script's reports
+  // (lib/oldyears.js); null until it has reported.
+  const selfHostedPlayers = async () => {
+    try {
+      const result = await api(config.centralUrl, '/api/oldyears/players', { key: hostKey, job: selfJobId });
+      return result.status === 200 && Array.isArray(result.data.players) ? result.data.players : null;
+    } catch (error) {
+      return null;
+    }
+  };
+
+  // True when RCC answers a trivial script within the time limit (a
+  // self-hosted year's server: while its process runs).
   const ping = async (timeoutMs = 15000) => {
+    if (engine.selfHosted) return Boolean(rcc && rcc.exitCode === null && processAlive(rcc.pid));
     try {
       const result = await soap('Execute', executeEnvelope('Ping', 'return 1', soapPort), timeoutMs, soapPort);
       return result.status === 200;
@@ -836,7 +893,7 @@ async function startHosting(rawConfig, { log = console.log, startRcc = true, ded
     soapPort,
     gamePort,
     pid: rcc ? rcc.pid : null,
-    players: () => rccPlayers(soapPort),
+    players: () => (engine.selfHosted ? selfHostedPlayers() : rccPlayers(soapPort)),
     memoryMB: () => (rcc ? processMemoryMB(rcc.pid) : null),
     ping,
     stop,

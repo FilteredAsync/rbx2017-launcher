@@ -31,6 +31,16 @@
 //                  gameserver.lua makes (game:SetPlaceID, the Set...Url calls)
 //                  are gone; any other script goes through a Thumbnail job
 //                  (lib/hosting.js).
+//   selfHosted   no RCC survives from that year, so the client itself hosts
+//                  the game (lib/hosting.js startSelfHosted): Server<year> is
+//                  a copy of the client folder, started with a server script
+//                  from lib/oldyears.js; players get a join script from there
+//                  too. exe: the client's exe; run: 'joinScript' (the exe runs
+//                  "-j <script address>", 2013) or 'script' ("-script
+//                  loadfile('<address>')()", 2009). Their scripts carry the
+//                  old "%signature%" form. Games of these years play only in
+//                  their own year (lib/launcherapi.js yearsFor), and their
+//                  places are stored as uploaded (lib/placeconvert.js).
 //
 // 2017 is 0.300.0.138971. 2016 is 0.254.0.80823 (July 2016): client, RCC and
 // game files of that one build (tools/make-engine.py builds the folders).
@@ -40,6 +50,33 @@ const core = require('./core');
 const DEFAULT_ENGINE = '2017';
 
 const ENGINES = {
+  // 2009 (RobloxApp 0.20.12.1, November 2009) and 2013 (0.98.0.31956, April
+  // 2013): self-hosted. The 2009 app needs a patch for PCs with 32 or more
+  // logical CPUs (tools/make-engine.py).
+  2009: {
+    id: '2009',
+    label: '2009',
+    build: '0.20.12.1',
+    server: 'Server2009',
+    client: 'Client2009',
+    clientFiles: 'client-files-2009',
+    selfHosted: { exe: 'RobloxApp.exe', run: 'script' },
+    placeIdArgument: false,
+    playerAuthentication: false,
+    memoryPatches: [],
+  },
+  2013: {
+    id: '2013',
+    label: '2013',
+    build: '0.98.0.31956',
+    server: 'Server2013',
+    client: 'Client2013',
+    clientFiles: 'client-files-2013',
+    selfHosted: { exe: 'RobloxPlayerBeta.exe', run: 'joinScript' },
+    placeIdArgument: false,
+    playerAuthentication: false,
+    memoryPatches: [],
+  },
   2017: {
     id: '2017',
     label: '2017',
@@ -111,8 +148,22 @@ function clientFolder(value) {
   return /^\d{4}$/.test(id) ? `Client${id}` : ENGINES[DEFAULT_ENGINE].client;
 }
 
+// The game server's exe: RCC, or for a self-hosted year its client.
 function rccExe(value) {
-  return core.rootPath(get(value).server, 'RCCService.exe');
+  const engine = get(value);
+  return core.rootPath(engine.server, engine.selfHosted ? engine.selfHosted.exe : 'RCCService.exe');
+}
+
+// The client exe's name in its folder.
+function clientExeName(value) {
+  const id = known(value);
+  return id && ENGINES[id].selfHosted ? ENGINES[id].selfHosted.exe : 'RobloxPlayerBeta.exe';
+}
+
+// True for a year whose client hosts the game itself (selfHosted).
+function selfHosted(value) {
+  const id = known(value);
+  return Boolean(id && ENGINES[id].selfHosted);
 }
 
 // Engines whose RCC is on this PC (a game set to another one can't start here).
@@ -123,8 +174,8 @@ function installed(value) {
 function list() {
   return Object.values(ENGINES).map((engine) => ({
     id: engine.id, label: engine.label, build: engine.build, clientFiles: engine.clientFiles,
-    installed: installed(engine.id), default: engine.id === DEFAULT_ENGINE,
+    installed: installed(engine.id), default: engine.id === DEFAULT_ENGINE, selfHosted: Boolean(engine.selfHosted),
   }));
 }
 
-module.exports = { DEFAULT_ENGINE, ENGINES, known, get, clientFolder, rccExe, installed, list };
+module.exports = { DEFAULT_ENGINE, ENGINES, known, get, clientFolder, clientExeName, selfHosted, rccExe, installed, list };

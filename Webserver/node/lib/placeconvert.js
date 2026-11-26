@@ -67,6 +67,12 @@ module.exports = function placeconvert({ assetBytes, log = () => {} }) {
   async function convert(bytes, { universeId = null, engine = null } = {}) {
     const target = engines.known(engine) || engines.DEFAULT_ENGINE;
     const input = rbxbinary.placeXml(bytes);
+    // The self-hosted years (2009, 2013; lib/engines.js) take places as they
+    // were made then: stored as uploaded, as XML (they read no binary files).
+    if (engines.selfHosted(target)) {
+      const xml = Buffer.isBuffer(input.xml) ? input.xml : Buffer.from(input.xml);
+      return { bytes: xml, notes: [...input.notes, `Stored as uploaded: ${target} games are not converted.`], engine: target, counts: null, scripts: [] };
+    }
     const result = placefile.convertPlace(input.xml, { universeId, engine: target, unionShapes: await unionShapes(input.xml) });
     const stored = rbxbinary.placeToStore(result.output);
     let scripts = [];

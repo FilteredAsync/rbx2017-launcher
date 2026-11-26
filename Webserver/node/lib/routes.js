@@ -2060,6 +2060,8 @@ const ROUTES = [
   ...launcher.routes,
   ...mobile.routes,
   ...xbox.routes,
+  // Server and join scripts for the self-hosted years (2009, 2013).
+  ...require('./oldyears')({ send, sendJson, jsonBody, launcher }).routes,
   [/^api\/games(?:\/([a-z0-9]+)(?:\/([a-z]+))?)?\/?$/i, gamesApi],
   [/^api\/thumbnails\/(\d{1,15})\/?$/i, thumbnailsApi],
   [/^api\/catalog\/(search|status)\/?$/i, require('./catalogsearch').route(sendJson)],

@@ -6,6 +6,8 @@ year on /manage) and, for years with their own game server, Server<year>/.
     python tools/make-engine.py 2015 --client <full player folder> --rcc <RCC folder>
     python tools/make-engine.py 2014 --client <full player folder>
     python tools/make-engine.py 2018 --client <full player folder> --rcc <exe>
+    python tools/make-engine.py 2013 --client <full player folder>
+    python tools/make-engine.py 2009 --client <RobloxApp folder>
     --force   replace existing folders
 
 Where the files come from (Roblox's own builds; this tool checks each exe's
@@ -23,6 +25,13 @@ version and MD5 and never runs anything):
   2018 (0.338.0.202976, May 2018): full player folder from
         archive.roblonium.com; its RCC 0.338.0.202225 from the
         Roblox_Builds_2014_2020 archive (2018-05-15_Mid-Spring_Build/Server)
+  2013 (0.98.0.31956, April 2013): the player folder from archive.org item
+        roblox_client_version-5c703d6176af434b_zork
+  2009 (0.20.12.1, November 2009): RobloxApp from archive.org item
+        roblox_client_version-a00995fdd72842a2 (setup.roblox.com packages)
+  No RCC survives from before 2015, so for 2013 and 2009 the client itself
+  hosts the game ("self-hosted", lib/engines.js): Server<year>/ is the same
+  patched folder as Client<year>/.
 
 Every client gets, at the same file size: "roblox.com" -> "localhost."; the
 one-at-a-time rule taken out (tools/patch-single-instance.py: it closed the
@@ -44,6 +53,7 @@ import hashlib
 import os
 import re
 import shutil
+import stat
 import sys
 
 import importlib.util
@@ -66,6 +76,57 @@ APP_SETTINGS = ('<?xml version="1.0" encoding="UTF-8"?>\r\n<Settings>\r\n\t<Cont
 SKIP = ('NPRobloxProxy.dll', 'NPRobloxProxy64.dll', 'RobloxProxy.dll', 'RobloxProxy64.dll', 'RobloxPlayerLauncher.exe')
 
 YEARS = {
+    # Self-hosted years (no RCC): Server<year>/ is a copy of the client folder.
+    '2013': {
+        'client': {'version': '0.98.0.31956', 'md5': 'f99d8886ddec33265ebfc4edd808031c',
+                   'patches': [
+                       # The same CPU count as 2009's (below), whose loop
+                       # carries the mask in eax: loop while the CPU index
+                       # (esi) is below 32 instead of while 1 << esi is not 0
+                       # (mov eax,1 / test eax,eax become xor+inc / nop+cmp;
+                       # the jne becomes jb at the same address).
+                       ('CPU count past 32 CPUs', 0x9B71B9, bytes.fromhex('B8010000008BCED3E085C00F85'),
+                        bytes.fromhex('31C0408BCED3E09083FE200F82')),
+                   ],
+                   # Its flags come from https://clientsettings.api.<domain>/,
+                   # and its TLS can't talk to our web server's (30 s timeout
+                   # at every start): plain http instead (same length, NUL-padded).
+                   'strings': [
+                       (b'https://%s.api.localhost./%s/?apiKey=%s\0', b'http://%s.api.localhost./%s/?apiKey=%s\0\0'),
+                       (b'https://%s.api.%s%s/%s/?apiKey=%s\0', b'http://%s.api.%s%s/%s/?apiKey=%s\0\0'),
+                   ]},
+        'base_url': 'http://www.localhost.',
+        'client_flags': '{\n}\n',
+        'self_hosted': True,
+    },
+    '2009': {
+        'client': {'version': '0.20.12.1', 'md5': '2e6a5cb6c1df1b98a6530a192a5c3b21', 'exe': 'RobloxApp.exe',
+                   # It has no one-at-a-time rule (no singleton event).
+                   'single_instance': False,
+                   'patches': [
+                       # Its CPU count (Intel's cpucount sample) walks the
+                       # affinity mask with 1 << i, which on x86 wraps back to
+                       # 1 at i = 32: with 32 or more logical CPUs it never
+                       # ends and overruns 256-byte stack arrays (a crash at
+                       # start). Stop after bit 31: "dec eax" makes the 1 the
+                       # wrapped shift gives end the loop.
+                       ('CPU count past 32 CPUs', 0x7B435F, bytes.fromhex('85C0'), bytes.fromhex('4890')),
+                       # Player::setUserId asks for Roblox's own permission
+                       # (requirePermission(3, "...set a Player's ID")), which
+                       # our join script (-script) doesn't have, so every
+                       # player would be ID 0. The check goes (two pushes and
+                       # two calls; the callee pops its own arguments).
+                       ('player ID permission', 0x4EDF10, bytes.fromhex('68C82F97006A03E8241FFFFF8BC8E8FDABFEFF'), bytes(19 * [0x90])),
+                       # The same check in the Player.Name setter ("...set a
+                       # Player's name"), so the join script can name the
+                       # player; the mov esi,ecx between them stays.
+                       ('player name permission', 0x4DFEB1, bytes.fromhex('68642897006A038BF1E881FFFFFF8BC8E85A8CFFFF'),
+                        bytes(7 * [0x90]) + bytes.fromhex('8BF1') + bytes(12 * [0x90])),
+                   ]},
+        'base_url': 'http://www.localhost.',
+        'client_flags': '{\n}\n',
+        'self_hosted': True,
+    },
     '2016': {
         'client': {'version': '0.254.0.80823', 'md5': '18701f7557e1a4c4240cf17041b2d1dd'},
         # Its content, shaders and DLLs come from the same build's Studio folder.
@@ -205,10 +266,18 @@ def check(path, kind, want):
         sys.exit(f'{kind}: {path} is not the copy this tool knows (MD5 {want["md5"]})')
 
 
-def patch_exe(source, target, key, registry, code_patches=()):
+def patch_exe(source, target, key, registry, code_patches=(), string_patches=()):
     data = bytearray(open(source, 'rb').read())
-    notes = [f'{data.count(b"roblox.com")} x roblox.com -> localhost.']
+    wide = data.count('roblox.com'.encode('utf-16-le'))
+    notes = [f'{data.count(b"roblox.com")} x roblox.com -> localhost.' + (f' (+{wide} UTF-16)' if wide else '')]
     data = bytearray(bytes(data).replace(b'roblox.com', b'localhost.'))
+    data = bytearray(bytes(data).replace('roblox.com'.encode('utf-16-le'), 'localhost.'.encode('utf-16-le')))
+    # Same-length string changes (after the roblox.com one), each found once.
+    for old, new in string_patches:
+        if len(old) != len(new) or data.count(old) != 1:
+            sys.exit(f'{source}: string patch {old!r} not found once (or not the same length)')
+        data = bytearray(bytes(data).replace(old, new))
+        notes.append(f'{old.split(b"://")[0].decode()} address -> {new.split(b"://")[0].decode()}')
     blobs = list(BLOB_RE.finditer(data))
     if len(blobs) != 1:
         sys.exit(f'{source}: expected one 1024-bit script key, found {len(blobs)}')
@@ -252,10 +321,22 @@ def write(path, text):
         handle.write(text)
 
 
+def writable(folder):
+    # Some packages (2009's) hold read-only files; copies keep that, and a
+    # read-only file can't be replaced by the launcher's updates or removed.
+    for directory, _, names in os.walk(folder):
+        for name in names:
+            path = os.path.join(directory, name)
+            os.chmod(path, os.stat(path).st_mode | stat.S_IWRITE)
+
+
 def remove(folder):
     # A place file hard link (lib/hosting.js) is only a link: removing it leaves Server/content alone.
+    def retry_writable(function, path, _):
+        os.chmod(path, stat.S_IWRITE)
+        function(path)
     try:
-        shutil.rmtree(folder)
+        shutil.rmtree(folder, onerror=retry_writable)
     except PermissionError as error:
         sys.exit(f'{error.filename} is in use: close that year\'s client and stop its game servers, then run this again.')
 
@@ -284,7 +365,7 @@ def main():
     else:
         if not os.path.isdir(args.client):
             sys.exit(f'{args.year} needs --client <full player folder>')
-        client_exe, files_from = os.path.join(args.client, 'RobloxPlayerBeta.exe'), args.client
+        client_exe, files_from = os.path.join(args.client, year['client'].get('exe', 'RobloxPlayerBeta.exe')), args.client
     check(client_exe, 'client', year['client'])
     rcc = year.get('rcc')
     rcc_exe = rcc_files = None
@@ -302,27 +383,32 @@ def main():
 
     client = os.path.join(ROOT, f'Client{args.year}')
     server = os.path.join(ROOT, f'Server{args.year}')
-    for folder in (client, server) if rcc else (client,):
+    self_hosted = year.get('self_hosted', False)
+    for folder in (client, server) if rcc or self_hosted else (client,):
         if os.path.exists(folder):
             if not args.force:
                 sys.exit(f'{folder} exists already (--force replaces it)')
             remove(folder)
 
-    patch_exe(client_exe, os.path.join(client, 'RobloxPlayerBeta.exe'), key, registry=True, code_patches=year['client'].get('patches', ()))
-    result = single_instance().patch(os.path.join(client, 'RobloxPlayerBeta.exe'))
-    if 'not patched' in result or result.startswith('no '):
-        sys.exit(f'Client{args.year}: {result}')
-    print(f'Client{args.year}/RobloxPlayerBeta.exe: {result}')
+    exe_name = year['client'].get('exe', 'RobloxPlayerBeta.exe')
+    patch_exe(client_exe, os.path.join(client, exe_name), key, registry=True, code_patches=year['client'].get('patches', ()),
+              string_patches=year['client'].get('strings', ()))
+    if year['client'].get('single_instance', True):
+        result = single_instance().patch(os.path.join(client, exe_name))
+        if 'not patched' in result or result.startswith('no '):
+            sys.exit(f'Client{args.year}: {result}')
+        print(f'Client{args.year}/{exe_name}: {result}')
     if 'studio' in year:
         copy_named(files_from, year['studio']['files'], client)
         shutil.rmtree(os.path.join(client, 'shaders', 'source'), ignore_errors=True)
     else:
         for name in os.listdir(files_from):
-            if name in SKIP or name in ('RobloxPlayerBeta.exe', 'AppSettings.xml'):
+            if name in SKIP or name in (exe_name, 'AppSettings.xml'):
                 continue
             copy_named(files_from, [name], client)
     write(os.path.join(client, 'AppSettings.xml'), APP_SETTINGS.format(year['base_url']))
     write(os.path.join(client, 'ClientSettings', 'ClientAppSettings.json'), year['client_flags'])
+    writable(client)
 
     if rcc:
         patch_exe(rcc_exe, os.path.join(server, 'RCCService.exe'), key, registry=False, code_patches=rcc['patches'])
@@ -332,7 +418,10 @@ def main():
         write(os.path.join(server, 'ClientSettings', 'RCCService.json'), rcc['flags'])
         for name, text in rcc.get('written', {}).items():
             write(os.path.join(server, *name.split('/')), text)
-    print(f'Client{args.year}' + (f' and Server{args.year} are' if rcc else ' is') + f' ready. Next: python tools/build-client-files.py client{args.year}')
+    if self_hosted:
+        # The game server is the same client (lib/hosting.js starts it as the host).
+        shutil.copytree(client, server)
+    print(f'Client{args.year}' + (f' and Server{args.year} are' if rcc or self_hosted else ' is') + f' ready. Next: python tools/build-client-files.py client{args.year}')
 
 
 if __name__ == '__main__':

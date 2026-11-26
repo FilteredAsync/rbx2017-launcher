@@ -420,8 +420,12 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
     const own = places.engineOf(place);
     let allowed = [own];
     try { allowed = require('./manageapi').clientYearsOf(String(placeId), place || null).years; } catch (error) { /* only its own */ }
+    // The self-hosted years (2009, 2013) take places only as they were made
+    // then: their games play in their own year only, and other games never
+    // in those years (the converter targets 2016-2018).
+    if (engines.selfHosted(own)) return [own];
     const here = installed();
-    const years = allowed.filter((year) => year !== own && here.includes(year)).sort();
+    const years = allowed.filter((year) => year !== own && here.includes(year) && !engines.selfHosted(year)).sort();
     return [own, ...years];
   }
 
@@ -440,6 +444,8 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
     const out = { id: game.id, name: game.name, placeId: String(game.placeId), address, privateId: game.privateId || null, engine };
     // Pre-2016 clients take the join script's own address (lib/joining.js).
     if (engines.get(engine).directJoin) out.joinMode = 'direct';
+    // Self-hosted years: the launcher starts the client with our join script (lib/oldyears.js).
+    if (engines.selfHosted(engine)) out.joinMode = 'oldscript';
     return out;
   }
 
@@ -1294,7 +1300,10 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
       // ones nothing, and would start the 2017 client into a 2016 server.
       const target = gameFor(chosen.game);
       const playable = Array.isArray(body.engines) ? body.engines.map(String) : [engines.DEFAULT_ENGINE];
-      if (!playable.includes(target.engine) && !(body.anyYear === true && /^\d{4}$/.test(target.engine))) {
+      // A self-hosted year needs a launcher that names it: older ones (with
+      // anyYear) would start its client the 2017 way, which it can't take.
+      const anyYear = body.anyYear === true && /^\d{4}$/.test(target.engine) && !engines.selfHosted(target.engine);
+      if (!playable.includes(target.engine) && !anyYear) {
         return sendJson(ctx, 409, { error: `This game runs on Roblox ${target.engine}. Update the launcher to play it.` });
       }
       const identity = who ? { name: who.name, userId: who.userId, guest: false } : guestIdentity();
