@@ -193,6 +193,14 @@ async function lookUpNames(ids) {
   }
 }
 
+// The extension a replacement file would get ('ogg', 'png', ...), or null
+// when it is none of the kinds a replacement may be.
+function kindOf(bytes) {
+  if (!Buffer.isBuffer(bytes) || bytes.length < 4) return null;
+  const kind = KINDS.find((candidate) => candidate.test(bytes));
+  return kind ? kind.ext : null;
+}
+
 // -> { file } or { error }
 function saveReplacement(id, bytes) {
   if (!/^\d{1,15}$/.test(String(id))) return { error: 'the asset ID must be a number' };
@@ -218,4 +226,4 @@ function removeReplacement(id) {
   return true;
 }
 
-module.exports = { list, lookUpNames, saveReplacement, removeReplacement, noteUse, MAX_BYTES };
+module.exports = { list, lookUpNames, saveReplacement, removeReplacement, noteUse, kindOf, readInfo, TYPE_NAMES, MAX_BYTES };
