@@ -1936,3 +1936,12 @@ button.trade-tile { cursor: pointer; }
   .header-robux { padding: 5px 4px; }
   .header-search { min-width: 90px; }
 }
+/* 2017's numbers: a 640 x 360 picture, Play at 88% between two lines, 7-column stats between lines. */
+.game-main { gap: 24px; min-height: 384px; }
+.game-media { flex-basis: 640px; }
+.game-play-area { text-align: center; }
+.game-play-area .game-play { width: 88%; height: 56px; }
+.game-play-area .game-play-note { text-align: center; }
+.game-stats { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 12px 0; }
+.game-stat .value { font-size: 16px; }
+@media (max-width: 1100px) { .game-media { flex-basis: 52%; } }

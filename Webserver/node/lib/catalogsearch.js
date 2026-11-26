@@ -84,7 +84,7 @@ const GEAR_KINDS = [
   ['transport', /\b(car|cars|bike|bicycle|motorcycle|horse|carpet|skateboard|hoverboard|surfboard|snowboard|board|jetpack|vehicle|ride|riding|kart|scooter|unicycle|segway|boat|ship|plane|helicopter|ufo|sled|mount|pogo|broom|broomstick|cloud)\b/i],
   ['navigation', /\b(teleport|teleporter|grapple|grappling|hook|glider|wings|parachute|jump|jumps|jumping|coil|speed|map|compass|flashlight|lantern|torch|climb|fly|flying|flight|portal|warp|dash|boots)\b/i],
   ['building', /\b(build|builder|building|brick|bricks|block|blocks|wall|walls|paint|paintbrush|tool|tools|wrench|clone|delete|resize|construct|construction|fort|bridge|place|placer|creator|lego|stamper)\b/i],
-  ['powerup', /\b(potion|elixir|drink|cola|soda|juice|tea|coffee|food|burger|pizza|cake|cupcake|candy|cookie|sandwich|taco|hotdog|apple|heal|heals|healing|health|regen|shield|armor|armour|power|powers|powerup|boost|invisibility|invisible|mushroom|magic|spell|giant|shrink|grow|forcefield)\b/i],
+  ['powerup', /\b(potion|elixir|drink|cola|soda|juice|tea|coffee|latte|milk|food|burger|pizza|cake|cupcake|candy|cookie|sandwich|taco|hotdog|apple|heal|heals|healing|health|regen|shield|armor|armour|power|powers|powerup|boost|invisibility|invisible|mushroom|magic|spell|giant|shrink|grow|forcefield)\b/i],
   ['social', /\b(phone|camera|sign|balloon|balloons|trophy|flag|pet|dance|wave|emote|hug|kiss|gift|present|card|confetti|party|toy|book|umbrella|selfie|wand|bubble|bubbles|snowball|hi|hello|friend|friends|plush|chat|message)\b/i],
 ];
 
@@ -124,7 +124,10 @@ function load() {
   index = new Map();
   crawlState = data && data.crawl && typeof data.crawl === 'object' ? data.crawl : {};
   for (const entry of data && Array.isArray(data.items) ? data.items : []) {
-    if (entry && typeof entry.id === 'string') index.set(entry.id, entry);
+    if (!entry || typeof entry.id !== 'string') continue;
+    // Kinds from the name win (the words may have changed since).
+    if (entry.type === 19) entry.gear = gearKind(entry.name, '') || entry.gear || null;
+    index.set(entry.id, entry);
   }
   const now = Date.now();
   for (const [list, type] of [[CLASSIC_FACES, 18], [CLASSIC_HEADS, 17]]) {
@@ -153,9 +156,11 @@ function saveSoon() {
   if (saveTimer.unref) saveTimer.unref();
 }
 
+// The name decides first ("Magic Carpet" is transport, whatever it shoots).
 function gearKind(name, description) {
-  const text = `${name} ${description || ''}`;
-  for (const [kind, words] of GEAR_KINDS) if (words.test(text)) return kind;
+  for (const text of [name, description || '']) {
+    for (const [kind, words] of GEAR_KINDS) if (words.test(text)) return kind;
+  }
   return null;
 }
 
