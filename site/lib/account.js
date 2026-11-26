@@ -33,7 +33,7 @@ const MAX_AGE = 30 * 24 * 3600;
 // Forum posts are up to 4000 characters.
 const MAX_BODY = 16 * 1024;
 
-function sessionOf(request) {
+export function sessionOf(request) {
   const match = new RegExp(`(?:^|;\\s*)${COOKIE}=([0-9a-f]{64})(?:;|$)`).exec(request.headers.get('Cookie') || '');
   return match ? match[1] : null;
 }
@@ -42,7 +42,7 @@ const sessionCookie = (token) => `${COOKIE}=${token}; Path=/; Max-Age=${MAX_AGE}
 const clearedCookie = () => `${COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`;
 
 // A private answer (never cached), optionally setting or clearing the cookie.
-function reply(data, status = 200, cookie = null) {
+export function reply(data, status = 200, cookie = null) {
   const headers = new Headers(Object.assign({ 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'private, no-store' }, SECURITY_HEADERS));
   if (cookie) headers.append('Set-Cookie', cookie);
   return new Response(JSON.stringify(data), { status, headers });
@@ -70,7 +70,8 @@ async function readBody(request) {
 }
 
 // -> { status, data }; status 502 when the game server can't be reached.
-async function ask(context, method, route, { token = null, body = null } = {}) {
+// route: under /api/launcher/, or a whole path when it starts with "/".
+export async function ask(context, method, route, { token = null, body = null } = {}) {
   const headers = { Accept: 'application/json', 'User-Agent': 'rbx2017-site' };
   if (token) headers.Authorization = `Bearer ${token}`;
   const visitor = context.request.headers.get('CF-Connecting-IP');
@@ -80,7 +81,8 @@ async function ask(context, method, route, { token = null, body = null } = {}) {
   }
   if (body) headers['Content-Type'] = 'application/json';
   try {
-    const response = await fetch(`${gameServer(context.env)}/api/launcher/${route}`, {
+    const url = route.startsWith('/') ? `${gameServer(context.env)}${route}` : `${gameServer(context.env)}/api/launcher/${route}`;
+    const response = await fetch(url, {
       method, headers, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(10000),
     });
     let data = null;
