@@ -427,6 +427,41 @@ function remove(placeId) {
   return true;
 }
 
+// The uploaded file a place's current version was converted from
+// (places/originals/<placeId>.rbxl or .rbxlx, with <placeId>.json naming that
+// version), so "Convert again" converts the original for the game's engine.
+// A restored older version has no original (it was converted from another).
+const ORIGINALS_DIR = path.join(PLACES_DIR, 'originals');
+
+function storeOriginal(placeId, bytes, version) {
+  const id = placeKey(placeId);
+  if (id === null || !Buffer.isBuffer(bytes)) return false;
+  fs.mkdirSync(ORIGINALS_DIR, { recursive: true });
+  const ext = bytes.toString('latin1', 0, 8) === '<roblox!' ? 'rbxl' : 'rbxlx';
+  for (const kind of ['rbxl', 'rbxlx']) {
+    if (kind !== ext) { try { fs.unlinkSync(path.join(ORIGINALS_DIR, `${id}.${kind}`)); } catch (error) { /* none */ } }
+  }
+  if (!core.writeFileAtomic(path.join(ORIGINALS_DIR, `${id}.${ext}`), bytes)) return false;
+  return core.writeFileAtomic(path.join(ORIGINALS_DIR, `${id}.json`), JSON.stringify({ version, ext, savedAt: now() }));
+}
+
+// The original of the place's current version -> its path, or null.
+function originalFile(place, placeId) {
+  const id = placeKey(placeId);
+  const info = id === null ? null : core.readJsonFile(path.join(ORIGINALS_DIR, `${id}.json`));
+  if (!place || !info || info.version !== (place.version || 1) || !/^rbxlx?$/.test(String(info.ext))) return null;
+  const file = path.join(ORIGINALS_DIR, `${id}.${info.ext}`);
+  return core.isFile(file) ? file : null;
+}
+
+// The current version (after "Convert again") still comes from the same original.
+function keepOriginal(placeId, version) {
+  const id = placeKey(placeId);
+  const info = id === null ? null : core.readJsonFile(path.join(ORIGINALS_DIR, `${id}.json`));
+  if (!info) return false;
+  return core.writeFileAtomic(path.join(ORIGINALS_DIR, `${id}.json`), JSON.stringify(Object.assign(info, { version })));
+}
+
 // --- talking to the always-on server -------------------------------------------------
 
 // Asks dedicated.js to restart (or start) a place soon.
@@ -490,7 +525,7 @@ function writeRunnerStatus(status) {
 
 module.exports = {
   load, exists, ensure, list, get, create, replaceFile, oldVersions, oldVersionBytes, removeOldVersion, update, setAccess, remove, filePath, placeKey,
-  creatorOf, setLookedUpCreator, maxPlayersOf, avatarTypeOf, engineOf,
+  creatorOf, setLookedUpCreator, maxPlayersOf, avatarTypeOf, engineOf, storeOriginal, originalFile, keepOriginal,
   requestRestart, requestStart, requestStopServer, requestCloudEdit, requestServer, readRequests, runnerStatus, writeRunnerStatus,
   LIBRARY, CONTROL, STATUS,
 };

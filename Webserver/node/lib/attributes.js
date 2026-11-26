@@ -26,7 +26,10 @@ function decode(base64) {
   const i32 = () => { need(4); const v = d.readInt32LE(p); p += 4; return v; };
   const f32 = () => { need(4); const v = d.readFloatLE(p); p += 4; return v; };
   const f64 = () => { need(8); const v = d.readDoubleLE(p); p += 8; return v; };
-  const str = () => { const n = u32(); need(n); const v = d.toString('utf8', p, p + n); p += n; return v; };
+  // Byte for byte (Latin-1), as the converter keeps the whole file: as UTF-8,
+  // binary data became characters past 255, and writing those out as bytes
+  // made stray < and & in the XML.
+  const str = () => { const n = u32(); need(n); const v = d.toString('latin1', p, p + n); p += n; return v; };
   const list = [];
   if (d.length < 4) return list;
   const count = u32();
@@ -68,7 +71,10 @@ function decode(base64) {
   return list;
 }
 
-const esc = (text) => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+// Control characters as &#N; (an attribute can hold binary data, e.g. JECS'
+// profiler; raw, they made the XML unreadable and the place would not load).
+const esc = (text) => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/[\x00-\x08\x0b\x0c\x0d\x0e-\x1f]/g, (c) => `&#${c.charCodeAt(0)};`);
 const num = (v) => (Number.isFinite(v) ? String(v) : v > 0 ? 'INF' : v < 0 ? '-INF' : 'NAN');
 
 // Lua reads these back (luacompat AttrDecode): numbers joined by commas.
