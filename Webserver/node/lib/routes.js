@@ -2062,6 +2062,7 @@ const ROUTES = [
   ...xbox.routes,
   [/^api\/games(?:\/([a-z0-9]+)(?:\/([a-z]+))?)?\/?$/i, gamesApi],
   [/^api\/thumbnails\/(\d{1,15})\/?$/i, thumbnailsApi],
+  [/^api\/catalog\/(search|status)\/?$/i, require('./catalogsearch').route(sendJson)],
   [/^play\/(\d{1,15})\/?$/i, sharePage],
   [/^api\/places\/(\d{1,15})\/versions(?:\/(\d{1,15}-\d{8}T\d{6}\.rbxlx?)\/restore)?\/?$/i, placeVersionsApi],
   [/^api\/places(?:\/(\d{1,15})(?:\/([a-z-]+))?)?\/?$/i, placesApi],

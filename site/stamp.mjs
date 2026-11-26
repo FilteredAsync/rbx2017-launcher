@@ -11,7 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
-const ASSETS = ['css/site.css', 'js/site.js'];
+const ASSETS = ['css/site.css', 'js/site.js', 'js/theme.js', 'js/themepack.js'];
 
 const versions = Object.fromEntries(ASSETS.map((asset) => [
   asset, crypto.createHash('sha256').update(fs.readFileSync(path.join(PUBLIC, asset))).digest('hex').slice(0, 10),

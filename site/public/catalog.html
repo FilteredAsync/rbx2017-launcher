@@ -9,40 +9,58 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@300;400;600;700&amp;display=swap">
+<script src="/js/theme.js"></script>
 <link rel="stylesheet" href="/css/site.css?v=10bae9b5a3">
 <script src="/js/site.js?v=3fbbcb8e84" defer></script>
 </head>
 <body data-page="catalog">
-<header class="rbx-header">
+<header class="rbx-header" id="header">
   <div class="header-row">
+    <button class="nav-toggle" id="nav-toggle" type="button" aria-label="Menu" aria-controls="left-col" aria-expanded="false"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg></button>
     <a class="brand" href="/" aria-label="rbx2017 home"><span class="brand-name">rbx</span><span class="brand-year">2017</span></a>
     <nav class="header-nav" aria-label="Main">
       <a href="/games">Games</a>
       <a href="/catalog" aria-current="page">Catalog</a>
+      <a href="/forum">Forum</a>
       <a href="/download">Download</a>
-      <a href="/help">Help</a>
     </nav>
-    <form class="header-search" action="/games" method="get" role="search">
-      <input type="search" name="q" placeholder="Search games" aria-label="Search games" autocomplete="off" maxlength="60">
+    <form class="header-search" id="header-search" action="/games" method="get" role="search">
+      <input type="search" name="q" placeholder="Search" aria-label="Search" autocomplete="off" maxlength="60" aria-controls="search-menu" aria-autocomplete="list">
       <button type="submit" aria-label="Search"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 2a8 8 0 0 1 6.32 12.9l5.39 5.4-1.42 1.4-5.39-5.38A8 8 0 1 1 10 2zm0 2a6 6 0 1 0 0 12 6 6 0 0 0 0-12z"/></svg></button>
+      <ul class="search-menu hidden" id="search-menu" role="listbox" aria-label="Search in"></ul>
     </form>
     <div class="header-right"><span class="online-count hidden" id="online-count" role="status"></span><div class="header-account" id="header-account"></div></div>
   </div>
 </header>
+<nav class="left-col" id="left-col" aria-label="Your pages"></nav>
 
-<main class="container-main">
-  <div class="catalog-head">
-    <h1 id="catalog-heading">Catalog</h1>
+<main class="container-main catalog-page">
+  <div class="catalog-top">
+    <h1><a href="/catalog">Catalog</a></h1>
     <form class="catalog-search" id="catalog-search" role="search">
-      <input type="search" id="catalog-q" placeholder="Search the catalog" aria-label="Search the catalog" autocomplete="off" maxlength="50">
+      <input type="search" id="catalog-q" placeholder="Search" aria-label="Search the catalog" autocomplete="off" maxlength="50">
+      <select id="catalog-in" aria-label="Category"></select>
+      <button type="submit" aria-label="Search"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 2a8 8 0 0 1 6.32 12.9l5.39 5.4-1.42 1.4-5.39-5.38A8 8 0 1 1 10 2zm0 2a6 6 0 1 0 0 12 6 6 0 0 0 0-12z"/></svg></button>
     </form>
   </div>
-  <div class="catalog-layout">
-    <nav class="catalog-cats" id="catalog-cats" aria-label="Categories"></nav>
-    <div class="catalog-main">
-      <div class="item-grid" id="catalog-grid"></div>
+  <div class="catalog-content">
+    <aside class="search-options" id="search-options" aria-label="Category and filters">
+      <h3>Category</h3>
+      <ul class="cat-menu" id="catalog-cats"></ul>
+      <h3 class="filters-header">Filters</h3>
+      <div class="filters" id="catalog-filters"></div>
+    </aside>
+    <div class="catalog-results">
+      <div class="breadcrumbs">
+        <button class="btn btn-secondary btn-xs catalog-filters-toggle" id="catalog-filters-toggle" type="button" aria-controls="search-options" aria-expanded="false">Filters</button>
+        <div class="num-results" id="catalog-count" role="status"></div>
+        <ul class="crumbs" id="catalog-crumbs"></ul>
+        <div class="sort-menu"><select id="catalog-sort" aria-label="Sort"></select></div>
+      </div>
+      <h3 class="featured-heading hidden" id="catalog-featured">Featured Items on <b>rbx2017</b></h3>
+      <ul class="item-cards" id="catalog-grid"></ul>
       <p class="catalog-status" id="catalog-status" role="status"></p>
-      <div class="catalog-more"><button class="btn btn-secondary btn-sm hidden" id="catalog-more" type="button">More</button></div>
+      <div class="rbx-pager hidden" id="catalog-pager"></div>
     </div>
   </div>
 </main>
@@ -50,8 +68,11 @@
 <footer class="site-footer">
   <nav class="footer-links" aria-label="Footer">
     <a href="/games">Games</a>
+    <a href="/catalog">Catalog</a>
+    <a href="/forum">Forum</a>
     <a href="/download">Download</a>
     <a href="/help">Help</a>
+    <a href="/my/account#theme">Theme</a>
     <a href="https://github.com/FilteredAsync/rbx2017-launcher">GitHub</a>
   </nav>
   <p class="footer-note">rbx2017 is a fan project. It is not affiliated with or endorsed by Roblox Corporation.</p>
