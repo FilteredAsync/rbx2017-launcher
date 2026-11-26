@@ -157,8 +157,8 @@ function readClientYears() {
 
 // -> { years, engine, saved }: the game's own year is always in; nothing
 // saved means every year (the launcher offers those whose server is here).
-function clientYearsOf(placeId) {
-  const place = places.get(placeId);
+// place: its library entry, when the caller has it already.
+function clientYearsOf(placeId, place = places.get(placeId)) {
   const own = places.engineOf(place);
   const saved = readClientYears()[placeId];
   const years = Array.isArray(saved) ? saved.filter((year) => engines.known(year)) : Object.keys(engines.ENGINES);

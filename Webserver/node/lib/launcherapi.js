@@ -419,7 +419,7 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
   function yearsFor(placeId, place) {
     const own = places.engineOf(place);
     let allowed = [own];
-    try { allowed = require('./manageapi').clientYearsOf(String(placeId)).years; } catch (error) { /* only its own */ }
+    try { allowed = require('./manageapi').clientYearsOf(String(placeId), place || null).years; } catch (error) { /* only its own */ }
     const here = installed();
     const years = allowed.filter((year) => year !== own && here.includes(year)).sort();
     return [own, ...years];
