@@ -549,7 +549,7 @@ function settingsForm(place) {
     value: engine.id, text: engine.installed ? engine.label : `${engine.label} (not on this server)`,
   })));
   version.value = engineOf(place);
-  // Client years players may pick (used once the launcher offers a choice).
+  // Client years players may pick on the launcher's game page.
   const savedYears = game.years.placeId === id && game.years.value ? game.years.value.years : [engineOf(place)];
   const yearBoxes = engineChoices.map((engine) => {
     const box = h('input', { type: 'checkbox', value: engine.id, checked: savedYears.includes(engine.id) || engine.id === engineOf(place) });
@@ -597,7 +597,7 @@ function settingsForm(place) {
     field('Description', description),
     h('div', { class: 'pair' }, field('Players per server', maxPlayers), field('Avatars', avatar, 'Used by servers started after saving.')),
     h('div', { class: 'pair' }, field('Roblox version', version, 'Players get it on their first join. New servers only.'),
-      h('div', { class: 'field' }, h('span', { text: 'Client years' }), h('div', { class: 'years' }, yearBoxes.map((item) => item.label)), h('small', { text: 'Used once the client picker ships.' }))),
+      h('div', { class: 'field' }, h('span', { text: 'Client years' }), h('div', { class: 'years' }, yearBoxes.map((item) => item.label)), h('small', { text: 'Years players can pick in the launcher.' }))),
     h('div', { class: 'switches' },
       toggle('Keep a server running', 'Otherwise one starts on join and stops when empty.', keepRunning),
       toggle('Team Create', 'The owner and editors build it together in Studio.', teamCreate),

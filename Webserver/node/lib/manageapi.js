@@ -34,8 +34,9 @@ const PAGE_TYPES = { html: 'text/html; charset=utf-8', js: 'text/javascript; cha
 const DATA = core.rootPath('Webserver', 'node', 'data');
 const HISTORY = path.join(DATA, 'player-history.json');
 const REPORTS = path.join(DATA, 'convert-reports');
-// Which client years players may pick per game, once the launcher offers a
-// choice (the engines lane reads this): { "<placeId>": ["2016", "2017"] }.
+// Which client years players may pick per game in the launcher
+// (lib/launcherapi.js): { "<placeId>": ["2016", "2017"] }. A game with no
+// entry allows every year.
 const CLIENT_YEARS = path.join(DATA, 'client-years.json');
 const DEDICATED_LOG = core.rootPath('Webserver', 'node', 'logs', 'dedicated.log');
 
@@ -154,13 +155,15 @@ function readClientYears() {
   return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
 }
 
+// -> { years, engine, saved }: the game's own year is always in; nothing
+// saved means every year (the launcher offers those whose server is here).
 function clientYearsOf(placeId) {
   const place = places.get(placeId);
   const own = places.engineOf(place);
   const saved = readClientYears()[placeId];
-  const years = Array.isArray(saved) ? saved.filter((year) => engines.known(year)) : [];
+  const years = Array.isArray(saved) ? saved.filter((year) => engines.known(year)) : Object.keys(engines.ENGINES);
   if (!years.includes(own)) years.unshift(own);
-  return { years, engine: own };
+  return { years, engine: own, saved: Array.isArray(saved) };
 }
 
 // --- players over time ----------------------------------------------------------------------
@@ -196,7 +199,8 @@ function current() {
   for (const engine of engines.list()) byEngine[engine.id] = { id: engine.id, label: engine.label, installed: engine.installed, servers: 0, players: 0, games: 0 };
   const gamesSeen = new Set();
   for (const server of servers) {
-    const engine = places.engineOf(library[String(server.placeId)]);
+    // The year the server runs (a player may have picked another than the game's).
+    const engine = engines.known(server.engine) || places.engineOf(library[String(server.placeId)]);
     const slot = byEngine[engine] || (byEngine[engine] = { id: engine, label: engine, installed: false, servers: 0, players: 0, games: 0 });
     if (server.state === 'running') slot.servers++;
     slot.players += Array.isArray(server.players) ? server.players.length : 0;

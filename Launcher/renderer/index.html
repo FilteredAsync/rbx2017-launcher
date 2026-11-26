@@ -701,11 +701,15 @@
         <div class="detail-meta" id="detail-meta"></div>
         <div class="detail-actions">
           <button class="play-button" id="detail-play"><svg class="play-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg><span>Play</span></button>
-          <!-- Room for a "Play in <year>" picker (engines lane) -->
-          <div class="detail-engine hidden" id="detail-engine"></div>
+          <!-- "Play in <year>": the years the game allows (app.js renderYearPicker) -->
+          <div class="detail-engine hidden" id="detail-engine">
+            <span class="engine-label" id="detail-engine-label">Play in</span>
+            <div class="engine-years" id="detail-years" role="radiogroup" aria-labelledby="detail-engine-label"></div>
+          </div>
           <button class="ghost with-icon" id="detail-share" title="Copy a link that opens this game in the launcher"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>Share</button>
           <button class="ghost" id="detail-back">Back</button>
         </div>
+        <div class="detail-year-warn hidden" id="detail-year-warn" role="status"></div>
         <div class="detail-note" id="detail-note"></div>
         <div class="detail-as" id="detail-as"></div>
         </div>

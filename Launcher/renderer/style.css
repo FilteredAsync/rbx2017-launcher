@@ -406,6 +406,18 @@ code { background: rgba(0,0,0,.35); padding: 5px 9px; font-family: Consolas, mon
 .detail-actions button.ghost { align-self: stretch; padding: 0 26px; font-size: 17px; }
 .detail-note { color: var(--gold); margin-top: 10px; }
 .detail-note:empty { display: none; }
+/* "Play in <year>" (app.js renderYearPicker): a row of its own under the
+   buttons (beside Play there's no room for it with Share and Back); the
+   warning under that. */
+.detail-actions { flex-wrap: wrap; }
+.detail-engine { order: 1; flex: 1 1 100%; display: flex; align-items: center; gap: 12px; }
+.engine-label { color: var(--muted); font-size: 15px; }
+.engine-years { display: flex; gap: 4px; }
+.engine-year { background: rgba(255, 255, 255, .09); color: var(--text); border: 2px solid transparent; padding: 6px 14px; font-size: 17px; font-weight: 600; cursor: pointer; }
+.engine-year:hover { background: rgba(255, 255, 255, .16); }
+.engine-year.on { background: var(--accent); color: #fff; }
+.engine-year:focus-visible { outline: none; border-color: #fff; }
+.detail-year-warn { color: var(--gold); margin-top: 10px; }
 .detail-as { color: var(--muted); margin-top: 10px; font-size: 15px; }
 .detail-section { margin-top: 30px; padding-top: 18px; border-top: 1px solid var(--line); }
 .detail-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
@@ -696,7 +708,7 @@ input.volume:hover::-webkit-slider-thumb { transform: scale(1.1); }
 .detail-main { display: contents; }
 /* The console look keeps the description above the buttons. */
 .detail-name { order: 1; } .detail-meta { order: 2; } .detail-desc { order: 3; } .detail-more { order: 4; }
-.detail-actions { order: 5; } .detail-note { order: 6; } .detail-as { order: 7; } .detail-section, .detail-stats { order: 8; }
+.detail-actions, .detail-year-warn { order: 5; } .detail-note { order: 6; } .detail-as { order: 7; } .detail-section, .detail-stats { order: 8; }
 .play-button > span { pointer-events: none; }
 
 /* Chat (chat.js) ------------------------------------------------------------------- */

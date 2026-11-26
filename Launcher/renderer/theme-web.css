@@ -423,7 +423,20 @@ html[data-family="web"] { background: var(--page-img) center / cover fixed, var(
 [data-family="web"] .detail-actions { margin-top: auto; flex-wrap: wrap; padding: 12px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 [data-family="web"] .detail-actions .play-button { flex: 1 1 100%; padding: 13px 20px; }
 [data-family="web"] .detail-actions button.ghost { flex: 1; padding: 8px 18px; font-size: 16px; }
-[data-family="web"] .detail-engine { flex: 1 1 100%; }
+[data-family="web"] .detail-engine { order: 0; flex: 1 1 100%; justify-content: center; gap: 10px; }
+[data-family="web"] .engine-label { color: var(--muted); font-size: 15px; }
+[data-family="web"] .engine-years { gap: 0; }
+[data-family="web"] .engine-year {
+  position: relative; background: var(--btn); color: var(--btn-text); border: 1px solid var(--btn-line); border-radius: 0;
+  padding: 5px 16px; font-size: 15px; font-weight: var(--w-strong);
+}
+[data-family="web"] .engine-year + .engine-year { margin-left: -1px; }
+[data-family="web"] .engine-year:first-child { border-radius: var(--r-btn) 0 0 var(--r-btn); }
+[data-family="web"] .engine-year:last-child { border-radius: 0 var(--r-btn) var(--r-btn) 0; }
+[data-family="web"] .engine-year:hover { background: var(--btn); border-color: var(--btn-hover-line); z-index: 1; }
+[data-family="web"] .engine-year.on { background: var(--accent); border-color: var(--accent); color: var(--accent-text); z-index: 2; }
+[data-family="web"] .engine-year:focus-visible { outline: 2px solid var(--select); outline-offset: 1px; z-index: 3; }
+[data-family="web"] .detail-year-warn { margin-top: 10px; padding: 7px 10px; background: var(--warn-bg); color: var(--warn); border-radius: var(--r); font-size: 14px; }
 [data-family="web"] .detail-note { color: var(--warn); }
 [data-family="web"] .detail-as { margin-top: 8px; font-size: 14px; }
 [data-family="web"] .detail-stats { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 18px; padding: 12px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); text-align: center; }

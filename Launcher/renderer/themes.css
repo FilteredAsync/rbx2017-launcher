@@ -779,6 +779,11 @@
 [data-theme="xbox2016"] .detail-head span { font-size: 19px; font-weight: 400; text-transform: uppercase; }
 [data-theme="xbox2016"] .detail-actions > button { align-self: stretch; height: auto; }
 [data-theme="xbox2016"] .detail-actions button.ghost { padding: 0 30px; }
+[data-theme="xbox2016"] .engine-label { color: #b8b8b8; text-transform: uppercase; }
+[data-theme="xbox2016"] .engine-year { background: #4e5460; border: 0; outline: 3px solid transparent; outline-offset: -3px; font-weight: 400; box-shadow: 2px 2px 4px rgba(0, 0, 0, .45); }
+[data-theme="xbox2016"] .engine-year.on { background: #02a34d; color: #fff; }
+[data-theme="xbox2016"] .engine-year:hover, [data-theme="xbox2016"] .engine-year:focus-visible { background: #32b5ff; color: #131313; }
+[data-theme="xbox2016"] .engine-year:focus-visible { outline-color: #fff; box-shadow: var(--x16-glow); }
 [data-theme="xbox2016"] .vote.up, [data-theme="xbox2016"] .vote.up.mine { color: #02b757; }
 [data-theme="xbox2016"] .vote.down, [data-theme="xbox2016"] .vote.down.mine { color: #d86868; }
 [data-theme="xbox2016"] .vote-bar { height: 10px; background: #d86868; -webkit-mask: repeating-linear-gradient(90deg, #000 0 calc(20% - 2px), transparent calc(20% - 2px) 20%); }

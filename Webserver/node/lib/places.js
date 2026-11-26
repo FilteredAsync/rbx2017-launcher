@@ -447,8 +447,11 @@ function requestRestart(placeId, jobId = null) {
 
 // Asks dedicated.js for a new server of a place (or a private server's
 // server) -> the request's ID, which its status names if it cannot start one.
-function requestStart(placeId, privateId = null) {
-  return request('start', placeId, privateId ? { privateId: String(privateId) } : {});
+// engine: a Roblox year other than the game's own (the launcher's pick).
+function requestStart(placeId, privateId = null, engine = null) {
+  const extra = privateId ? { privateId: String(privateId) } : {};
+  if (engine) extra.engine = String(engine);
+  return request('start', placeId, extra);
 }
 
 // Saves the players of one server and stops it.
