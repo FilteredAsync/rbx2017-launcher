@@ -1,20 +1,12 @@
 {
   "announcements": [
     {
-      "id": "released-1.19.0",
-      "title": "Launcher 1.19.0 is out",
-      "text": "It installs by itself the next time you open the launcher.",
+      "id": "released-1.20.0",
+      "title": "Launcher 1.20.0 is out",
+      "text": "A new look, 17 themes, and games in other years. It installs by itself the next time you open the launcher.",
       "level": "info",
-      "postedAt": "2026-11-25T19:27:26.036Z",
-      "expiresAt": "2026-11-27T19:27:26.036Z"
-    },
-    {
-      "id": "released-1.18.0",
-      "title": "Launcher 1.18.0 is out",
-      "text": "It installs by itself the next time you open the launcher.",
-      "level": "info",
-      "postedAt": "2026-11-25T00:03:17.661Z",
-      "expiresAt": "2026-11-27T00:03:17.661Z"
+      "postedAt": "2026-11-26T03:49:27.000Z",
+      "expiresAt": "2026-11-28T03:49:27.000Z"
     }
   ]
 }
