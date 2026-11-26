@@ -201,10 +201,14 @@ async function joinGame({ centralUrl, username, ticket = null, name = null, game
     log(`Forwarding the client's web requests to ${centralUrl}.`);
   }
   let gameRelay;
+  // A client that always connects to one port (the 2018 one) gets the relay there.
+  const year = engines.known(game && game.engine);
+  const connectPort = year ? engines.ENGINES[year].clientConnectPort || 0 : 0;
   try {
-    gameRelay = await relay.startRelay(game.address, log);
+    gameRelay = await relay.startRelay(game.address, log, connectPort ? { port: connectPort } : {});
   } catch (error) {
     if (localProxy) localProxy.release();
+    if (error.code === 'EADDRINUSE') throw new Error(`${error.message}. Close other Roblox games and game servers on this PC, then try again.`);
     throw new Error(`could not reach the game address ${game.address}: ${error.message}`);
   }
   log(`Relaying the game connection to ${gameRelay.target}.`);

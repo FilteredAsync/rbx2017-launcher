@@ -17,6 +17,18 @@
     prev: 'M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z',
     next: 'M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z',
     caret: 'M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z',
+    first: 'M18.41 16.59 13.82 12l4.59-4.59L17 6l-6 6 6 6zM6 6h2v12H6z',
+    last: 'M5.59 7.41 10.18 12l-4.59 4.59L7 18l6-6-6-6zM16 6h2v12h-2z',
+    home: 'M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z',
+    person: 'M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z',
+    mail: 'M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4-8 5-8-5V6l8 5 8-5v2z',
+    people: 'M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z',
+    chat: 'M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z',
+    bag: 'M20 6h-4V4c0-1.11-.89-2-2-2h-4c-1.11 0-2 .89-2 2v2H4c-1.11 0-1.99.89-1.99 2L2 19c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2zm-6 0h-4V4h4v2z',
+    trade: 'M6.99 11 3 15l3.99 4v-3H14v-2H6.99v-3zM21 9l-3.99-4v3H10v2h7.01v3L21 9z',
+    groups: 'M12 12.75c1.63 0 3.07.39 4.24.9 1.08.48 1.76 1.56 1.76 2.73V18H6v-1.61c0-1.18.68-2.26 1.76-2.73 1.17-.52 2.61-.91 4.24-.91zM4 13c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm1.13 1.1c-.37-.06-.74-.1-1.13-.1-.99 0-1.93.21-2.78.58A2.01 2.01 0 0 0 0 16.43V18h4.5v-1.61c0-.83.23-1.61.63-2.29zM20 13c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm4 3.43c0-.81-.48-1.53-1.22-1.85A6.95 6.95 0 0 0 20 14c-.39 0-.76.04-1.13.1.4.68.63 1.46.63 2.29V18H24v-1.57zM12 6c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3z',
+    forum: 'M21 6h-2v9H6v2c0 .55.45 1 1 1h11l4 4V7c0-.55-.45-1-1-1zm-4 6V3c0-.55-.45-1-1-1H3c-.55 0-1 .45-1 1v14l4-4h10c.55 0 1-.45 1-1z',
+    cog: 'M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z',
   };
 
   // ---- small helpers ----
@@ -149,10 +161,137 @@
     node.classList.remove('hidden');
   }
 
+  // The header's search: as you type, "Search "x" in Games / Catalog /
+  // People / Groups" (2017's universal search). Enter takes the chosen one.
+  var SEARCH_IN = [
+    ['Games', function (q) { return '/games?q=' + encodeURIComponent(q); }],
+    ['Catalog', function (q) { return '/catalog?keyword=' + encodeURIComponent(q); }],
+    ['People', function (q) { return '/users/friends?q=' + encodeURIComponent(q.replace(/[^A-Za-z0-9_]/g, '')); }],
+    ['Groups', function (q) { return '/groups?q=' + encodeURIComponent(q); }],
+  ];
+
   function fillSearch() {
-    var input = document.querySelector('.header-search input');
-    var q = new URLSearchParams(location.search).get('q');
-    if (input && q && document.body.dataset.page === 'games') input.value = q;
+    var form = $('header-search');
+    var menu = $('search-menu');
+    if (!form || !menu) return;
+    var input = form.querySelector('input');
+    var page = document.body.dataset.page;
+    var params = new URLSearchParams(location.search);
+    var start = page === 'games' ? params.get('q') : page === 'catalog' ? params.get('keyword') : null;
+    if (start) input.value = start;
+    var order = page === 'catalog' || page === 'item' || page === 'inventory' ? [1, 0, 2, 3]
+      : page === 'groups' || page === 'group' ? [3, 0, 1, 2]
+      : page === 'friends' || page === 'profile' ? [2, 0, 1, 3] : [0, 1, 2, 3];
+    var chosen = 0;
+    function draw() {
+      var q = input.value.trim();
+      menu.textContent = '';
+      var show = Boolean(q) && document.activeElement === input;
+      menu.classList.toggle('hidden', !show);
+      input.setAttribute('aria-expanded', show ? 'true' : 'false');
+      if (!show) return;
+      order.forEach(function (index, i) {
+        var option = el('li', i === chosen ? 'selected' : null);
+        option.id = 'search-in-' + i;
+        option.setAttribute('role', 'option');
+        option.setAttribute('aria-selected', i === chosen ? 'true' : 'false');
+        option.appendChild(document.createTextNode('Search “'));
+        option.appendChild(el('b', null, q));
+        option.appendChild(document.createTextNode('” in ' + SEARCH_IN[index][0]));
+        option.addEventListener('mousedown', function (event) { event.preventDefault(); go(i); });
+        menu.appendChild(option);
+      });
+      input.setAttribute('aria-activedescendant', 'search-in-' + chosen);
+    }
+    function go(i) {
+      var q = input.value.trim().slice(0, 60);
+      if (q) location.href = SEARCH_IN[order[i]][1](q);
+    }
+    input.addEventListener('input', function () { chosen = 0; draw(); });
+    input.addEventListener('focus', draw);
+    input.addEventListener('blur', function () { menu.classList.add('hidden'); });
+    input.addEventListener('keydown', function (event) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        chosen = (chosen + (event.key === 'ArrowDown' ? 1 : order.length - 1)) % order.length;
+        draw();
+      } else if (event.key === 'Escape') {
+        menu.classList.add('hidden');
+      }
+    });
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      go(chosen);
+    });
+  }
+
+  // ---- the left column (signed in): your pages, as on the 2017 site ----
+  var LEFT_PAGES = [
+    ['home', 'Home', function () { return '/home'; }],
+    ['person', 'Profile', function (me) { return '/users/' + me.account.userId + '/profile'; }],
+    ['mail', 'Messages', function () { return '/my/messages'; }, 'nav-messages'],
+    ['people', 'Friends', function () { return '/users/friends'; }, 'nav-friends'],
+    ['chat', 'Chat', function () { return '/chat'; }, 'nav-chat'],
+    ['bag', 'Inventory', function (me) { return '/users/' + me.account.userId + '/inventory'; }],
+    ['trade', 'Trade', function () { return '/my/trades'; }],
+    ['groups', 'Groups', function () { return '/groups'; }],
+    ['forum', 'Forum', function () { return '/forum'; }],
+  ];
+
+  function renderLeftCol(me) {
+    var col = $('left-col');
+    if (!col) return;
+    var signedIn = Boolean(me && me.account);
+    if (window.SiteThemes && me && !me.offline) window.SiteThemes.signedIn(signedIn);
+    col.textContent = '';
+    if (!signedIn) {
+      col.classList.remove('open');
+      return;
+    }
+    var user = el('a', 'left-col-user');
+    user.href = '/users/' + me.account.userId + '/profile';
+    user.appendChild(avatarPicture(me.account.userId, me.account.name, 'message-picture'));
+    user.appendChild(el('span', null, me.account.name));
+    col.appendChild(user);
+    var list = el('ul');
+    LEFT_PAGES.forEach(function (entry) {
+      var item = el('li');
+      var link = el('a');
+      link.href = entry[2](me);
+      link.appendChild(icon(entry[0]));
+      link.appendChild(el('span', null, entry[1]));
+      if (entry[3]) {
+        var count = el('span', 'menu-count hidden');
+        count.id = entry[3];
+        link.appendChild(count);
+      }
+      if (location.pathname === link.pathname) link.setAttribute('aria-current', 'page');
+      item.appendChild(link);
+      list.appendChild(item);
+    });
+    col.appendChild(list);
+    var club = el('a', 'btn btn-green btn-sm left-col-bc', 'Builders Club');
+    club.href = '/my/account#bc';
+    col.appendChild(club);
+    if (counts) showCounts(counts);
+  }
+
+  function navToggle() {
+    var toggle = $('nav-toggle');
+    var col = $('left-col');
+    if (!toggle || !col) return;
+    function set(open) {
+      col.classList.toggle('open', open);
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    toggle.addEventListener('click', function (event) {
+      event.stopPropagation();
+      set(!col.classList.contains('open'));
+    });
+    document.addEventListener('click', function (event) {
+      if (col.classList.contains('open') && !col.contains(event.target)) set(false);
+    });
+    document.addEventListener('keydown', function (event) { if (event.key === 'Escape') set(false); });
   }
 
   function offlineAlert(result, container) {
@@ -482,8 +621,10 @@
     playButton.setAttribute('aria-label', 'Play ' + game.name);
     playButton.appendChild(icon('play'));
     playButton.addEventListener('click', function () { play(game); });
-    calls.appendChild(playButton);
-    calls.appendChild(el('p', 'game-play-note', game.online ? (game.playing > 0 ? plural(game.playing, 'person', 'people') + ' playing now' : '') : 'Game servers are offline right now.'));
+    var playArea = el('div', 'game-play-area');
+    playArea.appendChild(playButton);
+    playArea.appendChild(el('p', 'game-play-note', game.online ? (game.playing > 0 ? plural(game.playing, 'person', 'people') + ' playing now' : '') : 'Game servers are offline right now.'));
+    calls.appendChild(playArea);
 
     var v = page && page.votes ? page.votes : votes[game.placeId];
     if (v) votes[game.placeId] = v;
@@ -775,20 +916,21 @@
 
   function renderHeaderAccount(me) {
     var box = $('header-account');
+    renderLeftCol(me);
     if (!box) return;
     box.textContent = '';
     if (!me || me.offline) return;
     if (!me.account) {
       var page = document.body.dataset.page;
-      if (page !== 'signup') {
-        var signup = el('a', 'btn btn-green btn-xs header-signup', 'Sign Up');
-        signup.href = '/signup';
-        box.appendChild(signup);
-      }
       if (page !== 'login') {
         var login = el('a', 'header-link', 'Log In');
         login.href = page === 'home' || page === 'signup' ? '/login' : '/login?next=' + encodeURIComponent(location.pathname + location.search);
         box.appendChild(login);
+      }
+      if (page !== 'signup') {
+        var signup = el('a', 'header-link header-signup', 'Sign Up');
+        signup.href = '/signup';
+        box.appendChild(signup);
       }
       return;
     }
@@ -800,50 +942,47 @@
       robux.appendChild(el('span', null, number(me.robux.balance)));
       box.appendChild(robux);
     }
+    var gear = el('a', 'header-icon settings');
+    gear.href = '/my/account';
+    gear.title = 'Settings';
+    gear.setAttribute('aria-label', 'Settings');
+    gear.appendChild(icon('cog'));
+    box.appendChild(gear);
     var wrap = el('div', 'user-menu');
     var button = el('button', 'user-menu-button');
     button.type = 'button';
     button.setAttribute('aria-haspopup', 'true');
     button.setAttribute('aria-expanded', 'false');
     button.appendChild(el('span', 'user-menu-name', me.account.name));
+    var personIcon = icon('person');
+    personIcon.setAttribute('class', 'icon user-menu-icon');
+    button.appendChild(personIcon);
+    button.setAttribute('aria-label', me.account.name);
     button.appendChild(el('span', 'user-menu-count hidden'));
     button.appendChild(icon('caret'));
     var list = el('div', 'user-menu-list hidden');
-    var home = el('a', null, 'Home');
-    home.href = '/home';
-    var inventory = el('a', null, 'Inventory');
-    inventory.href = '/users/' + me.account.userId + '/inventory';
-    function counted(label, href, id) {
-      var link = el('a', null, label);
-      link.href = href;
-      var count = el('span', 'menu-count hidden');
-      count.id = id;
-      link.appendChild(count);
-      return link;
+    function link(label, href, countId) {
+      var node = el('a', null, label);
+      node.href = href;
+      if (countId) {
+        var count = el('span', 'menu-count hidden');
+        count.id = countId;
+        node.appendChild(count);
+      }
+      list.appendChild(node);
     }
-    var profile = el('a', null, 'Profile');
-    profile.href = '/users/' + me.account.userId + '/profile';
-    var friendsLink = counted('Friends', '/users/friends', 'menu-friends');
-    var messagesLink = counted('Messages', '/my/messages', 'menu-messages');
-    var chatLink = counted('Chat', '/chat', 'menu-chat');
-    var groupsLink = el('a', null, 'Groups');
-    groupsLink.href = '/groups';
-    var tradesLink = el('a', null, 'Trades');
-    tradesLink.href = '/my/trades';
-    var settings = el('a', null, 'Settings');
-    settings.href = '/my/account';
+    link('Home', '/home');
+    link('Profile', '/users/' + me.account.userId + '/profile');
+    link('Friends', '/users/friends', 'menu-friends');
+    link('Messages', '/my/messages', 'menu-messages');
+    link('Chat', '/chat', 'menu-chat');
+    link('Groups', '/groups');
+    link('Trades', '/my/trades');
+    link('Inventory', '/users/' + me.account.userId + '/inventory');
+    link('Settings', '/my/account');
     var out = el('button', null, 'Log Out');
     out.type = 'button';
     out.addEventListener('click', logOut);
-    list.appendChild(home);
-    list.appendChild(profile);
-    list.appendChild(friendsLink);
-    list.appendChild(messagesLink);
-    list.appendChild(chatLink);
-    list.appendChild(groupsLink);
-    list.appendChild(tradesLink);
-    list.appendChild(inventory);
-    list.appendChild(settings);
     list.appendChild(out);
     button.addEventListener('click', function (event) {
       event.stopPropagation();
@@ -1122,32 +1261,20 @@
     var node = el('div', 'item-price');
     if (price === null || price === undefined) { node.classList.add('off-sale'); node.textContent = 'Off Sale'; return node; }
     if (price === 0) { node.textContent = 'Free'; return node; }
-    node.appendChild(rbxBadge());
+    var badge = rbxBadge();
+    badge.classList.add('small');
+    node.appendChild(badge);
     node.appendChild(el('span', null, number(price)));
     return node;
   }
 
-  // Buy after a confirmation -> Promise of true when bought.
-  function buyFlow(buying, status) {
-    var question = buying.price === 0 ? 'Get "' + buying.name + '" for free?' : 'Buy "' + buying.name + '" for R$ ' + number(buying.price) + '?';
-    if (!window.confirm(question)) return Promise.resolve(false);
-    if (status) { status.textContent = 'Buying…'; status.className = 'catalog-status'; }
-    return post('buy', { kind: buying.kind, id: buying.id, price: buying.price }).then(function (result) {
-      if (!result.ok) {
-        if (status) { status.textContent = result.data.error || 'That did not work.'; status.className = 'catalog-status error'; }
-        return false;
-      }
-      if (status) { status.textContent = 'You own "' + buying.name + '" now. Wear it from the Avatar tab in the launcher.'; status.className = 'catalog-status good'; }
-      storeMe(null);
-      loadMe(true).then(renderHeaderAccount);
-      return true;
-    });
-  }
-
-  function itemCard(item, signedIn, status) {
+  // A 2017 catalog card: the picture (Limited on it), the name, who made it
+  // or how many are left, and the price. tag: "li" in the catalog's list.
+  function itemCard(item, signedIn, status, tag) {
     var link = itemPageUrl(item);
-    var card = el(link ? 'a' : 'div', 'item-card');
-    if (link) card.href = link;
+    var card = el(tag || 'div', 'item-card');
+    var main = el(link ? 'a' : 'div');
+    if (link) main.href = link;
     var thumb = el('span', 'item-card-thumb');
     var img = el('img');
     img.alt = '';
@@ -1155,12 +1282,23 @@
     img.src = itemPictureUrl(item);
     img.addEventListener('error', function () { img.style.visibility = 'hidden'; });
     thumb.appendChild(img);
-    card.appendChild(thumb);
-    card.appendChild(el('div', 'item-card-name', item.name || 'Item ' + item.id));
-    if (item.typeName) card.appendChild(el('div', 'item-card-type', item.typeName));
-    if (item.limited) {
-      var stock = item.limitedInfo;
-      card.appendChild(el('div', 'item-limited', stock && stock.from === 'stock' ? 'Limited · ' + stock.remaining + ' left' : 'Limited'));
+    if (item.limited) thumb.appendChild(el('span', 'item-tag', 'Limited'));
+    main.appendChild(thumb);
+    var name = el('div', 'item-card-name', item.name || 'Item ' + item.id);
+    name.title = item.name || '';
+    main.appendChild(name);
+    card.appendChild(main);
+    var stock = item.limitedInfo;
+    if (stock && stock.from === 'stock' && stock.remaining > 0) {
+      card.appendChild(el('div', 'item-card-label', 'Remaining: ' + number(stock.remaining)));
+    } else if (item.creator) {
+      var by = el('div', 'item-card-label', 'By ');
+      var who = el('a', null, item.creator);
+      who.href = '/catalog?category=all&creator=' + encodeURIComponent(item.creator) + '&era=any';
+      by.appendChild(who);
+      card.appendChild(by);
+    } else if (item.typeName) {
+      card.appendChild(el('div', 'item-card-label', item.typeName));
     }
     var buying = purchaseOf(item);
     var priceEl = null;
@@ -1186,6 +1324,411 @@
     return card;
   }
 
+  // ---- the catalog (2017's: a category tree, filters, sorts and pages) ----
+  // Answers come from /api/catalog/search (the game server's lib/catalogsearch.js).
+  var CATALOG = [
+    ['all', 'All Categories', [['all', 'All Categories']]],
+    ['featured', 'Featured', [['all', 'All Featured Items'], ['accessories', 'Featured Accessories'], ['faces', 'Featured Faces'], ['gear', 'Featured Gear'], ['packages', 'Featured Packages']]],
+    ['collectibles', 'Collectibles', [['all', 'All Collectibles'], ['accessories', 'Collectible Accessories'], ['faces', 'Collectible Faces'], ['gear', 'Collectible Gear']]],
+    ['clothing', 'Clothing', [['all', 'All Clothing'], ['shirts', 'Shirts'], ['tshirts', 'T-Shirts'], ['pants', 'Pants'], ['packages', 'Packages']]],
+    ['bodyparts', 'Body Parts', [['all', 'All Body Parts'], ['heads', 'Heads'], ['faces', 'Faces'], ['packages', 'Packages']]],
+    ['gear', 'Gear', [['all', 'All Gear'], ['building', 'Building'], ['explosive', 'Explosive'], ['melee', 'Melee'], ['musical', 'Musical'], ['navigation', 'Navigation'], ['powerup', 'Power Up'], ['ranged', 'Ranged'], ['social', 'Social'], ['transport', 'Transport']]],
+    ['accessories', 'Accessories', [['all', 'All Accessories'], ['hats', 'Hats'], ['hair', 'Hair'], ['face', 'Face'], ['neck', 'Neck'], ['shoulder', 'Shoulder'], ['front', 'Front'], ['back', 'Back'], ['waist', 'Waist']]],
+  ];
+  var CATALOG_SORTS = [['relevance', 'Relevance'], ['favorited', 'Most Favorited'], ['bestselling', 'Bestselling'], ['updated', 'Recently Updated'], ['price-asc', 'Price (Low to High)'], ['price-desc', 'Price (High to Low)']];
+  // Links from the old catalog (?category=hats) and the launcher.
+  var OLD_CATEGORIES = {
+    hats: ['accessories', 'hats'], hair: ['accessories', 'hair'], face: ['accessories', 'face'], neck: ['accessories', 'neck'],
+    shoulder: ['accessories', 'shoulder'], front: ['accessories', 'front'], back: ['accessories', 'back'], waist: ['accessories', 'waist'],
+    faces: ['bodyparts', 'faces'], heads: ['bodyparts', 'heads'], packages: ['bodyparts', 'packages'], torsos: ['bodyparts', 'packages'],
+    rightarms: ['bodyparts', 'packages'], leftarms: ['bodyparts', 'packages'], rightlegs: ['bodyparts', 'packages'], leftlegs: ['bodyparts', 'packages'],
+    shirts: ['clothing', 'shirts'], pants: ['clothing', 'pants'], tshirts: ['clothing', 'tshirts'], limiteds: ['collectibles', 'all'],
+  };
+  // An item's place in the tree, by asset type (the item page's crumbs).
+  var TYPE_PLACE = {
+    8: ['accessories', 'hats'], 41: ['accessories', 'hair'], 42: ['accessories', 'face'], 43: ['accessories', 'neck'], 44: ['accessories', 'shoulder'],
+    45: ['accessories', 'front'], 46: ['accessories', 'back'], 47: ['accessories', 'waist'], 17: ['bodyparts', 'heads'], 18: ['bodyparts', 'faces'],
+    11: ['clothing', 'shirts'], 2: ['clothing', 'tshirts'], 12: ['clothing', 'pants'], 19: ['gear', 'all'], 32: ['bodyparts', 'packages'],
+  };
+
+  function catalogCategory(key) {
+    for (var i = 0; i < CATALOG.length; i++) if (CATALOG[i][0] === key) return CATALOG[i];
+    return null;
+  }
+  function catalogSubName(category, sub) {
+    var entry = catalogCategory(category);
+    var found = entry && entry[2].filter(function (pair) { return pair[0] === sub; })[0];
+    return found ? found[1] : '';
+  }
+
+  // The search as the address says it.
+  function catalogState(search) {
+    var p = new URLSearchParams(search);
+    var s = {
+      category: p.get('category') || (p.get('keyword') || p.get('q') || p.get('creator') ? 'all' : 'featured'), sub: p.get('sub') || 'all',
+      keyword: (p.get('keyword') || p.get('q') || '').replace(/\s+/g, ' ').trim().slice(0, 50),
+      creator: (p.get('creator') || '').trim().slice(0, 20), min: p.get('min') || '', max: p.get('max') || '',
+      free: p.get('free') === '1', sort: p.get('sort') || '', era: p.get('era') === 'any' ? 'any' : 'classic',
+      unavailable: p.get('unavailable') === 'show', page: Math.min(400, Math.max(1, parseInt(p.get('page'), 10) || 1)),
+    };
+    if (OLD_CATEGORIES[s.category]) { s.sub = OLD_CATEGORIES[s.category][1]; s.category = OLD_CATEGORIES[s.category][0]; }
+    if (s.category === 'gear' && !p.get('sub')) s.sub = 'all';
+    var category = catalogCategory(s.category);
+    if (!category) { s.category = 'featured'; category = catalogCategory('featured'); }
+    if (!category[2].some(function (pair) { return pair[0] === s.sub; })) s.sub = 'all';
+    if (!/^[A-Za-z0-9_ ]*$/.test(s.creator)) s.creator = '';
+    if (!/^\d{1,8}$/.test(s.min)) s.min = '';
+    if (!/^\d{1,8}$/.test(s.max)) s.max = '';
+    if (!CATALOG_SORTS.some(function (pair) { return pair[0] === s.sort; })) s.sort = '';
+    return s;
+  }
+
+  function catalogQuery(s) {
+    var q = new URLSearchParams();
+    if (s.category !== 'featured' || s.keyword || s.creator) q.set('category', s.category);
+    if (s.sub !== 'all') q.set('sub', s.sub);
+    if (s.keyword) q.set('keyword', s.keyword);
+    if (s.creator) q.set('creator', s.creator);
+    if (s.free) q.set('free', '1');
+    else {
+      if (s.min) q.set('min', s.min);
+      if (s.max) q.set('max', s.max);
+    }
+    if (s.sort) q.set('sort', s.sort);
+    if (s.era === 'any') q.set('era', 'any');
+    if (s.unavailable) q.set('unavailable', 'show');
+    if (s.page > 1) q.set('page', String(s.page));
+    return q;
+  }
+
+  function radioList(name, options, current, onPick) {
+    var list = el('ul', 'filter-list');
+    options.forEach(function (option) {
+      var item = el('li');
+      var label = el('label');
+      var radio = el('input');
+      radio.type = 'radio';
+      radio.name = name;
+      radio.value = option[0];
+      radio.checked = option[0] === current;
+      radio.addEventListener('change', function () { if (radio.checked) onPick(option[0]); });
+      label.appendChild(radio);
+      label.appendChild(document.createTextNode(option[1]));
+      item.appendChild(label);
+      if (option[2]) item.appendChild(option[2]);
+      list.appendChild(item);
+    });
+    return list;
+  }
+
+  function catalogPage() {
+    var state = catalogState(location.search);
+    var me = null;
+    var grid = $('catalog-grid');
+    var status = $('catalog-status');
+    var pager = $('catalog-pager');
+    var asked = 0;
+
+    var inCategory = $('catalog-in');
+    CATALOG.forEach(function (entry) {
+      var option = el('option', null, entry[1]);
+      option.value = entry[0];
+      inCategory.appendChild(option);
+    });
+    var sortSelect = $('catalog-sort');
+    CATALOG_SORTS.forEach(function (pair) {
+      var option = el('option', null, pair[1]);
+      option.value = pair[0];
+      sortSelect.appendChild(option);
+    });
+    sortSelect.addEventListener('change', function () { change({ sort: sortSelect.value, page: 1 }); });
+    $('catalog-search').addEventListener('submit', function (event) {
+      event.preventDefault();
+      var category = inCategory.value === 'featured' ? 'all' : inCategory.value;
+      change({ keyword: $('catalog-q').value.replace(/\s+/g, ' ').trim().slice(0, 50), category: category, sub: category === state.category ? state.sub : 'all', page: 1, sort: '' });
+    });
+    var toggle = $('catalog-filters-toggle');
+    toggle.addEventListener('click', function () {
+      var open = !$('search-options').classList.contains('open');
+      $('search-options').classList.toggle('open', open);
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+
+    function change(patch) {
+      Object.keys(patch).forEach(function (key) { state[key] = patch[key]; });
+      var query = catalogQuery(state).toString();
+      history.pushState(null, '', '/catalog' + (query ? '?' + query : ''));
+      draw();
+      load();
+    }
+    window.addEventListener('popstate', function () {
+      state = catalogState(location.search);
+      draw();
+      load();
+    });
+
+    function drawTree() {
+      var menu = $('catalog-cats');
+      menu.textContent = '';
+      CATALOG.forEach(function (entry) {
+        var item = el('li');
+        var head = el('div', 'cat-head');
+        var link = el('a', null, entry[0] === 'all' ? 'View All Items' : entry[1]);
+        link.href = '/catalog?category=' + entry[0];
+        if (state.category === entry[0]) link.setAttribute('aria-current', 'true');
+        link.addEventListener('click', function (event) {
+          event.preventDefault();
+          change({ category: entry[0], sub: 'all', page: 1 });
+        });
+        head.appendChild(link);
+        var subs = null;
+        if (entry[2].length > 1) {
+          var open = state.category === entry[0];
+          var plus = el('button', 'cat-toggle', open ? '−' : '+');
+          plus.type = 'button';
+          plus.setAttribute('aria-label', (open ? 'Hide ' : 'Show ') + entry[1]);
+          plus.setAttribute('aria-expanded', open ? 'true' : 'false');
+          head.appendChild(plus);
+          subs = el('ul', 'cat-subs' + (open ? '' : ' hidden'));
+          entry[2].forEach(function (pair) {
+            var subItem = el('li');
+            var subLink = el('a', null, pair[1]);
+            subLink.href = '/catalog?category=' + entry[0] + (pair[0] === 'all' ? '' : '&sub=' + pair[0]);
+            if (state.category === entry[0] && state.sub === pair[0]) subLink.setAttribute('aria-current', 'true');
+            subLink.addEventListener('click', function (event) {
+              event.preventDefault();
+              change({ category: entry[0], sub: pair[0], page: 1 });
+            });
+            subItem.appendChild(subLink);
+            subs.appendChild(subItem);
+          });
+          plus.addEventListener('click', function () {
+            var opening = subs.classList.contains('hidden');
+            subs.classList.toggle('hidden', !opening);
+            plus.textContent = opening ? '−' : '+';
+            plus.setAttribute('aria-expanded', opening ? 'true' : 'false');
+          });
+        }
+        item.appendChild(head);
+        if (subs) item.appendChild(subs);
+        menu.appendChild(item);
+      });
+    }
+
+    function drawFilters() {
+      var box = $('catalog-filters');
+      box.textContent = '';
+      function label(text) { box.appendChild(el('div', 'filter-label', text)); }
+
+      label('Creator');
+      var creatorName = el('input');
+      creatorName.type = 'text';
+      creatorName.placeholder = 'Username';
+      creatorName.maxLength = 20;
+      creatorName.setAttribute('aria-label', 'Creator name');
+      var robloxMade = /^roblox$/i.test(state.creator);
+      if (state.creator && !robloxMade) creatorName.value = state.creator;
+      var creatorGo = el('button', 'btn btn-secondary btn-xs', 'Go');
+      creatorGo.type = 'button';
+      function pickCreator() {
+        var name = creatorName.value.trim().replace(/[^A-Za-z0-9_ ]/g, '');
+        if (name) change({ creator: name, page: 1, era: 'any' });
+      }
+      creatorGo.addEventListener('click', pickCreator);
+      creatorName.addEventListener('keydown', function (event) { if (event.key === 'Enter') { event.preventDefault(); pickCreator(); } });
+      var creatorRow = el('div', 'filter-inline');
+      creatorRow.appendChild(creatorName);
+      creatorRow.appendChild(creatorGo);
+      box.appendChild(radioList('creator', [['', 'All Creators'], ['roblox', 'Roblox'], ['custom', '', creatorRow]],
+        !state.creator ? '' : robloxMade ? 'roblox' : 'custom', function (value) {
+          if (value === 'custom') { creatorName.focus(); return; }
+          change({ creator: value === 'roblox' ? 'Roblox' : '', page: 1 });
+        }));
+
+      label('Price');
+      var min = el('input');
+      min.type = 'number';
+      min.min = '0';
+      min.placeholder = 'Min';
+      min.setAttribute('aria-label', 'Lowest price');
+      min.value = state.min;
+      var max = el('input');
+      max.type = 'number';
+      max.min = '0';
+      max.placeholder = 'Max';
+      max.setAttribute('aria-label', 'Highest price');
+      max.value = state.max;
+      var priceGo = el('button', 'btn btn-secondary btn-xs', 'Go');
+      priceGo.type = 'button';
+      function pickPrice() {
+        var low = /^\d{1,8}$/.test(min.value) ? min.value : '';
+        var high = /^\d{1,8}$/.test(max.value) ? max.value : '';
+        change({ min: low, max: high, free: false, page: 1 });
+      }
+      priceGo.addEventListener('click', pickPrice);
+      [min, max].forEach(function (input) {
+        input.addEventListener('keydown', function (event) { if (event.key === 'Enter') { event.preventDefault(); pickPrice(); } });
+      });
+      var priceRow = el('div', 'filter-inline');
+      priceRow.appendChild(min);
+      priceRow.appendChild(el('span', 'to', 'to'));
+      priceRow.appendChild(max);
+      priceRow.appendChild(priceGo);
+      box.appendChild(radioList('price', [['any', 'Any Price'], ['free', 'Free'], ['range', 'R$', priceRow]],
+        state.free ? 'free' : state.min || state.max ? 'range' : 'any', function (value) {
+          if (value === 'range') { min.focus(); return; }
+          change({ free: value === 'free', min: '', max: '', page: 1 });
+        }));
+
+      label('Made');
+      box.appendChild(radioList('era', [['classic', 'Before 2018'], ['any', 'Any year']], state.era, function (value) {
+        change({ era: value, page: 1 });
+      }));
+
+      label('Unavailable Items');
+      box.appendChild(radioList('unavailable', [['hide', 'Hide'], ['show', 'Show']], state.unavailable ? 'show' : 'hide', function (value) {
+        change({ unavailable: value === 'show', page: 1 });
+      }));
+    }
+
+    function crumb(text, onClick, className) {
+      var item = el('li');
+      var button = el('button', className || null, text);
+      button.type = 'button';
+      button.addEventListener('click', onClick);
+      item.appendChild(button);
+      return item;
+    }
+
+    function drawCrumbs() {
+      var list = $('catalog-crumbs');
+      list.textContent = '';
+      var category = catalogCategory(state.category);
+      list.appendChild(crumb(category[1], function () { change({ sub: 'all', page: 1 }); }));
+      if (state.sub !== 'all') list.appendChild(crumb(catalogSubName(state.category, state.sub), function () { change({ page: 1 }); }));
+      if (state.creator) list.appendChild(crumb((/^roblox$/i.test(state.creator) ? 'Roblox' : state.creator), function () { change({ creator: '', page: 1 }); }, 'crumb-filter'));
+      if (state.free) list.appendChild(crumb('Free', function () { change({ free: false, page: 1 }); }, 'crumb-filter'));
+      else if (state.min || state.max) {
+        var text = state.min && state.max ? 'R$ ' + number(state.min) + ' - ' + number(state.max) : state.min ? 'R$ ' + number(state.min) + ' and up' : 'R$ ' + number(state.max) + ' and below';
+        list.appendChild(crumb(text, function () { change({ min: '', max: '', page: 1 }); }, 'crumb-filter'));
+      }
+      if (state.era === 'any') list.appendChild(crumb('Any year', function () { change({ era: 'classic', page: 1 }); }, 'crumb-filter'));
+      if (state.unavailable) list.appendChild(crumb('Unavailable shown', function () { change({ unavailable: false, page: 1 }); }, 'crumb-filter'));
+      if (state.keyword) list.appendChild(crumb('“' + state.keyword + '”', function () { $('catalog-q').value = ''; change({ keyword: '', page: 1, sort: '' }); }, 'crumb-filter'));
+    }
+
+    function draw() {
+      $('catalog-q').value = state.keyword;
+      inCategory.value = state.category;
+      sortSelect.value = state.sort || (state.keyword ? 'relevance' : 'favorited');
+      drawTree();
+      drawFilters();
+      drawCrumbs();
+      var featured = state.category === 'featured' && state.sub === 'all' && !state.keyword && state.page === 1;
+      $('catalog-featured').classList.toggle('hidden', !featured);
+      var title = state.keyword ? '“' + state.keyword + '”' : state.sub !== 'all' ? catalogSubName(state.category, state.sub) : catalogCategory(state.category)[1];
+      document.title = title + ' - Catalog - rbx2017';
+    }
+
+    function drawPager(page, pages) {
+      pager.textContent = '';
+      pager.classList.toggle('hidden', pages <= 1);
+      if (pages <= 1) return;
+      function arrow(name, label, target, off) {
+        var button = el('button');
+        button.type = 'button';
+        button.setAttribute('aria-label', label);
+        button.disabled = off;
+        button.appendChild(icon(name));
+        button.addEventListener('click', function () { change({ page: target }); scrollTo(0, 0); });
+        pager.appendChild(button);
+      }
+      arrow('first', 'First page', 1, page <= 1);
+      arrow('prev', 'Previous page', page - 1, page <= 1);
+      var input = el('input');
+      input.type = 'number';
+      input.min = '1';
+      input.max = String(pages);
+      input.value = String(page);
+      input.setAttribute('aria-label', 'Page');
+      input.addEventListener('keydown', function (event) {
+        if (event.key !== 'Enter') return;
+        var target = Math.min(pages, Math.max(1, parseInt(input.value, 10) || 1));
+        change({ page: target });
+        scrollTo(0, 0);
+      });
+      pager.appendChild(input);
+      pager.appendChild(el('span', null, 'of ' + number(pages)));
+      arrow('next', 'Next page', page + 1, page >= pages);
+      arrow('last', 'Last page', pages, page >= pages);
+    }
+
+    function load() {
+      var mine = ++asked;
+      var query = catalogQuery(state);
+      grid.classList.add('loading');
+      status.className = 'catalog-status';
+      status.textContent = state.keyword ? 'Searching…' : '';
+      fetch('/api/catalog/search' + (query.toString() ? '?' + query : ''), { headers: { Accept: 'application/json' }, credentials: 'same-origin' }).then(function (response) {
+        return response.json().catch(function () { return null; }).then(function (data) { return { ok: response.ok, data: data || {} }; });
+      }, function () { return { ok: false, data: { error: "Couldn't reach the site." } }; }).then(function (result) {
+        if (mine !== asked) return;
+        grid.classList.remove('loading');
+        grid.textContent = '';
+        var count = $('catalog-count');
+        count.textContent = '';
+        if (!result.ok) {
+          status.textContent = result.data.error || 'The catalog did not answer. Try again in a minute.';
+          status.className = 'catalog-status error';
+          drawPager(1, 1);
+          return;
+        }
+        var data = result.data;
+        var signedIn = Boolean(me && me.account);
+        (data.items || []).forEach(function (item) { grid.appendChild(itemCard(item, signedIn, status, 'li')); });
+        if (data.total) {
+          var first = (data.page - 1) * data.perPage + 1;
+          count.appendChild(el('span', null, number(first) + ' - ' + number(first + data.items.length - 1)));
+          count.appendChild(el('span', null, 'of ' + plural(data.total, 'result', 'results')));
+          status.textContent = signedIn ? '' : 'Log in to buy items.';
+        } else {
+          var none = el('li', 'empty-state catalog-empty', state.keyword ? 'No items found.' : 'Nothing here yet.');
+          grid.appendChild(none);
+          status.textContent = '';
+        }
+        if (data.page && data.page !== state.page) {
+          state.page = data.page;
+          history.replaceState(null, '', '/catalog' + (catalogQuery(state).toString() ? '?' + catalogQuery(state) : ''));
+        }
+        drawPager(data.page || 1, data.pages || 1);
+      });
+    }
+
+    draw();
+    loadMe().then(function (data) {
+      me = data;
+      load();
+    });
+  }
+
+  // Buy after a confirmation -> Promise of true when bought.
+  function buyFlow(buying, status) {
+    var question = buying.price === 0 ? 'Get "' + buying.name + '" for free?' : 'Buy "' + buying.name + '" for R$ ' + number(buying.price) + '?';
+    if (!window.confirm(question)) return Promise.resolve(false);
+    if (status) { status.textContent = 'Buying…'; status.className = 'catalog-status'; }
+    return post('buy', { kind: buying.kind, id: buying.id, price: buying.price }).then(function (result) {
+      if (!result.ok) {
+        if (status) { status.textContent = result.data.error || 'That did not work.'; status.className = 'catalog-status error'; }
+        return false;
+      }
+      if (status) { status.textContent = 'You own "' + buying.name + '" now. Wear it from the Avatar tab in the launcher.'; status.className = 'catalog-status good'; }
+      storeMe(null);
+      loadMe(true).then(renderHeaderAccount);
+      return true;
+    });
+  }
+
+
   function categoryNav(nav, list, current, hrefFor) {
     nav.textContent = '';
     list.forEach(function (entry) {
@@ -1196,47 +1739,6 @@
     });
   }
 
-  function catalogPage() {
-    var params = new URLSearchParams(location.search);
-    var category = categoryKnown(SHOP_CATEGORIES, params.get('category')) ? params.get('category') : 'hats';
-    var keyword = (params.get('q') || '').trim().slice(0, 50);
-    var grid = $('catalog-grid');
-    var status = $('catalog-status');
-    var more = $('catalog-more');
-    var cursor = null;
-    var label = SHOP_CATEGORIES.filter(function (entry) { return entry[0] === category; })[0][1];
-    $('catalog-q').value = keyword;
-    $('catalog-heading').textContent = keyword ? label + ': “' + keyword + '”' : label;
-    document.title = label + ' - Catalog - rbx2017';
-    categoryNav($('catalog-cats'), SHOP_CATEGORIES, category, function (key) { return '/catalog?category=' + key; });
-    $('catalog-search').addEventListener('submit', function (event) {
-      event.preventDefault();
-      var q = $('catalog-q').value.trim();
-      location.href = '/catalog?category=' + category + (q ? '&q=' + encodeURIComponent(q) : '');
-    });
-    loadMe().then(function (me) {
-      var signedIn = Boolean(me && me.account);
-      function load() {
-        status.textContent = keyword ? 'Searching…' : 'Loading…';
-        status.className = 'catalog-status';
-        more.classList.add('hidden');
-        var query = new URLSearchParams({ category: category });
-        if (keyword) query.set('keyword', keyword);
-        if (cursor) query.set('cursor', cursor);
-        fetch('/api/catalog?' + query, { headers: { Accept: 'application/json' }, credentials: 'same-origin' }).then(function (response) {
-          return response.json().catch(function () { return null; }).then(function (data) { return { ok: response.ok, data: data || {} }; });
-        }, function () { return { ok: false, data: { error: "Couldn't reach the site." } }; }).then(function (result) {
-          if (!result.ok) { status.textContent = result.data.error || 'The catalog did not answer.'; status.className = 'catalog-status error'; return; }
-          (result.data.items || []).forEach(function (item) { grid.appendChild(itemCard(item, signedIn, status)); });
-          cursor = result.data.nextCursor || null;
-          more.classList.toggle('hidden', !cursor);
-          status.textContent = grid.children.length ? (signedIn ? '' : 'Log in to buy items.') : (keyword ? 'Nothing found.' : 'Nothing here right now.');
-        });
-      }
-      more.addEventListener('click', load);
-      load();
-    });
-  }
 
   function itemPage() {
     var root = $('item-root');
@@ -1250,29 +1752,47 @@
       var me = results[1];
       root.textContent = '';
       if (!result.ok) {
-        var gone = el('div', 'empty-state', result.data.error || 'This item could not be found.');
-        root.appendChild(gone);
+        root.appendChild(el('div', 'empty-state', result.data.error || 'This item could not be found.'));
         return;
       }
       var item = result.data;
       document.title = item.name + ' - rbx2017';
+      var place = TYPE_PLACE[item.typeId];
+      if (place) {
+        var crumbs = el('ul', 'crumbs item-crumbs');
+        [['Catalog', '/catalog'], [catalogCategory(place[0])[1], '/catalog?category=' + place[0]],
+          place[1] !== 'all' ? [catalogSubName(place[0], place[1]), '/catalog?category=' + place[0] + '&sub=' + place[1]] : null]
+          .filter(Boolean).forEach(function (pair) {
+            var li = el('li');
+            var a = el('a', null, pair[0]);
+            a.href = pair[1];
+            li.appendChild(a);
+            crumbs.appendChild(li);
+          });
+        root.appendChild(crumbs);
+      }
       var page = el('div', 'item-page');
       var picture = el('div', 'item-picture');
       var img = el('img');
       img.alt = item.name;
       img.src = itemPictureUrl({ kind: 'asset', id: item.id });
       picture.appendChild(img);
+      if (item.limited) picture.appendChild(el('span', 'item-tag', 'Limited'));
       page.appendChild(picture);
       var info = el('div', 'item-info');
       info.appendChild(el('h1', 'item-title', item.name));
       var by = el('p', 'item-by');
       by.appendChild(document.createTextNode('By '));
-      by.appendChild(el('strong', null, item.creator));
-      if (item.typeName) by.appendChild(document.createTextNode(' · ' + item.typeName));
+      var creator = el('a', null, item.creator);
+      creator.href = '/catalog?category=all&creator=' + encodeURIComponent(item.creator) + '&era=any';
+      by.appendChild(creator);
       info.appendChild(by);
+
       var box = el('div', 'item-buy');
-      box.appendChild(el('div', 'item-buy-label', item.limited ? 'Limited' : 'Price'));
-      box.appendChild(priceNode(item.price));
+      var priceBox = el('div', 'item-buy-price');
+      priceBox.appendChild(el('div', 'item-buy-label', item.limited ? 'Best Price' : 'Price'));
+      priceBox.appendChild(priceNode(item.price));
+      box.appendChild(priceBox);
       var status = el('p', 'catalog-status');
       var balanceNote = null;
       if (item.limited) {
@@ -1280,34 +1800,70 @@
       } else if (item.owned) {
         box.appendChild(el('div', 'item-owned big', 'You own this item'));
       } else if (!me || !me.account) {
-        var login = el('a', 'btn btn-primary btn-sm', 'Log in to buy');
+        var login = el('a', 'btn btn-green', 'Log in to buy');
         login.href = '/login?next=' + encodeURIComponent(location.pathname);
         box.appendChild(login);
       } else if (item.price !== null) {
-        var button = el('button', 'btn btn-green', item.price === 0 ? 'Get' : 'Buy');
-        button.type = 'button';
-        button.addEventListener('click', function () {
-          button.disabled = true;
+        var buy = el('button', 'btn btn-green', item.price === 0 ? 'Get' : 'Buy');
+        buy.type = 'button';
+        buy.addEventListener('click', function () {
+          buy.disabled = true;
           buyFlow({ kind: 'asset', id: item.id, price: item.price, name: item.name }, status).then(function (bought) {
-            button.disabled = false;
+            buy.disabled = false;
             if (!bought) return;
-            button.replaceWith(el('div', 'item-owned big', 'You own this item'));
+            buy.replaceWith(el('div', 'item-owned big', 'You own this item'));
             if (balanceNote) balanceNote.remove();
           });
         });
-        box.appendChild(button);
+        box.appendChild(buy);
       }
-      if (me && me.account && item.balance !== null && (!item.owned || item.limited)) balanceNote = box.appendChild(el('p', 'item-note', 'You have R$ ' + number(item.balance) + '.'));
       box.appendChild(status);
       info.appendChild(box);
-      if (item.description) info.appendChild(el('p', 'item-description', item.description));
-      if (item.updated) {
-        var date = new Date(item.updated);
-        if (!isNaN(date)) info.appendChild(el('p', 'item-note', 'Updated ' + date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })));
+      if (me && me.account && item.balance !== null && (!item.owned || item.limited)) {
+        balanceNote = info.appendChild(el('p', 'item-note', 'You have R$ ' + number(item.balance) + '.'));
       }
+
+      var facts = el('dl', 'item-facts');
+      function fact(name, value) {
+        if (!value) return;
+        facts.appendChild(el('dt', null, name));
+        facts.appendChild(el('dd', null, value));
+      }
+      function day(iso) {
+        var date = new Date(iso);
+        return isNaN(date) ? null : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      }
+      fact('Type', item.typeName);
+      fact('Created', item.created && day(item.created));
+      fact('Updated', item.updated && day(item.updated));
+      info.appendChild(facts);
+      if (item.description) info.appendChild(el('p', 'item-description', item.description));
       page.appendChild(info);
       root.appendChild(page);
+      moreFrom(root, item, me);
     });
+  }
+
+  // "More from <creator>": a row of their other items.
+  function moreFrom(root, item, me) {
+    var query = new URLSearchParams({ category: 'all', creator: item.creator, era: 'any', sort: 'favorited' });
+    fetch('/api/catalog/search?' + query, { headers: { Accept: 'application/json' }, credentials: 'same-origin' }).then(function (response) {
+      return response.ok ? response.json() : null;
+    }).then(function (data) {
+      var others = data && Array.isArray(data.items) ? data.items.filter(function (other) { return other.id !== String(item.id); }).slice(0, 6) : [];
+      if (!others.length) return;
+      var section = el('section', 'section item-more');
+      var head = el('div', 'container-header');
+      head.appendChild(el('h2', null, 'More from ' + item.creator));
+      var all = el('a', 'btn btn-secondary btn-xs', 'See All');
+      all.href = '/catalog?' + query;
+      head.appendChild(all);
+      section.appendChild(head);
+      var list = el('ul', 'item-cards');
+      others.forEach(function (other) { list.appendChild(itemCard(other, Boolean(me && me.account), null, 'li')); });
+      section.appendChild(list);
+      root.appendChild(section);
+    }).catch(function () {});
   }
 
   // A limited's stock, sellers and your copies (lib/limiteds.js on the game server).
@@ -1414,63 +1970,523 @@
     });
   }
 
+  // Settings: tabs down the left (2017). Theme works signed out too.
   function settingsPage() {
     var root = $('settings-root');
     loadMe().then(function (me) {
-      if (!me || !me.account) {
-        location.href = '/login?next=' + encodeURIComponent('/my/account');
-        return;
-      }
+      var signedIn = Boolean(me && me.account);
       root.textContent = '';
-      var account = el('div', 'settings-section');
-      account.appendChild(el('h2', null, 'Account'));
-      account.appendChild(el('p', null, 'Username: ' + me.account.name));
-      var inv = el('a', null, 'Your inventory');
-      inv.href = '/users/' + me.account.userId + '/inventory';
-      account.appendChild(inv);
-      root.appendChild(account);
-      membershipSection(root);
-
-      var section = el('div', 'settings-section');
-      section.appendChild(el('h2', null, 'Change password'));
-      var form = el('form', 'auth-form');
-      form.noValidate = true;
-      function field(label, autocomplete) {
-        var wrap = el('label', 'field');
-        wrap.appendChild(el('span', null, label));
-        var input = el('input');
-        input.type = 'password';
-        input.autocomplete = autocomplete;
-        input.maxLength = 200;
-        wrap.appendChild(input);
-        form.appendChild(wrap);
-        return input;
+      var layout = el('div', 'settings-layout');
+      var tabs = el('ul', 'settings-tabs');
+      var panel = el('div', 'settings-panel');
+      layout.appendChild(tabs);
+      layout.appendChild(panel);
+      root.appendChild(layout);
+      var TABS = signedIn ? [['account', 'Account Info'], ['bc', 'Builders Club'], ['theme', 'Theme']] : [['theme', 'Theme']];
+      function show(key) {
+        if (!TABS.some(function (tab) { return tab[0] === key; })) key = TABS[0][0];
+        Array.prototype.forEach.call(tabs.querySelectorAll('a'), function (link) {
+          if (link.dataset.tab === key) link.setAttribute('aria-current', 'true');
+          else link.removeAttribute('aria-current');
+        });
+        panel.textContent = '';
+        if (!signedIn) {
+          var note = el('p', 'item-note');
+          var login = el('a', null, 'Log in');
+          login.href = '/login?next=' + encodeURIComponent('/my/account');
+          note.appendChild(login);
+          note.appendChild(document.createTextNode(' for your account settings.'));
+          panel.appendChild(note);
+        }
+        if (key === 'account') accountSettings(panel, me);
+        else if (key === 'bc') membershipSection(panel);
+        else themeSettings(panel);
       }
-      var current = field('Current password', 'current-password');
-      var next = field('New password (at least ' + MIN_PASSWORD + ' characters)', 'new-password');
-      var again = field('New password again', 'new-password');
-      var message = el('p', 'form-error hidden');
-      form.appendChild(message);
-      var save = el('button', 'btn btn-primary btn-sm', 'Change password');
-      save.type = 'submit';
-      form.appendChild(save);
-      form.addEventListener('submit', function (event) {
-        event.preventDefault();
-        function show(text, good) { message.textContent = text; message.className = good ? 'form-good' : 'form-error'; }
-        if (!current.value || !next.value) return show('Type your current and new password.');
-        if (next.value.length < MIN_PASSWORD) return show('Pick a new password of at least ' + MIN_PASSWORD + ' characters.');
-        if (next.value !== again.value) return show('The new passwords don’t match.');
-        save.disabled = true;
-        post('password', { current: current.value, password: next.value }).then(function (result) {
-          save.disabled = false;
-          if (!result.ok) return show(result.data.error || 'That did not work.');
-          current.value = next.value = again.value = '';
-          show('Password changed. You were signed out everywhere else.', true);
+      TABS.forEach(function (tab) {
+        var item = el('li');
+        var link = el('a', null, tab[1]);
+        link.href = '#' + tab[0];
+        link.dataset.tab = tab[0];
+        item.appendChild(link);
+        tabs.appendChild(item);
+      });
+      window.addEventListener('hashchange', function () { show(location.hash.slice(1)); });
+      show(location.hash.slice(1));
+    });
+  }
+
+  function accountSettings(root, me) {
+    var account = el('div', 'settings-section settings-box');
+    account.appendChild(el('h2', null, 'Account'));
+    account.appendChild(el('p', null, 'Username: ' + me.account.name));
+    var inv = el('a', null, 'Your inventory');
+    inv.href = '/users/' + me.account.userId + '/inventory';
+    account.appendChild(inv);
+    root.appendChild(account);
+
+    var section = el('div', 'settings-section settings-box');
+    section.appendChild(el('h2', null, 'Change password'));
+    var form = el('form', 'auth-form');
+    form.noValidate = true;
+    function field(label, autocomplete) {
+      var wrap = el('label', 'field');
+      wrap.appendChild(el('span', null, label));
+      var input = el('input');
+      input.type = 'password';
+      input.autocomplete = autocomplete;
+      input.maxLength = 200;
+      wrap.appendChild(input);
+      form.appendChild(wrap);
+      return input;
+    }
+    var current = field('Current password', 'current-password');
+    var next = field('New password (at least ' + MIN_PASSWORD + ' characters)', 'new-password');
+    var again = field('New password again', 'new-password');
+    var message = el('p', 'form-error hidden');
+    form.appendChild(message);
+    var save = el('button', 'btn btn-primary btn-sm', 'Change password');
+    save.type = 'submit';
+    form.appendChild(save);
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      function say(text, good) { message.textContent = text; message.className = good ? 'form-good' : 'form-error'; }
+      if (!current.value || !next.value) return say('Type your current and new password.');
+      if (next.value.length < MIN_PASSWORD) return say('Pick a new password of at least ' + MIN_PASSWORD + ' characters.');
+      if (next.value !== again.value) return say('The new passwords don’t match.');
+      save.disabled = true;
+      post('password', { current: current.value, password: next.value }).then(function (result) {
+        save.disabled = false;
+        if (!result.ok) return say(result.data.error || 'That did not work.');
+        current.value = next.value = again.value = '';
+        say('Password changed. You were signed out everywhere else.', true);
+      });
+    });
+    section.appendChild(form);
+    root.appendChild(section);
+  }
+
+  // ---- themes: the built-in looks, your own packs (this browser only) and an editor ----
+  // Packs are checked by js/themepack.js (CSS and pictures only: nothing that
+  // runs or loads from elsewhere), kept in IndexedDB and never uploaded.
+  var MAX_PACKS = 30;
+  var EDITOR_COLORS = [
+    ['--hdr', 'Header'], ['--hdr-text', 'Header text'], ['--page', 'Page'], ['--card', 'Cards'],
+    ['--text', 'Text'], ['--muted', 'Second text'], ['--link', 'Links'], ['--accent', 'Blue buttons'],
+    ['--play', 'Green buttons'], ['--side', 'Left column'], ['--side-text', 'Left column text'], ['--side-on-line', 'Chosen line'],
+  ];
+  var EDITOR_FONTS = [
+    ['Source Sans', '"Source Sans Pro", "Source Sans 3", "Segoe UI", Arial, sans-serif'],
+    ['Arial', 'Arial, Helvetica, sans-serif'],
+    ['Helvetica', '"Helvetica Neue", Helvetica, Arial, sans-serif'],
+    ['Segoe UI', '"Segoe UI", Tahoma, sans-serif'],
+    ['Verdana', 'Verdana, Geneva, sans-serif'],
+    ['Tahoma', 'Tahoma, Verdana, sans-serif'],
+    ['Trebuchet', '"Trebuchet MS", Helvetica, sans-serif'],
+    ['Georgia', 'Georgia, "Times New Roman", serif'],
+    ['Comic Sans', '"Comic Sans MS", "Comic Sans", cursive'],
+    ['Courier', '"Courier New", Courier, monospace'],
+  ];
+
+  function packStore(mode, work) {
+    return new Promise(function (resolve, reject) {
+      if (!window.SiteThemes || !window.indexedDB) { reject(new Error('This browser can’t keep themes.')); return; }
+      window.SiteThemes.openStore(function (db) {
+        var tx = db.transaction('packs', mode);
+        var out = work(tx.objectStore('packs'));
+        tx.oncomplete = function () { resolve(out && 'result' in out ? out.result : out); };
+        tx.onerror = function () { reject(tx.error || new Error('This browser can’t keep themes.')); };
+      }, function () { reject(new Error('This browser can’t keep themes.')); });
+    });
+  }
+  function listPacks() {
+    return packStore('readonly', function (store) { return store.getAll(); }).then(function (list) {
+      return (list || []).sort(function (a, b) { return (b.added || 0) - (a.added || 0); });
+    }, function () { return []; });
+  }
+
+  function themeFileName(name) {
+    return String(name || 'theme').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) + '.rbx2017theme.json';
+  }
+  function downloadPack(pack) {
+    var clean = {};
+    ['rbx2017Theme', 'name', 'year', 'author', 'description', 'targets', 'base', 'dark', 'vars', 'css', 'assets', 'preview'].forEach(function (key) {
+      if (pack[key] !== undefined) clean[key] = pack[key];
+    });
+    var url = URL.createObjectURL(new Blob([JSON.stringify(clean, null, 2)], { type: 'application/json' }));
+    var link = el('a');
+    link.href = url;
+    link.download = themeFileName(pack.name);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+  }
+
+  // A small picture of a look, drawn from its own colors.
+  function themePreview(base, nav, vars, picture) {
+    var reset = el('span', 'theme-preview-wrap');
+    reset.dataset.theme = 'web2017';
+    var box = el('span', 'theme-preview');
+    box.dataset.theme = base;
+    box.dataset.nav = nav;
+    Object.keys(vars || {}).forEach(function (name) { box.style.setProperty(name, vars[name]); });
+    if (picture) {
+      var img = el('img');
+      img.alt = '';
+      img.src = picture;
+      box.appendChild(img);
+    } else {
+      var hdr = el('span', 'tp-hdr');
+      hdr.appendChild(el('i'));
+      hdr.appendChild(el('i'));
+      hdr.appendChild(el('i'));
+      box.appendChild(hdr);
+      var side = el('span', 'tp-side');
+      for (var i = 0; i < 4; i++) side.appendChild(el('i'));
+      box.appendChild(side);
+      var main = el('span', 'tp-main');
+      main.appendChild(el('span', 'tp-title'));
+      var cards = el('span', 'tp-cards');
+      for (var j = 0; j < 3; j++) {
+        var card = el('span', 'tp-card');
+        card.appendChild(el('b'));
+        card.appendChild(el('i'));
+        card.appendChild(el('s'));
+        cards.appendChild(card);
+      }
+      main.appendChild(cards);
+      box.appendChild(main);
+    }
+    reset.appendChild(box);
+    return reset;
+  }
+
+  // A color a fifth of the way to white (hover shades).
+  function lighter(hex) {
+    var n = parseInt(hex.slice(1), 16);
+    return '#' + [16, 8, 0].map(function (shift) {
+      var c = (n >> shift) & 255;
+      return ('0' + Math.round(c + (255 - c) * 0.2).toString(16)).slice(-2);
+    }).join('');
+  }
+
+  function themeSettings(root) {
+    var Themes = window.SiteThemes;
+    var section = el('div', 'settings-section theme-section');
+    section.appendChild(el('h2', null, 'Theme'));
+    section.appendChild(el('p', 'item-note', 'Kept in this browser.'));
+    var builtins = el('div', 'theme-grid');
+    section.appendChild(builtins);
+    var mineTitle = el('h2', 'hidden', 'Your themes');
+    mineTitle.style.marginTop = '18px';
+    section.appendChild(mineTitle);
+    var mine = el('div', 'theme-grid');
+    section.appendChild(mine);
+    var tools = el('div', 'theme-tools');
+    var file = el('input');
+    file.type = 'file';
+    file.accept = '.json,application/json';
+    file.className = 'hidden';
+    var importButton = el('button', 'btn btn-secondary btn-sm', 'Import a theme');
+    importButton.type = 'button';
+    importButton.addEventListener('click', function () { file.click(); });
+    var makeButton = el('button', 'btn btn-primary btn-sm', 'Make your own');
+    makeButton.type = 'button';
+    var line = el('span', 'catalog-status');
+    line.style.margin = '0';
+    tools.appendChild(importButton);
+    tools.appendChild(makeButton);
+    tools.appendChild(file);
+    tools.appendChild(line);
+    section.appendChild(tools);
+    var editorBox = el('div', 'settings-section hidden');
+    root.appendChild(section);
+    root.appendChild(editorBox);
+    if (!Themes) { line.textContent = 'Themes need a newer browser.'; return; }
+
+    function say(text, kind) {
+      line.textContent = text;
+      line.className = 'catalog-status' + (kind ? ' ' + kind : '');
+      line.style.margin = '0';
+    }
+
+    function card(name, note, preview, active, onUse, actions) {
+      var node = el('div', 'theme-card');
+      node.setAttribute('role', 'button');
+      node.tabIndex = 0;
+      node.setAttribute('aria-pressed', active ? 'true' : 'false');
+      node.appendChild(preview);
+      node.appendChild(el('span', 'theme-card-name', name));
+      if (note) node.appendChild(el('span', 'theme-card-note', note));
+      if (actions && actions.length) {
+        var row = el('span', 'theme-card-actions');
+        actions.forEach(function (action) {
+          var button = el('button', 'btn btn-secondary btn-xs', action[0]);
+          button.type = 'button';
+          button.addEventListener('click', function (event) { event.stopPropagation(); action[1](); });
+          row.appendChild(button);
+        });
+        node.appendChild(row);
+      }
+      node.addEventListener('click', onUse);
+      node.addEventListener('keydown', function (event) {
+        if (event.target === node && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onUse(); }
+      });
+      return node;
+    }
+
+    function draw() {
+      var current = Themes.current();
+      builtins.textContent = '';
+      Themes.BUILTIN.forEach(function (theme) {
+        builtins.appendChild(card(theme.name, theme.id === Themes.DEFAULT ? 'Default' : '',
+          themePreview(theme.id, theme.nav, null, null), current === theme.id, function () {
+            Themes.choose(theme.id);
+            draw();
+          }));
+      });
+      listPacks().then(function (packs) {
+        mine.textContent = '';
+        mineTitle.classList.toggle('hidden', !packs.length);
+        packs.forEach(function (record) {
+          var pack = record.pack;
+          var base = Themes.find(pack.base) || Themes.find(Themes.DEFAULT);
+          var picture = pack.preview && pack.assets ? pack.assets[pack.preview] : null;
+          mine.appendChild(card(pack.name, pack.author ? 'By ' + pack.author : 'From ' + base.name,
+            themePreview(base.id, base.nav, record.compiled.vars, picture), current === Themes.CUSTOM + record.id, function () {
+              Themes.choose(record.compiled);
+              draw();
+            }, [
+              ['Edit', function () { openEditor(record); }],
+              ['Export', function () { downloadPack(pack); }],
+              ['Remove', function () {
+                if (!window.confirm('Remove "' + pack.name + '" from this browser?')) return;
+                packStore('readwrite', function (store) { store.delete(record.id); }).then(function () {
+                  if (Themes.current() === Themes.CUSTOM + record.id) Themes.choose(Themes.DEFAULT);
+                  say('Removed.');
+                  draw();
+                });
+              }],
+            ]));
         });
       });
-      section.appendChild(form);
-      root.appendChild(section);
+    }
+
+    // Checks, keeps and uses a pack (its JSON text or an object).
+    function keep(input, replacing) {
+      if (!window.ThemePack) return Promise.reject(new Error('The theme checker did not load. Reload the page.'));
+      var checked;
+      try {
+        checked = window.ThemePack.check(input, { target: 'site', bases: Themes.BUILTIN.map(function (theme) { return theme.id; }) });
+      } catch (error) {
+        return Promise.reject(new Error(String(error.message || error).replace('a newer launcher', 'a newer version of the site')));
+      }
+      var compiled = window.ThemePack.compile(checked);
+      return listPacks().then(function (packs) {
+        var others = packs.filter(function (record) { return record.id !== checked.id && record.id !== replacing; });
+        if (others.length >= MAX_PACKS) throw new Error('You can keep ' + MAX_PACKS + ' themes. Remove one first.');
+        return packStore('readwrite', function (store) {
+          if (replacing && replacing !== checked.id) store.delete(replacing);
+          store.put({ id: checked.id, pack: checked, compiled: compiled, added: Date.now() });
+        });
+      }).then(function () {
+        Themes.choose(compiled);
+        return checked;
+      });
+    }
+
+    file.addEventListener('change', function () {
+      var chosen = file.files && file.files[0];
+      file.value = '';
+      if (!chosen) return;
+      if (chosen.size > 8 * 1024 * 1024) { say('That file is too big for a theme (8 MB at most).', 'error'); return; }
+      say('Checking…');
+      chosen.text().then(function (text) { return keep(text); }).then(function (pack) {
+        say('"' + pack.name + '" is on.', 'good');
+        draw();
+      }, function (error) { say(error.message || 'That file is not a theme pack.', 'error'); });
     });
+
+    // The editor: colors, font, corners and dark, shown on the page as you go.
+    function openEditor(record) {
+      var start = record ? record.pack : null;
+      var probe = el('span');
+      probe.style.display = 'none';
+      document.body.appendChild(probe);
+      function hex(value) {
+        probe.style.color = '';
+        probe.style.color = value;
+        var rgb = /(\d+),\s*(\d+),\s*(\d+)/.exec(getComputedStyle(probe).color);
+        return rgb ? '#' + [rgb[1], rgb[2], rgb[3]].map(function (n) { return ('0' + Number(n).toString(16)).slice(-2); }).join('') : '#000000';
+      }
+      function baseValues(base) {
+        var holder = el('span');
+        holder.dataset.theme = 'web2017';
+        var inner = el('span');
+        inner.dataset.theme = base;
+        holder.appendChild(inner);
+        holder.style.display = 'none';
+        document.body.appendChild(holder);
+        var style = getComputedStyle(inner);
+        var out = {};
+        EDITOR_COLORS.forEach(function (pair) { out[pair[0]] = hex(style.getPropertyValue(pair[0]).trim()); });
+        out['--font'] = style.getPropertyValue('--font').trim();
+        out['--r'] = parseInt(style.getPropertyValue('--r'), 10) || 0;
+        holder.remove();
+        return out;
+      }
+      var values = { base: start ? start.base : (Themes.find(Themes.current()) ? Themes.current() : Themes.DEFAULT), name: start ? start.name : 'My theme', vars: {} };
+      var theme = Themes.find(values.base) || Themes.find(Themes.DEFAULT);
+      values.dark = start && typeof start.dark === 'boolean' ? start.dark : Boolean(theme.dark);
+      var defaults = baseValues(values.base);
+      EDITOR_COLORS.forEach(function (pair) {
+        values.vars[pair[0]] = start && start.vars && start.vars[pair[0]] ? hex(start.vars[pair[0]]) : defaults[pair[0]];
+      });
+      values.font = start && start.vars && start.vars['--font'] ? start.vars['--font'] : defaults['--font'];
+      values.radius = start && start.vars && start.vars['--r'] ? parseInt(start.vars['--r'], 10) || 0 : defaults['--r'];
+
+      editorBox.textContent = '';
+      editorBox.classList.remove('hidden');
+      editorBox.appendChild(el('h2', null, start ? 'Edit "' + start.name + '"' : 'Make your own'));
+      var form = el('div', 'theme-editor');
+      function row(labelText, control, wide) {
+        var label = el('label', wide ? 'wide' : null);
+        label.appendChild(el('span', null, labelText));
+        label.appendChild(control);
+        form.appendChild(label);
+        return control;
+      }
+      var name = el('input');
+      name.type = 'text';
+      name.maxLength = 40;
+      name.value = values.name;
+      row('Name', name, true);
+      var baseSelect = el('select');
+      Themes.BUILTIN.forEach(function (option) {
+        var node = el('option', null, option.name);
+        node.value = option.id;
+        baseSelect.appendChild(node);
+      });
+      baseSelect.value = values.base;
+      row('Starts from', baseSelect);
+      var font = el('select');
+      var fontKnown = false;
+      EDITOR_FONTS.forEach(function (pair) {
+        var node = el('option', null, pair[0]);
+        node.value = pair[1];
+        if (pair[1] === values.font) fontKnown = true;
+        font.appendChild(node);
+      });
+      if (!fontKnown) {
+        var theirs = el('option', null, 'The theme’s own');
+        theirs.value = values.font;
+        font.insertBefore(theirs, font.firstChild);
+      }
+      font.value = values.font;
+      row('Font', font);
+      var inputs = {};
+      EDITOR_COLORS.forEach(function (pair) {
+        var input = el('input');
+        input.type = 'color';
+        input.value = values.vars[pair[0]];
+        inputs[pair[0]] = input;
+        row(pair[1], input);
+      });
+      var radius = el('input');
+      radius.type = 'range';
+      radius.min = '0';
+      radius.max = '12';
+      radius.value = String(values.radius);
+      row('Corners', radius);
+      var dark = el('input');
+      dark.type = 'checkbox';
+      dark.checked = values.dark;
+      row('Dark', dark);
+      editorBox.appendChild(form);
+
+      function pack() {
+        var vars = {};
+        EDITOR_COLORS.forEach(function (pair) { vars[pair[0]] = inputs[pair[0]].value; });
+        vars['--hdr-img'] = 'none';
+        vars['--font'] = font.value;
+        vars['--r'] = radius.value + 'px';
+        vars['--r-btn'] = radius.value + 'px';
+        vars['--r-btn-big'] = Math.max(Number(radius.value), 5) + 'px';
+        vars['--accent-hover'] = lighter(inputs['--accent'].value);
+        vars['--play-hover'] = lighter(inputs['--play'].value);
+        vars['--side-on-icon'] = inputs['--side-on-line'].value;
+        vars['--select'] = inputs['--accent'].value;
+        vars['--rbx-text'] = inputs['--play'].value;
+        var out = {
+          rbx2017Theme: 1, name: name.value.trim() || 'My theme', base: baseSelect.value, dark: dark.checked,
+          targets: ['launcher', 'site'], vars: vars,
+        };
+        if (start) {
+          Object.keys(start.vars || {}).forEach(function (key) { if (!(key in vars)) vars[key] = start.vars[key]; });
+          ['css', 'assets', 'preview', 'author', 'description', 'year'].forEach(function (key) { if (start[key]) out[key] = start[key]; });
+        }
+        return out;
+      }
+      function preview() {
+        var draft = pack();
+        Themes.apply({ id: 'editing', base: draft.base, dark: draft.dark, vars: draft.vars, css: start && record ? record.compiled.css : '' });
+      }
+      form.addEventListener('input', preview);
+      baseSelect.addEventListener('change', function () {
+        var fresh = baseValues(baseSelect.value);
+        EDITOR_COLORS.forEach(function (pair) { inputs[pair[0]].value = fresh[pair[0]]; });
+        dark.checked = Boolean((Themes.find(baseSelect.value) || {}).dark);
+        preview();
+      });
+      preview();
+
+      var buttons = el('div', 'theme-tools');
+      var save = el('button', 'btn btn-green btn-sm', 'Save and use');
+      save.type = 'button';
+      var exportButton = el('button', 'btn btn-secondary btn-sm', 'Export');
+      exportButton.type = 'button';
+      var cancel = el('button', 'btn btn-secondary btn-sm', 'Cancel');
+      cancel.type = 'button';
+      var note = el('span', 'catalog-status');
+      note.style.margin = '0';
+      buttons.appendChild(save);
+      buttons.appendChild(exportButton);
+      buttons.appendChild(cancel);
+      buttons.appendChild(note);
+      editorBox.appendChild(buttons);
+      function close() {
+        probe.remove();
+        editorBox.classList.add('hidden');
+        editorBox.textContent = '';
+      }
+      cancel.addEventListener('click', function () {
+        Themes.apply(Themes.saved());
+        close();
+      });
+      exportButton.addEventListener('click', function () {
+        try {
+          downloadPack(window.ThemePack.check(pack(), { target: 'site' }));
+        } catch (error) {
+          note.textContent = error.message;
+          note.className = 'catalog-status error';
+        }
+      });
+      save.addEventListener('click', function () {
+        save.disabled = true;
+        keep(pack(), record ? record.id : null).then(function (kept) {
+          close();
+          say('"' + kept.name + '" is on.', 'good');
+          draw();
+        }, function (error) {
+          save.disabled = false;
+          note.textContent = error.message;
+          note.className = 'catalog-status error';
+        });
+      });
+      editorBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    makeButton.addEventListener('click', function () { openEditor(null); });
+    draw();
   }
 
   // ---- friends, profiles, messages and chat (lib/account.js social routes) ----
@@ -1597,6 +2613,8 @@
       load();
 
       var form = $('people-form');
+      var asked = new URLSearchParams(location.search).get('q');
+      if (asked) setTimeout(function () { $('people-q').value = asked.slice(0, 20); form.requestSubmit(); }, 0);
       form.addEventListener('submit', function (event) {
         event.preventDefault();
         var q = $('people-q').value.trim();
@@ -2121,9 +3139,11 @@
     var total = (next.chat || 0) + (next.messages || 0) + (next.friendRequests || 0);
     var dot = document.querySelector('.user-menu-count');
     if (dot) { dot.textContent = String(total); dot.classList.toggle('hidden', !total); }
-    [['menu-friends', next.friendRequests], ['menu-messages', next.messages], ['menu-chat', next.chat]].forEach(function (pair) {
-      var node = $(pair[0]);
-      if (node) { node.textContent = String(pair[1] || 0); node.classList.toggle('hidden', !pair[1]); }
+    [['friends', next.friendRequests], ['messages', next.messages], ['chat', next.chat]].forEach(function (pair) {
+      ['menu-', 'nav-'].forEach(function (prefix) {
+        var node = $(prefix + pair[0]);
+        if (node) { node.textContent = String(pair[1] || 0); node.classList.toggle('hidden', !pair[1]); }
+      });
     });
   }
   function refreshCounts() {
@@ -2206,6 +3226,8 @@
         fillGroups(grid, result.ok ? result.data.groups : [], result.ok ? 'No groups found.' : (result.data.error || 'Could not search.'));
       });
     });
+    var groupsAsked = new URLSearchParams(location.search).get('q');
+    if (groupsAsked) { $('groups-q').value = groupsAsked.slice(0, 50); $('groups-form').requestSubmit(); }
 
     function showCreate() {
       var root = $('groups-root');
@@ -3137,6 +4159,7 @@
 
   // ---- start ----
   fillSearch();
+  navToggle();
   var pages = {
     home: homePage, games: gamesPage, game: gamePage, download: downloadPage,
     login: authPage('login'), signup: authPage('signup'), 'account-home': accountHomePage,

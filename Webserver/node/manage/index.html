@@ -6,6 +6,12 @@
   <meta name="color-scheme" content="light dark">
   <title>Manage</title>
   <link rel="stylesheet" href="/manage/manage.css">
+  <script src="/manage/manage.js" defer></script>
+  <script src="/manage/games.js" defer></script>
+  <script src="/manage/dash.js" defer></script>
+  <script src="/manage/assets.js" defer></script>
+  <script src="/manage/people.js" defer></script>
+  <script src="/manage/system.js" defer></script>
 </head>
 <body class="locked">
 
@@ -30,11 +36,12 @@
         <div class="brand-host" id="brand-host"></div>
       </div>
       <nav class="nav">
+        <a href="#dashboard" data-nav="dashboard">Dashboard <span class="dot" id="nav-dash"></span></a>
         <a href="#games" data-nav="games">Games <span class="count" id="nav-games"></span></a>
+        <a href="#assets" data-nav="assets">Assets <span class="count" id="nav-assets"></span></a>
         <a href="#reports" data-nav="reports">Reports <span class="count" id="nav-reports"></span></a>
-        <a href="#announcements" data-nav="announcements">Announcements <span class="count" id="nav-news"></span></a>
-        <a href="#accounts" data-nav="accounts">Accounts</a>
-        <a href="#assets" data-nav="assets">Missing assets <span class="count" id="nav-assets"></span></a>
+        <a href="#players" data-nav="players">Players</a>
+        <a href="#news" data-nav="news">Announcements</a>
         <a href="#server" data-nav="server">Server <span class="dot" id="nav-server"></span></a>
       </nav>
       <div class="side-foot">
@@ -44,25 +51,139 @@
     </aside>
 
     <main>
+      <!-- Dashboard -->
+      <section data-view="dashboard">
+        <header class="view-head">
+          <div>
+            <h1>Dashboard</h1>
+            <p class="sub" id="dash-sub"></p>
+          </div>
+        </header>
+        <div class="tiles" id="dash-tiles"></div>
+        <div class="card chart-card">
+          <div class="card-head">
+            <h3>Players</h3>
+            <div class="seg small" id="dash-range">
+              <button type="button" data-range="day">24 hours</button>
+              <button type="button" data-range="week">7 days</button>
+            </div>
+          </div>
+          <div class="chart" id="dash-chart"></div>
+        </div>
+        <div class="dash-grid">
+          <div class="card dash-list">
+            <h3>Needs a look</h3>
+            <div id="dash-todo"></div>
+          </div>
+          <div class="card dash-list">
+            <h3>Playing now</h3>
+            <div id="dash-busy"></div>
+          </div>
+        </div>
+        <div class="card dash-list">
+          <div class="card-head"><h3>Recent errors</h3><a href="#server" class="more">Logs</a></div>
+          <div id="dash-errors"></div>
+        </div>
+      </section>
+
       <!-- Games -->
-      <section data-view="games">
+      <section data-view="games" hidden>
         <header class="view-head">
           <div>
             <h1>Games</h1>
             <p class="sub" id="games-sub"></p>
           </div>
           <div class="head-actions">
-            <input class="search" id="games-filter" type="search" placeholder="Find a game" aria-label="Find a game">
             <button class="btn primary" type="button" id="upload-open">Upload game</button>
           </div>
         </header>
         <div class="banner bad" id="runner-banner" hidden></div>
+        <div class="toolbar">
+          <div class="seg" id="games-state">
+            <button type="button" data-filter="all">All</button>
+            <button type="button" data-filter="online">Online</button>
+            <button type="button" data-filter="playing">Playing</button>
+            <button type="button" data-filter="problems">Problems</button>
+            <button type="button" data-filter="offline">Offline</button>
+          </div>
+          <select id="games-engine" aria-label="Roblox version"></select>
+          <select id="games-sort" aria-label="Sort">
+            <option value="busy">Busiest</option>
+            <option value="name">Name</option>
+            <option value="changed">Recently changed</option>
+            <option value="id">Place ID</option>
+          </select>
+          <span class="grow"></span>
+          <input class="search" id="games-filter" type="search" placeholder="Find a game" aria-label="Find a game">
+        </div>
+        <div class="bulk" id="games-bulk" hidden></div>
         <div class="table-wrap">
           <table class="table games">
             <thead>
-              <tr><th>Game</th><th>Status</th><th class="right">Online</th></tr>
+              <tr><th class="pick"><input type="checkbox" id="games-all" aria-label="Select all shown"></th><th>Game</th><th class="hide-sm">Version</th><th>Status</th><th class="num hide-sm">Players</th><th class="right">Online</th></tr>
             </thead>
             <tbody id="games-rows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- One game -->
+      <section data-view="game" hidden>
+        <a class="back" href="#games">Games</a>
+        <header class="game-head" id="game-head"></header>
+        <nav class="tabs page-tabs" id="game-tabs">
+          <a data-tab="overview">Overview</a>
+          <a data-tab="servers">Servers</a>
+          <a data-tab="report">Report</a>
+          <a data-tab="log">Log</a>
+          <a data-tab="settings">Settings</a>
+          <a data-tab="files">File</a>
+        </nav>
+        <div class="pane" data-pane="overview" id="pane-overview"></div>
+        <div class="pane" data-pane="servers" id="pane-servers" hidden></div>
+        <div class="pane" data-pane="report" id="pane-report" hidden></div>
+        <div class="pane" data-pane="log" id="pane-log" hidden></div>
+        <div class="pane" data-pane="settings" id="pane-settings" hidden></div>
+        <div class="pane" data-pane="files" id="pane-files" hidden></div>
+      </section>
+
+      <!-- Assets -->
+      <section data-view="assets" hidden>
+        <header class="view-head">
+          <div>
+            <h1>Assets</h1>
+            <p class="sub">Roblox no longer serves these. Approve a found copy, or upload your own.</p>
+          </div>
+          <div class="head-actions search-state" id="search-state"></div>
+        </header>
+        <div class="seg big-seg" id="assets-tabs">
+          <button type="button" data-tab="missing">Missing</button>
+          <button type="button" data-tab="review">Found</button>
+          <button type="button" data-tab="replaced">Replaced</button>
+        </div>
+        <div class="toolbar">
+          <div class="seg small" id="assets-type">
+            <button type="button" data-filter="">All</button>
+            <button type="button" data-filter="Audio">Sounds</button>
+            <button type="button" data-filter="Image">Images</button>
+            <button type="button" data-filter="Animation">Animations</button>
+            <button type="button" data-filter="other">Other</button>
+          </div>
+          <select id="assets-game" aria-label="Game"></select>
+          <span class="grow"></span>
+          <input class="search" id="assets-filter" type="search" placeholder="Find an asset" aria-label="Find an asset">
+        </div>
+        <div class="table-wrap" id="assets-missing">
+          <table class="table" id="asset-table">
+            <thead><tr><th>Asset</th><th class="hide-sm col-type">Type</th><th class="hide-sm">Games</th><th class="num hide-sm">ID</th><th class="hide-sm">Why</th><th class="hide-sm">Search</th><th></th></tr></thead>
+            <tbody id="asset-rows"></tbody>
+          </table>
+        </div>
+        <div class="review-list" id="assets-review" hidden></div>
+        <div class="table-wrap" id="assets-replaced" hidden>
+          <table class="table">
+            <thead><tr><th>Asset</th><th class="hide-sm">Type</th><th class="hide-sm">Games</th><th class="hide-sm">File</th><th></th></tr></thead>
+            <tbody id="replaced-rows"></tbody>
           </table>
         </div>
       </section>
@@ -74,16 +195,60 @@
             <h1>Reports</h1>
           </div>
         </header>
-        <div class="seg" id="reports-filter" role="tablist">
-          <button type="button" data-filter="open">Open</button>
-          <button type="button" data-filter="resolved">Resolved</button>
-          <button type="button" data-filter="">All</button>
+        <div class="toolbar">
+          <div class="seg" id="reports-filter">
+            <button type="button" data-filter="open">Open</button>
+            <button type="button" data-filter="resolved">Resolved</button>
+            <button type="button" data-filter="">All</button>
+          </div>
+          <div class="seg small" id="reports-group">
+            <button type="button" data-group="none">List</button>
+            <button type="button" data-group="player">By player</button>
+            <button type="button" data-group="game">By game</button>
+          </div>
+          <select id="reports-game" aria-label="Game"></select>
+          <span class="grow"></span>
+          <input class="search" id="reports-search" type="search" placeholder="Find" aria-label="Find a report">
         </div>
+        <div class="bulk" id="reports-bulk" hidden></div>
         <div class="reports" id="report-list"></div>
       </section>
 
+      <!-- Players (launcher, website, Studio and the phone app share the accounts) -->
+      <section data-view="players" hidden>
+        <header class="view-head">
+          <div>
+            <h1>Players</h1>
+            <p class="sub" id="players-sub"></p>
+          </div>
+        </header>
+        <div class="toolbar">
+          <div class="seg" id="players-filter">
+            <button type="button" data-filter="all">All</button>
+            <button type="button" data-filter="playing">Playing</button>
+            <button type="button" data-filter="admins">Admins</button>
+            <button type="button" data-filter="new">New</button>
+            <button type="button" data-filter="away">Away 30 days</button>
+          </div>
+          <select id="players-sort" aria-label="Sort">
+            <option value="login">Last login</option>
+            <option value="name">Name</option>
+            <option value="robux">Robux</option>
+            <option value="joined">Joined</option>
+          </select>
+          <span class="grow"></span>
+          <input class="search" id="accounts-filter" type="search" placeholder="Find a name" aria-label="Find a player">
+        </div>
+        <div class="table-wrap">
+          <table class="table players">
+            <thead><tr><th>Name</th><th class="hide-sm">Last login</th><th class="hide-sm">Joined</th><th class="num">R$</th><th class="num hide-sm">Reports</th><th class="right">Admin</th></tr></thead>
+            <tbody id="account-rows"></tbody>
+          </table>
+        </div>
+      </section>
+
       <!-- Announcements -->
-      <section data-view="announcements" hidden>
+      <section data-view="news" hidden>
         <header class="view-head">
           <div>
             <h1>Announcements</h1>
@@ -108,48 +273,6 @@
           </div>
         </form>
         <div class="news" id="news-list"></div>
-      </section>
-
-      <!-- Accounts (launcher, website, Studio and the phone app share them) -->
-      <section data-view="accounts" hidden>
-        <header class="view-head">
-          <div>
-            <h1>Accounts</h1>
-            <p class="sub" id="accounts-sub"></p>
-          </div>
-          <div class="head-actions">
-            <input class="search" id="accounts-filter" type="search" placeholder="Find a name" aria-label="Find an account">
-          </div>
-        </header>
-        <div class="table-wrap">
-          <table class="table">
-            <thead><tr><th>Name</th><th class="hide-sm">Last login</th><th class="num">R$</th><th>Admin</th><th></th></tr></thead>
-            <tbody id="account-rows"></tbody>
-          </table>
-        </div>
-      </section>
-
-      <!-- Missing assets -->
-      <section data-view="assets" hidden>
-        <header class="view-head">
-          <div>
-            <h1>Missing assets</h1>
-            <p class="sub" id="assets-sub">Roblox no longer serves these. Upload a replacement, or drop a file on its row.</p>
-          </div>
-        </header>
-        <div class="seg" id="assets-filter" role="tablist">
-          <button type="button" data-filter="Audio">Sounds</button>
-          <button type="button" data-filter="Image">Images</button>
-          <button type="button" data-filter="Animation">Animations</button>
-          <button type="button" data-filter="other">Other</button>
-          <button type="button" data-filter="">All</button>
-        </div>
-        <div class="table-wrap">
-          <table class="table" id="asset-table">
-            <thead><tr><th>Asset</th><th class="hide-sm col-type">Type</th><th class="hide-sm">Games</th><th class="num hide-sm">ID</th><th class="hide-sm">Why</th><th></th></tr></thead>
-            <tbody id="asset-rows"></tbody>
-          </table>
-        </div>
       </section>
 
       <!-- Server -->
@@ -201,20 +324,11 @@
     </main>
   </div>
 
-  <!-- One game, opened from the table -->
+  <!-- One player, opened from the Players table -->
   <div class="scrim" id="scrim" hidden></div>
-  <aside class="drawer" id="drawer" aria-label="Game" aria-hidden="true">
+  <aside class="drawer" id="drawer" aria-label="Player" aria-hidden="true">
     <header class="drawer-head" id="drawer-head"></header>
-    <div class="tabs" id="drawer-tabs" role="tablist">
-      <button type="button" data-tab="servers" role="tab">Servers</button>
-      <button type="button" data-tab="settings" role="tab">Settings</button>
-      <button type="button" data-tab="files" role="tab">File</button>
-    </div>
-    <div class="drawer-body">
-      <div class="pane" data-pane="servers" id="pane-servers"></div>
-      <div class="pane" data-pane="settings" id="pane-settings" hidden></div>
-      <div class="pane" data-pane="files" id="pane-files" hidden></div>
-    </div>
+    <div class="drawer-body pane" id="drawer-body"></div>
   </aside>
 
   <!-- Upload -->
@@ -300,6 +414,5 @@
   <input type="file" id="thumb-file" accept=".png,.jpg,.jpeg,.gif,.webp" hidden>
   <input type="file" id="missing-file" accept=".ogg,.mp3,.wav,.png,.jpg,.jpeg,.rbxm,.rbxmx" hidden>
   <input type="file" id="srv-upload" accept=".rbxupd" hidden>
-  <script src="/manage/manage.js"></script>
 </body>
 </html>

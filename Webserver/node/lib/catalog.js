@@ -132,6 +132,7 @@ async function itemInfo(assetId) {
       const info = trim(id, data);
       loadCache()[id] = { at: Date.now(), info };
       saveSoon();
+      require('./catalogsearch').rememberInfo(info);
       return info;
     });
     inFlight.set(id, pending);

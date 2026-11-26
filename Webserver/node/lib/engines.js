@@ -20,6 +20,11 @@
 //   placeIdArgument  RCC is started with -PlaceId:<id> (it names the process).
 //                  The 2016 RCC instead calls a start() of its own with it,
 //                  which fails, and exits.
+//   clientConnectPort  the client connects to localhost:<port> whatever its
+//                  join script says (the 2018 client does with
+//                  FFlagDebugLocalRccServerConnection, which it needs to skip
+//                  the version checks), so the launcher's game relay listens
+//                  there (lib/relay.js).
 //   jsonJobs     RCC runs only JSON jobs (2018 on): the game is its own
 //                  "GameServer" job, which loads the place from the web server
 //                  and starts the server itself, since the Lua calls
@@ -82,6 +87,7 @@ const ENGINES = {
     placeIdArgument: false,
     playerAuthentication: false,
     jsonJobs: true,
+    clientConnectPort: 53640,
     memoryPatches: [],
   },
 };

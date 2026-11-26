@@ -20,6 +20,17 @@ browsers that open `https://rbx2017.com/` to `www`.
   the game server), and the signed-in pages: `/home` with your friends and
   R$, and R$ with your name in the header. The session is an HttpOnly
   cookie. These answers are each visitor's own, so they aren't cached.
+- `lib/catalog.js`: the catalog's search (`/api/catalog/search`), passed on
+  to the game server's `lib/catalogsearch.js`: 2017's categories, filters,
+  sorts and numbered pages over an index of Roblox's catalog that the game
+  server fills by itself. Signed-out answers are kept at the edge for 5
+  minutes.
+- Themes: `js/theme.js` (in every page's `<head>`) puts the chosen look on
+  `<html>` before anything draws; `css/site.css` is drawn from the same
+  custom properties as the launcher's themes, so a theme pack works in
+  both. Settings > Theme imports packs (`js/themepack.js` is the launcher's
+  checker: CSS and pictures only), keeps them in the browser and has a small
+  editor. `?theme=default` puts the default look back.
 
 ## Try it locally
 

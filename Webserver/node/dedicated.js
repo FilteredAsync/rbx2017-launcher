@@ -9,6 +9,9 @@
 //     idleStopMinutes stops again. A game with "keep running" always has one.
 //   - Each server has its own job ID; private servers (lib/privateservers.js)
 //     are servers of their own, started the same way.
+//   - A server runs one Roblox year (lib/engines.js): the game's own, or the
+//     year a player picked in the launcher, with the place converted for it
+//     first (lib/yearplaces.js). Each year has its own servers.
 //   - Turning a game off on the management page stops its servers (players
 //     are saved first); uploading a new version restarts them.
 //   - A game whose RCC stops by itself is started again; one that stops
@@ -35,10 +38,12 @@ const path = require('path');
 const readline = require('readline');
 const accounts = require('./lib/accounts');
 const core = require('./lib/core');
+const engines = require('./lib/engines');
 const hosting = require('./lib/hosting');
 const places = require('./lib/places');
 const privateservers = require('./lib/privateservers');
 const updates = require('./lib/updates');
+const yearplaces = require('./lib/yearplaces');
 
 const CONFIG_FILE = core.rootPath('config', 'dedicated.json');
 const LOG_FILE = path.join(__dirname, 'logs', 'dedicated.log');
@@ -203,13 +208,18 @@ class WebServer {
 class GameSlot {
   // index: which port pair this server uses while it runs. jobId: its own ID
   // (the game list's game ID); privateId: the private server it runs.
-  constructor(placeId, index, config, onChange, { jobId, privateId = null } = {}) {
+  // engine: a Roblox year other than the game's own (a player picked it);
+  // null follows the game's year (/manage), also when that changes.
+  constructor(placeId, index, config, onChange, { jobId, privateId = null, engine = null } = {}) {
     this.placeId = placeId;
     this.index = index;
     this.config = config;
     this.onChange = onChange;
     this.jobId = jobId || crypto.randomBytes(8).toString('hex');
     this.privateId = privateId;
+    this.engine = engines.known(engine);
+    this.year = this.engine || places.engineOf(places.load().places[placeId]);
+    this.converting = false;
     this.scope = `place ${placeId} ${this.tag()}`;
     this.session = null;
     this.retiring = false; // being stopped for good
@@ -233,9 +243,10 @@ class GameSlot {
   get gamePort() { return this.config.gamePortFirst + this.index; }
   get soapPort() { return hosting.SOAP_PORT + this.index; }
 
-  // "#ab12cd" for a public server, "private #ab12cd" for a private one.
+  // "#ab12cd" for a public server, "private #ab12cd" for a private one,
+  // "2016 #ab12cd" for one of a year the game isn't set to.
   tag() {
-    return `${this.privateId ? 'private ' : ''}#${this.jobId.slice(0, 6)}`;
+    return `${this.privateId ? 'private ' : ''}${this.engine ? `${this.engine} ` : ''}#${this.jobId.slice(0, 6)}`;
   }
 
   setState(state, error) {
@@ -251,6 +262,7 @@ class GameSlot {
     this.scope = `${place.name} (${this.placeId}) ${this.tag()}`;
     this.startedVersion = place.version || 1;
     this.maxPlayers = places.maxPlayersOf(place);
+    this.year = this.engine || places.engineOf(place);
     return {
       gameName: place.name,
       placeId: this.placeId,
@@ -265,8 +277,27 @@ class GameSlot {
       maxPlayers: this.maxPlayers,
       // Its year's RCC (lib/engines.js). Team Create servers stay on 2017,
       // the year of Studio.
-      engine: places.engineOf(place),
+      engine: this.year,
     };
+  }
+
+  // hostConfig, with the place converted first for a year the game isn't
+  // set to (lib/yearplaces.js).
+  async prepareConfig() {
+    const config = this.hostConfig();
+    const place = places.load().places[this.placeId];
+    if (config.engine === places.engineOf(place)) return config;
+    this.converting = true;
+    this.onChange();
+    try {
+      const prepared = await yearplaces.prepare(place, this.placeId, config.engine, { centralUrl: this.config.centralUrl, log: (line) => log(this.scope, line) });
+      if (prepared.note) log(this.scope, prepared.note);
+      config.placeFile = prepared.file;
+    } finally {
+      this.converting = false;
+      this.onChange();
+    }
+    return config;
   }
 
   // Waits, unless shutdown or a restart request cuts it short.
@@ -281,7 +312,8 @@ class GameSlot {
     while (!this.shuttingDown) {
       try {
         this.setState('starting');
-        const config = this.hostConfig();
+        const config = await this.prepareConfig();
+        if (this.shuttingDown) break;
         this.session = await hosting.startHosting(config, { log: (line) => log(this.scope, line), dedicated: true });
         this.failures = 0;
         this.badChecks = 0;
@@ -378,6 +410,8 @@ class GameSlot {
       placeId: this.placeId,
       jobId: this.jobId,
       privateId: this.privateId,
+      engine: this.year,
+      converting: this.converting,
       maxPlayers: this.maxPlayers,
       idleSince: this.idleFor() > 0 ? new Date(this.idleSince).toISOString() : null,
       state: this.state,
@@ -654,11 +688,14 @@ async function main() {
 
   // --- game servers ---
   const live = () => [...slots.values()].filter((slot) => !slot.retiring);
-  // The servers of a place: public ones (privateId null) or a private server's.
-  const serversOf = (placeId, privateId = null) => live().filter((slot) => slot.placeId === placeId && slot.privateId === privateId);
+  // The servers of a place: public ones (privateId null) or a private
+  // server's; of one Roblox year, or of every year.
+  const serversOf = (placeId, privateId = null, year = null) => live().filter((slot) => slot.placeId === placeId && slot.privateId === privateId
+    && (!year || slot.year === year));
 
-  // -> { slot } or { error } (the text players see)
-  const startServer = (placeId, privateId, entries, why) => {
+  // -> { slot } or { error } (the text players see). engine: a year other
+  // than the game's own.
+  const startServer = (placeId, privateId, entries, why, engine = null) => {
     if (live().length >= config.maxGames) {
       return { error: `The server already runs ${config.maxGames} game server${config.maxGames === 1 ? '' : 's'}, as many as it may. Try again in a few minutes.` };
     }
@@ -666,7 +703,7 @@ async function main() {
     let index = 0;
     while (used.has(index)) index++;
     if (index >= config.gamePortCount) return { error: 'The server has no free game port for another game server. Try again in a few minutes.' };
-    const slot = new GameSlot(placeId, index, config, statusSoon, { privateId });
+    const slot = new GameSlot(placeId, index, config, statusSoon, { privateId, engine });
     slots.set(slot.jobId, slot);
     log(`place ${placeId}`, `starting ${privateId ? 'a private' : 'a'} server ${slot.tag()} of "${entries[placeId].name}" (${why}; game port ${slot.gamePort})`);
     slot.run().catch((error) => log(slot.scope, `stopped: ${error.message}`)).finally(() => {
@@ -696,8 +733,9 @@ async function main() {
     const idleMs = config.idleStopMinutes * 60 * 1000;
     for (const slot of live()) {
       const place = entries[slot.placeId];
-      const kept = place && place.enabled && place.keepRunning === true && !slot.privateId
-        && serversOf(slot.placeId).filter((other) => other !== slot).length === 0;
+      const own = places.engineOf(place);
+      const kept = place && place.enabled && place.keepRunning === true && !slot.privateId && slot.year === own
+        && serversOf(slot.placeId, null, own).filter((other) => other !== slot).length === 0;
       if (kept) continue;
       if (idleMs > 0 && slot.idleFor() > idleMs) stopServer(slot, null, `nobody has played for ${config.idleStopMinutes} minutes`);
       else if (slot.state === 'error' && slot.failures >= 3) stopServer(slot, null, `it failed to start ${slot.failures} times`);
@@ -748,9 +786,10 @@ async function main() {
         }
       }
 
-      // "Keep running": one public server at all times, while there is room.
+      // "Keep running": one public server (of the game's own year) at all
+      // times, while there is room.
       for (const id of wanted) {
-        if (entries[id].keepRunning !== true || serversOf(id).length > 0) continue;
+        if (entries[id].keepRunning !== true || serversOf(id, null, places.engineOf(entries[id])).length > 0) continue;
         const started = startServer(id, null, entries, 'it is kept running');
         if (started.error) {
           nextProblems.push(`"${entries[id].name}" (${id}) is kept running but waits: ${started.error.replace(/ Try again.*$/, '')} (maxGames, gamePortCount in config\\dedicated.json)`);
@@ -799,14 +838,18 @@ async function main() {
           continue;
         }
         if (request.action === 'start') {
-          // A player joins and every server is full, or there is none. One
-          // that is starting already will do.
+          // A player joins and every server (of the year they play in) is
+          // full, or there is none. One that is starting already will do.
           const privateId = request.privateId ? String(request.privateId) : null;
           if (!entries[id] || !entries[id].enabled) { failStart(request, 'This game is not online right now.'); continue; }
           if (privateId && (!privates[privateId] || privates[privateId].placeId !== id)) { failStart(request, 'That private server no longer exists.'); continue; }
-          const existing = serversOf(id, privateId);
+          const own = places.engineOf(entries[id]);
+          const year = engines.known(request.engine) || own;
+          if (year !== own && !engines.installed(year)) { failStart(request, `This server has no ${year} game server.`); continue; }
+          const existing = serversOf(id, privateId, year);
           if (privateId ? existing.length > 0 : existing.some((slot) => slot.state === 'starting' || slot.restarting)) continue;
-          const started = startServer(id, privateId, entries, privateId ? `private server "${privates[privateId].name}"` : 'a player is joining');
+          const why = `${privateId ? `private server "${privates[privateId].name}"` : 'a player is joining'}${year !== own ? ` in ${year}` : ''}`;
+          const started = startServer(id, privateId, entries, why, year !== own ? year : null);
           if (started.error) failStart(request, started.error);
           continue;
         }

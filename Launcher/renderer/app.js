@@ -155,12 +155,21 @@ function gameTile(game, options = {}) {
   // Games on another Roblox year (set on /manage) say which.
   if (game.engine && game.engine !== '2017') tile.append(el('span', 'tile-year', game.engine));
   if (options.caption) tile.append(el('div', 'caption', options.caption));
+  // Website themes show the name and a line under the picture, like 2017's game cards.
+  const info = el('div', 'tile-info');
+  info.append(el('div', 'tile-name', game.name));
+  const players = Number.isFinite(options.players) ? options.players : null;
+  const metaText = options.meta !== undefined ? options.meta
+    : players ? `${players} playing` : (game.creator ? `By ${game.creator}` : '');
+  info.append(el('div', `tile-meta${players || options.live ? ' live' : ''}`, metaText));
+  tile.append(info);
+  tile.title = game.name;
   tile.addEventListener('click', () => openDetail(game));
   return tile;
 }
 
 function placeholder(text, big, onClick) {
-  const tile = el('button', `game-tile placeholder${onClick ? ' nav-target' : ' dim'}`);
+  const tile = el('button', `game-tile placeholder${onClick ? ' nav-target' : ' dim'}${text ? '' : ' filler'}`);
   if (big) tile.append(el('b', '', big));
   tile.append(document.createTextNode(text));
   if (onClick) tile.addEventListener('click', onClick);
@@ -326,6 +335,7 @@ function updateIdentity() {
   $('chip-name').textContent = name;
   $('chip-sub').textContent = me ? (me.offline ? 'offline' : (me.account.admin ? 'admin' : '')) : 'guest';
   $('home-username').textContent = name; // the Xbox theme shows it in capitals
+  $('home-hello-name').textContent = name;
   $('avatar-caption').textContent = me ? 'Edit avatar' : 'Guest look';
   $('account-line').textContent = me ? `Signed in as ${me.account.name}` : (guest ? 'Playing as a guest' : 'Not signed in');
   $('account-lead').textContent = me
@@ -883,22 +893,185 @@ $('toggle-background').addEventListener('click', () => {
   updateBackgroundButton();
 });
 
-// Theme: the Xbox app look or the 2017 website look. theme.js puts the saved
-// one on <html> before the page draws; switching restyles everything at once.
-const THEMES = ['xbox', 'site'];
-function showTheme() {
-  const current = document.documentElement.dataset.theme;
-  document.querySelectorAll('.theme-pick').forEach((pick) => pick.setAttribute('aria-checked', String(pick.dataset.themePick === current)));
+// --- theme (Settings > Theme) -----------------------------------------------------------
+// theme.js put the saved theme on <html> before the page drew. Built-in themes
+// are styled by theme-web.css and themes.css; imported packs (themepack.js)
+// are kept by the main process in the launcher's app data, never sent anywhere.
+const Themes = window.LauncherThemes;
+let customThemes = []; // checked packs, oldest first
+
+const THEME_GROUPS = [
+  ['Website', (theme) => /^web/.test(theme.id)],
+  ['Xbox', (theme) => theme.family === 'console'],
+  ['More', (theme) => !/^web/.test(theme.id) && theme.family !== 'console'],
+];
+
+function themeKey() {
+  const root = document.documentElement;
+  return root.dataset.custom ? Themes.CUSTOM + root.dataset.custom : root.dataset.theme;
 }
 
-function setTheme(name) {
-  const theme = THEMES.includes(name) ? name : 'xbox';
-  document.documentElement.dataset.theme = theme;
-  storage('theme', theme);
-  showTheme();
+// A small picture of a theme, drawn with its own colors (themes.css styles
+// .theme-preview by data-theme, like the page itself).
+function themePreview(theme, compiled, picture) {
+  const box = el('span', 'theme-preview');
+  box.setAttribute('aria-hidden', 'true');
+  box.dataset.theme = theme.id;
+  box.dataset.family = theme.family;
+  box.dataset.nav = theme.nav;
+  if (picture) {
+    const img = el('img', 'pv-picture');
+    img.alt = '';
+    img.src = picture;
+    box.append(img);
+    return box;
+  }
+  if (compiled) for (const name of Object.keys(compiled.vars)) box.style.setProperty(name, compiled.vars[name]);
+  const head = el('i', 'pv-head');
+  head.append(el('i', 'pv-mark'), el('i', 'pv-tab on'), el('i', 'pv-tab'), el('i', 'pv-tab'));
+  const page = el('i', 'pv-page');
+  page.append(el('i', 'pv-title'), el('i', 'pv-card'), el('i', 'pv-card'), el('i', 'pv-card'), el('i', 'pv-btn'));
+  box.append(el('i', 'pv-bg'), head, el('i', 'pv-side'), page);
+  return box;
 }
-document.querySelectorAll('.theme-pick').forEach((pick) => pick.addEventListener('click', () => setTheme(pick.dataset.themePick)));
-showTheme();
+
+function themeCard(key, name, sub, preview) {
+  const card = el('button', 'theme-card nav-target');
+  card.setAttribute('role', 'radio');
+  card.dataset.key = key;
+  const text = el('span', 'theme-card-text');
+  text.append(el('span', 'theme-name', name));
+  if (sub) text.append(el('span', 'theme-sub', sub));
+  card.append(preview, text);
+  card.addEventListener('click', () => setTheme(key));
+  return card;
+}
+
+function renderThemes() {
+  const gallery = $('theme-gallery');
+  const focused = document.activeElement && document.activeElement.classList.contains('theme-card') ? document.activeElement.dataset.key : null;
+  gallery.textContent = '';
+  for (const [title, test] of THEME_GROUPS) {
+    const list = Themes.BUILTIN.filter(test);
+    if (!list.length) continue;
+    gallery.append(el('div', 'theme-group', title));
+    const grid = el('div', 'theme-grid');
+    for (const theme of list) grid.append(themeCard(theme.id, theme.name, theme.id === Themes.DEFAULT ? 'Default' : '', themePreview(theme)));
+    gallery.append(grid);
+  }
+  if (customThemes.length) {
+    gallery.append(el('div', 'theme-group', 'Yours'));
+    const grid = el('div', 'theme-grid');
+    for (const pack of customThemes) {
+      const base = Themes.find(pack.base) || Themes.find(Themes.DEFAULT);
+      const wrap = el('div', 'theme-card-wrap');
+      const card = themeCard(Themes.CUSTOM + pack.id, pack.name, pack.author ? `By ${pack.author}` : '',
+        themePreview(base, ThemePack.compile(pack), pack.preview ? pack.assets[pack.preview] : null));
+      const remove = el('button', 'link theme-remove', 'Remove');
+      remove.addEventListener('click', () => removeTheme(pack));
+      wrap.append(card, remove);
+      grid.append(wrap);
+    }
+    gallery.append(grid);
+  }
+  showTheme();
+  if (focused) {
+    const again = [...gallery.querySelectorAll('.theme-card')].find((card) => card.dataset.key === focused);
+    if (again) focusEl(again);
+  }
+}
+
+function showTheme() {
+  const current = themeKey();
+  document.querySelectorAll('.theme-card').forEach((card) => card.setAttribute('aria-checked', String(card.dataset.key === current)));
+}
+
+// Remembers the compiled pack so theme.js can put it on before the next paint.
+// A pack too big for localStorage keeps its colors there; its CSS comes once
+// the main process has sent the packs (loadThemes).
+function cachePack(compiled) {
+  try {
+    localStorage.setItem('themePack', JSON.stringify(compiled));
+  } catch (error) {
+    try { localStorage.setItem('themePack', JSON.stringify(Object.assign({}, compiled, { css: '' }))); } catch (again) { /* storage blocked */ }
+  }
+}
+
+function setTheme(key) {
+  let applied = false;
+  if (String(key).indexOf(Themes.CUSTOM) === 0) {
+    const pack = customThemes.find((entry) => Themes.CUSTOM + entry.id === key);
+    if (pack) {
+      const compiled = ThemePack.compile(pack);
+      Themes.apply(compiled);
+      storage('theme', key);
+      cachePack(compiled);
+      applied = true;
+    }
+  }
+  if (!applied) {
+    const theme = Themes.find(key) || Themes.find(Themes.DEFAULT);
+    Themes.apply(theme.id);
+    storage('theme', theme.id);
+    try { localStorage.removeItem('themePack'); } catch (error) { /* storage blocked */ }
+  }
+  showTheme();
+  document.dispatchEvent(new Event('themechange'));
+}
+
+async function loadThemes() {
+  try {
+    customThemes = await api.themes();
+    if (!Array.isArray(customThemes)) customThemes = [];
+  } catch (error) {
+    customThemes = [];
+  }
+  // The saved pack again, in full (the cache may hold only its colors), or
+  // the default when it was removed.
+  if (document.documentElement.dataset.custom) setTheme(themeKey());
+  renderThemes();
+}
+
+async function removeTheme(pack) {
+  try {
+    await api.removeTheme(pack.id);
+  } catch (error) {
+    setStatus('theme-status', message(error), 'error');
+    return;
+  }
+  const wasOn = themeKey() === Themes.CUSTOM + pack.id;
+  customThemes = customThemes.filter((entry) => entry.id !== pack.id);
+  if (wasOn) setTheme(Themes.DEFAULT);
+  renderThemes();
+  setStatus('theme-status', `Removed ${pack.name}.`);
+}
+
+$('theme-import').addEventListener('click', async () => {
+  setStatus('theme-status', '');
+  try {
+    const result = await api.importTheme();
+    if (!result || result.canceled || !result.theme) return;
+    customThemes = customThemes.filter((entry) => entry.id !== result.theme.id).concat([result.theme]);
+    renderThemes();
+    setTheme(Themes.CUSTOM + result.theme.id);
+    setStatus('theme-status', `${result.theme.name} is on.`, 'good');
+  } catch (error) {
+    setStatus('theme-status', message(error), 'error');
+  }
+});
+
+// Ctrl+Shift+T: the default look again, so a theme that hides too much
+// can't lock anyone out.
+document.addEventListener('keydown', (event) => {
+  if (event.ctrlKey && event.shiftKey && (event.key === 'T' || event.key === 't')) {
+    event.preventDefault();
+    setTheme(Themes.DEFAULT);
+    showToast('Back to the default theme.', 4000);
+  }
+}, true);
+
+renderThemes();
+loadThemes();
 
 function tick() {
   $('top-clock').textContent = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -960,7 +1133,11 @@ function renderHome() {
       continue;
     }
     const online = onlineMatch(entry);
-    recent.append(gameTile(online || entry, { badge: online ? 'ONLINE' : 'OFFLINE', live: Boolean(online) }));
+    const count = online ? playersIn(online) : 0;
+    recent.append(gameTile(online || entry, {
+      badge: online ? 'ONLINE' : 'OFFLINE', live: count > 0,
+      meta: online ? (count ? `${count} playing` : 'Online') : 'Offline',
+    }));
   }
 
   // Online games: up to six.
@@ -969,7 +1146,7 @@ function renderHome() {
   for (let i = 0; i < 6; i++) {
     const game = lastGames[i];
     const count = playersIn(game);
-    if (game) grid.append(gameTile(game, { badge: count ? `${count} PLAYING` : null, live: count > 0 }));
+    if (game) grid.append(gameTile(game, { badge: count ? `${count} PLAYING` : null, live: count > 0, meta: count ? `${count} playing` : (game.creator ? `By ${game.creator}` : '') }));
     else if (i === lastGames.length && state && state.canHost) grid.append(placeholder('Host a game', '+', () => { showView('settings'); showSettings('host'); }));
     else if (i === lastGames.length) grid.append(placeholder(lastGames.length ? 'More games show up here.' : 'No games online yet.', '·'));
     else grid.append(placeholder(''));
@@ -994,6 +1171,7 @@ function openDetail(game) {
   box.append(cover(detailGame));
   $('detail-name').textContent = detailGame.name;
   renderDetailMeta(detailGame, listed);
+  renderDetailStats(detailGame, listed, servers);
   const desc = $('detail-desc');
   desc.textContent = detailGame.description || '';
   desc.classList.remove('open');
@@ -1002,6 +1180,7 @@ function openDetail(game) {
   $('detail-note').textContent = playable ? (busy ? 'Roblox is already open.' : '') : 'Offline right now.';
   $('detail-as').textContent = me ? `Playing as ${me.account.name}` : 'Playing as a guest';
   $('detail-play').disabled = !playable || busy;
+  renderYearPicker(detailGame);
   renderServerList(servers, playable && !busy);
   closePrivateForms();
   loadPrivate(detailGame);
@@ -1022,6 +1201,22 @@ function renderDetailMeta(game, listed) {
   if (game.creator) meta.append(el('span', '', `By ${game.creator}`));
   const count = listed ? playersIn(game) : 0;
   if (count > 0) meta.append(el('span', 'detail-live', `${count} playing`));
+}
+
+// Playing, servers and the game's Roblox year, in a row like 2017's game page.
+function renderDetailStats(game, listed, servers) {
+  const box = $('detail-stats');
+  box.textContent = '';
+  const stats = [
+    ['Playing', listed ? String(playersIn(game)) : '-'],
+    ['Servers', listed ? String(servers.length) : '-'],
+    ['Year', String(game.engine || '2017')],
+  ];
+  for (const [label, value] of stats) {
+    const stat = el('div', 'detail-stat');
+    stat.append(el('span', '', label), el('b', '', value));
+    box.append(stat);
+  }
 }
 
 // --- votes, badges and game passes (the server's game/<placeId>) ---
@@ -1177,7 +1372,7 @@ async function openLink(link) {
   if (state && state.play.active) { showToast('Roblox is already open. Leave your game first, then open the link again.', 9000); return; }
   if (link.server) {
     const server = (game.servers || []).find((entry) => String(entry.id).toLowerCase() === link.server);
-    if (server) return startPlay(game, { gameId: server.id, address: server.address });
+    if (server) return startPlay(game, { gameId: server.id, address: server.address, engine: server.engine });
     showToast('That server has closed. Joining another one.', 6000);
   }
   if (!game.legacy) return startPlay(game, { placeId: game.placeId });
@@ -1199,9 +1394,12 @@ $('detail-more').addEventListener('click', () => {
 
 // Public servers, listed when there is more than one to pick from (Play
 // already picks one); each shows who is in it and has its own Join.
-function renderServerList(servers, canJoin) {
+function renderServerList(allServers, canJoin) {
   const list = $('detail-servers');
   list.textContent = '';
+  // Each year has its own servers: those of the year Play uses.
+  const servers = allServers.filter((server) => serverYear(server) === playYear());
+  lastServerList = { servers: allServers, canJoin };
   $('detail-servers-box').classList.toggle('hidden', servers.length < 2);
   servers.forEach((server, index) => {
     const row = el('div', 'server-row');
@@ -1211,13 +1409,78 @@ function renderServerList(servers, canJoin) {
     if (server.players && server.players.length) text.append(el('div', 'server-players', server.players.join(', ')));
     const join = el('button', 'ghost', full ? 'Full' : 'Join');
     join.disabled = full || !canJoin;
-    join.addEventListener('click', () => startPlay(detailGame, { gameId: server.id, address: server.address }));
+    join.addEventListener('click', () => startPlay(detailGame, { gameId: server.id, address: server.address, engine: serverYear(server) }));
     const share = el('button', 'ghost', 'Share');
     share.title = 'Copy a link that joins this server';
     share.addEventListener('click', () => copyShareLink(detailGame, server.id));
     row.append(text, share, join);
     list.append(row);
   });
+}
+
+// --- Play in <year> ---
+// A game runs on its own Roblox year; the server says which other years it
+// may be played in ("years"). Another year gets its own servers, with the
+// place converted for it, and may not work the same, hence the warning.
+
+let pickedYear = null; // { placeId, year } while that game's page is open
+
+const ownYear = (game) => String((game && game.engine) || '2017');
+
+function gameYears(game) {
+  const own = ownYear(game);
+  const years = game && !game.legacy && Array.isArray(game.years) ? game.years.map(String) : [];
+  return [own, ...years.filter((year) => year !== own)];
+}
+
+// The year Play joins in for the open game.
+function playYear() {
+  const own = ownYear(detailGame);
+  if (!pickedYear || !detailGame || pickedYear.placeId !== String(detailGame.placeId)) return own;
+  return gameYears(detailGame).includes(pickedYear.year) ? pickedYear.year : own;
+}
+
+const serverYear = (server) => String((server && server.engine) || ownYear(detailGame));
+
+let lastServerList = { servers: [], canJoin: false };
+
+function renderYearPicker(game) {
+  const years = gameYears(game);
+  if (!pickedYear || pickedYear.placeId !== String(game.placeId)) pickedYear = { placeId: String(game.placeId), year: ownYear(game) };
+  const box = $('detail-years');
+  box.textContent = '';
+  $('detail-engine').classList.toggle('hidden', years.length < 2);
+  const current = playYear();
+  for (const year of years) {
+    const button = el('button', 'engine-year', year);
+    button.type = 'button';
+    button.dataset.year = year;
+    button.setAttribute('role', 'radio');
+    if (year === ownYear(game)) button.title = 'The year it was made for';
+    button.addEventListener('click', () => pickYear(year));
+    box.append(button);
+  }
+  showPickedYear(current);
+}
+
+function showPickedYear(year) {
+  for (const button of $('detail-years').children) {
+    const on = button.dataset.year === year;
+    button.classList.toggle('on', on);
+    button.setAttribute('aria-checked', String(on));
+  }
+  const own = ownYear(detailGame);
+  const warn = $('detail-year-warn');
+  warn.textContent = year === own ? '' : `Made for ${own}. Parts of it may not work in ${year}.`;
+  warn.classList.toggle('hidden', year === own);
+}
+
+function pickYear(year) {
+  if (!detailGame || playYear() === year) return;
+  pickedYear = { placeId: String(detailGame.placeId), year };
+  sfx.play('move');
+  showPickedYear(year);
+  renderServerList(lastServerList.servers, lastServerList.canJoin);
 }
 
 // --- private servers (in the game's details) ---
@@ -1252,7 +1515,7 @@ function renderPrivate(game, servers) {
     if (server.mine) text.append(el('div', 'server-players', `Code ${server.code}`));
     const join = el('button', 'ghost', 'Join');
     join.disabled = Boolean(state && state.play.active);
-    join.addEventListener('click', () => startPlay(game, { privateId: server.id }));
+    join.addEventListener('click', () => startPlay(game, yearRequest(game, { privateId: server.id })));
     row.append(text, join);
     if (server.mine) {
       const copy = el('button', 'ghost', 'Copy code');
@@ -1438,9 +1701,16 @@ $('detail-play').addEventListener('click', () => {
   const game = detailGame ? onlineMatch(detailGame) || detailGame : null;
   if (!game) return;
   const first = (game.servers || [])[0];
-  if (!game.legacy) startPlay(game, { placeId: game.placeId });
+  if (!game.legacy) startPlay(game, yearRequest(game, { placeId: game.placeId }));
   else if (first) startPlay(game, { gameId: first.id, address: first.address });
 });
+
+// A join request in the year picked on the game's page ("engine" only when
+// it isn't the game's own, so older servers see what they always did).
+function yearRequest(game, request) {
+  const year = shownGame(game) ? playYear() : ownYear(game);
+  return year === ownYear(game) ? request : Object.assign({}, request, { engine: year });
+}
 
 // request: { placeId } | { gameId, address } | { privateId } (main.js play:join)
 async function startPlay(game, request) {
@@ -1454,7 +1724,9 @@ async function startPlay(game, request) {
   playStarting = true;
   try {
     setLoadingStatus(request.privateId ? 'Joining the private server…' : 'Finding a server…');
-    const joined = await api.join({ request, game: { name: game.name, placeId: game.placeId, engine: game.engine || null }, guest: !me, embed: true });
+    // The year it joins in (the picked one, or that server's), so its client is fetched first.
+    const year = request.engine || game.engine || null;
+    const joined = await api.join({ request, game: { name: game.name, placeId: game.placeId, engine: year }, guest: !me, embed: true });
     playStarting = false;
     rememberPlayed(game);
     renderHome();
@@ -1798,7 +2070,7 @@ async function joinPerson(person) {
   }
   closeProfile();
   const server = (game.servers || []).find((entry) => entry.id === gameId);
-  startPlay(game, { gameId, address: server ? server.address : undefined });
+  startPlay(game, { gameId, address: server ? server.address : undefined, engine: server ? server.engine : undefined });
 }
 
 // Where someone is, and how you two relate.
