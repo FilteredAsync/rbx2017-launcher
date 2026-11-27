@@ -1,2 +1,4 @@
 User-agent: *
 Disallow: /api/
+
+Sitemap: https://www.rbx2017.com/sitemap.xml

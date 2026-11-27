@@ -23,7 +23,7 @@ const TYPES = {
   '.txt': 'text/plain; charset=utf-8', '.json': 'application/json; charset=utf-8', '.webp': 'image/webp',
 };
 
-// Only the "/*" block of _headers: the site has no other.
+// Only the "/*" block of _headers (the pages.dev one never applies here).
 function staticHeaders() {
   const headers = {};
   let on = false;
