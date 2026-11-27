@@ -111,7 +111,10 @@ function main() {
     console.error(`Release ${build.tag} already exists. Raise the version in Launcher/package.json.`);
     process.exit(1);
   }
-  const result = spawnSync('gh', ['release', 'create', build.tag, ...build.files, '--title', `RobloxClient Launcher ${build.version}`, ...notesArgs, '--target', 'main'],
+  // --latest: launchers (electron-updater) and the website follow GitHub's
+  // "Latest" release. Left to GitHub, 1.21.0 and 1.21.1 never became Latest,
+  // so players stayed on 1.20.0 until 1.22.0.
+  const result = spawnSync('gh', ['release', 'create', build.tag, ...build.files, '--title', `RobloxClient Launcher ${build.version}`, ...notesArgs, '--target', 'main', '--latest'],
     { cwd: ROOT, stdio: 'inherit' });
   process.exit(result.status === null ? 1 : result.status);
 }
