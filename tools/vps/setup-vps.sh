@@ -167,7 +167,7 @@ fi
 echo "== Caddy (HTTPS for $SITES${ANDROID_SITES:+, and the Android names})"
 [ -f /etc/caddy/Caddyfile ] && [ ! -f /etc/caddy/Caddyfile.before-rbx ] && cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.before-rbx
 SITE_REDIRECT=""
-[ -n "$SITE" ] && SITE_REDIRECT=$'\t# The bare address in a browser opens the website (site/).\n\tredir / '"$SITE"$' 302\n'
+[ -n "$SITE" ] && SITE_REDIRECT=$'\t# The bare address in a browser opens the website (site/). Permanent,\n\t# so search engines take www as the main address.\n\tredir / '"$SITE"$' 301\n'
 ANDROID_BLOCK=""
 [ -n "$ANDROID_SITES" ] && ANDROID_BLOCK=$'
 # The Android app.

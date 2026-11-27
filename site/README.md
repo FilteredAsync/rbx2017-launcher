@@ -53,10 +53,11 @@ is no edge cache locally.
 4. In the project's Custom domains, add `www.rbx2017.com`. Cloudflare adds
    the DNS record itself.
 5. Once `https://www.rbx2017.com` works, add the redirect on the VPS (as
-   root):
+   root). It must be permanent (301), or Google keeps the bare address as
+   the main one:
 
    ```
-   sed -i 's|^\(rbx2017.com.*{\)$|\1\n\tredir / https://www.rbx2017.com/ 302|' /etc/caddy/Caddyfile
+   sed -i 's|^\(rbx2017.com.*{\)$|\1\n\tredir / https://www.rbx2017.com/ 301|' /etc/caddy/Caddyfile
    caddy validate --config /etc/caddy/Caddyfile && systemctl reload caddy
    ```
 
