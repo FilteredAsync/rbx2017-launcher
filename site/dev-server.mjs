@@ -21,9 +21,10 @@ const TYPES = {
   '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.ico': 'image/x-icon',
   '.txt': 'text/plain; charset=utf-8', '.json': 'application/json; charset=utf-8', '.webp': 'image/webp',
+  '.webmanifest': 'application/manifest+json',
 };
 
-// Only the "/*" block of _headers: the site has no other.
+// Only the "/*" block of _headers (the pages.dev one never applies here).
 function staticHeaders() {
   const headers = {};
   let on = false;

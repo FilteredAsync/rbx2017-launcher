@@ -25,7 +25,13 @@
 //                  FFlagDebugLocalRccServerConnection, which it needs to skip
 //                  the version checks), so the launcher's game relay listens
 //                  there (lib/relay.js).
-//   jsonJobs     RCC runs only JSON jobs (2018 on): the game is its own
+//   connectsDirectly  the client connects to the game server address in its
+//                  join script, so the launcher starts no game relay when the
+//                  server offers that (the join answer's connect: 'direct',
+//                  lib/joining.js). Tested with the 0.300 client on 2026-11-27:
+//                  its game socket is on every network, not only 127.0.0.1
+//                  like the client before it. Without it the launcher relays.
+//   jsonJobs    RCC runs only JSON jobs (2018 on): the game is its own
 //                  "GameServer" job, which loads the place from the web server
 //                  and starts the server itself, since the Lua calls
 //                  gameserver.lua makes (game:SetPlaceID, the Set...Url calls)
@@ -99,6 +105,7 @@ const ENGINES = {
     clientFiles: 'client-files',
     placeIdArgument: true,
     playerAuthentication: true,
+    connectsDirectly: true,
     memoryPatches: [
       { script: 'patch-rcc-place-auth.ps1', label: 'place-auth patch', skip: 'patchPlaceAuth', consequence: 'players may stay "not authenticated"' },
       { script: 'patch-rcc-http-urls.ps1', label: 'LuaWebService patch', skip: 'patchHttpUrls', consequence: 'group and friend checks in games will fail with "LuaWebService error"' },

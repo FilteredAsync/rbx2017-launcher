@@ -1,68 +1,30 @@
-/* Console-style launcher, laid out like the 2016-2017 Xbox One app: a "press
-   A" start screen, sign-in, big thin tab titles, square tiles with a white
-   selection frame, and controller hints along the bottom. The font is the
-   one Roblox used then (Source Sans Pro, from the client's own files). */
+/* The launcher's layout: screens, header, tabs, views, panels, tiles and
+   dialogs. How it looks (colors, type, the header bar, cards) is theme-web.css,
+   drawn from each theme's custom properties (themes.css). The font is the one
+   Roblox used then (Source Sans Pro, from the client's own files). */
 @font-face { font-family: "Source Sans Pro"; font-weight: 300; src: url("launcher-net://client/fonts/SourceSansPro-Light.ttf"); }
 @font-face { font-family: "Source Sans Pro"; font-weight: 400; src: url("launcher-net://client/fonts/SourceSansPro-Regular.ttf"); }
 @font-face { font-family: "Source Sans Pro"; font-weight: 600; src: url("launcher-net://client/fonts/SourceSansPro-Semibold.ttf"); }
 @font-face { font-family: "Source Sans Pro"; font-weight: 700; src: url("launcher-net://client/fonts/SourceSansPro-Bold.ttf"); }
 
-:root, [data-family="console"] {
-  --bg: #0e1c27;
-  --tab: #6aa9d8;
-  --tab-hover: #b5d9f5;
-  --accent: #00a2ff;
-  --panel: rgba(17, 33, 45, .86);
-  --tile: #24485a;
-  --line: rgba(255, 255, 255, .09);
-  --text: #ffffff;
-  --muted: #9fb3c2;
-  --good: #3ad47d;
-  --bad: #ff6159;
-  --gold: #f6b900;
-  --rbx: #02b757;       /* Robux */
-  --rbx-text: #3ad47d;
-  --online: #00a2ff;  /* launcher open */
-  --studio: #f68b1f;  /* in Roblox Studio */
-  --select: #ffffff;
-  font-family: "Source Sans Pro", "Segoe UI", system-ui, sans-serif;
-  color-scheme: dark;
-}
+:root { font-family: "Source Sans Pro", "Segoe UI", system-ui, sans-serif; }
 
 * { box-sizing: border-box; }
-/* Like a console app: text and pictures can't be selected or dragged, except
-   where you type, and logs and codes you may want to copy. */
+/* Like an app: text and pictures can't be selected or dragged, except where
+   you type, and logs and codes you may want to copy. */
 body { user-select: none; -webkit-user-select: none; }
 input, textarea, select, .log, code, [contenteditable] { user-select: text; -webkit-user-select: text; }
 img, svg { -webkit-user-drag: none; }
 html, body { margin: 0; height: 100%; color: var(--text); font-size: 16px; overflow: hidden; }
-/* Only the root gets a fill: a body background would cover the canvas. */
 html { background: var(--bg); }
 body { background: transparent; }
 button, input, select { font: inherit; color: inherit; }
 .hidden { display: none !important; }
 
-.backdrop { position: fixed; inset: 0; z-index: -1; background: radial-gradient(ellipse at 60% 30%, #1d3a4f, #0d1820 70%); }
-#bg-canvas { position: absolute; inset: 0; display: block; }
-
-.logo-text {
-  font-weight: 900; font-size: 44px; letter-spacing: 1px; color: #fff; transform: rotate(-2deg);
-  text-shadow: -2px -2px 0 #e2231a, 2px -2px 0 #e2231a, -2px 2px 0 #e2231a, 2px 2px 0 #e2231a, 0 4px 0 #9b120c;
-}
-.logo-img { user-select: none; -webkit-user-drag: none; filter: drop-shadow(0 3px 8px rgba(0, 0, 0, .35)); }
-
 /* Start screen ----------------------------------------------------------------- */
-.screen { position: fixed; inset: 0 0 74px 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-.start-logo { width: min(606px, 56vw); height: auto; animation: logo-in .8s cubic-bezier(.2, .9, .3, 1.2); }
-.start-logo.logo-text { font-size: 110px; }
+.screen { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 @keyframes logo-in { from { opacity: 0; transform: scale(.85); } to { opacity: 1; transform: none; } }
-.start-press {
-  margin-top: 64px; background: none; border: 0; color: #fff; font-size: 30px; font-weight: 300; letter-spacing: .5px;
-  display: flex; align-items: center; gap: 4px; cursor: pointer; animation: pulse 2.2s ease-in-out infinite;
-}
-.start-press .btn { width: 40px; height: 40px; border-radius: 50%; font-size: 20px; }
-.start-press:focus-visible { outline: none; text-shadow: 0 0 18px rgba(0, 162, 255, .9); }
-@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+.start-status { margin-top: 40px; font-size: 20px; min-height: 26px; }
 .start-foot { position: absolute; bottom: 10px; color: var(--muted); font-size: 15px; }
 
 /* Sign in -------------------------------------------------------------------------- */
@@ -70,8 +32,6 @@ button, input, select { font: inherit; color: inherit; }
   width: min(440px, 92vw); background: var(--panel); border: 1px solid var(--line); padding: 30px 34px 26px;
   display: flex; flex-direction: column; gap: 14px; backdrop-filter: blur(8px); animation: rise .25s ease-out;
 }
-.account-logo { width: 220px; height: auto; align-self: center; margin-bottom: 6px; }
-.account-logo.logo-text { font-size: 40px; text-align: center; }
 .account-switch { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 2px solid var(--line); margin-bottom: 4px; }
 .switch-tab { background: none; border: 0; padding: 8px 0 10px; font-size: 22px; font-weight: 300; color: var(--tab); cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -2px; }
 .switch-tab.active { color: #fff; border-bottom-color: var(--accent); }
@@ -90,7 +50,6 @@ button.link:focus-visible { outline: 2px solid #fff; }
 
 /* Header and tabs ------------------------------------------------------------ */
 .top { position: fixed; top: 0; left: 0; right: 0; height: 104px; display: flex; align-items: center; justify-content: space-between; padding: 22px 6.5vw 0; }
-.logo { height: 56px; width: auto; display: block; }
 .top-right { display: flex; align-items: center; gap: 16px; font-size: 20px; color: var(--muted); }
 .update-pill { background: rgba(0, 162, 255, .18); border: 1px solid rgba(0, 162, 255, .6); color: #fff; font-size: 14px; padding: 5px 12px; cursor: default; }
 .update-pill.ready { background: var(--good); border-color: var(--good); color: #062b16; font-weight: 600; cursor: pointer; }
@@ -132,7 +91,6 @@ button.link:focus-visible { outline: 2px solid #fff; }
 }
 .tab-link:hover, .tab-link:focus-visible { color: var(--tab-hover); outline: none; }
 .tab-link.active { color: #fff; border-bottom-color: var(--accent); }
-.tab-link:focus-visible.active { text-shadow: 0 0 18px rgba(0, 162, 255, .8); }
 
 /* Views ---------------------------------------------------------------------- */
 .view { position: fixed; top: 206px; bottom: 74px; left: 0; right: 0; padding: 16px 6.5vw 20px; overflow-y: auto; display: none; }
@@ -172,7 +130,7 @@ button.link:focus-visible { outline: 2px solid #fff; }
   background: var(--tile);
 }
 .nav-target:focus-visible, .game-tile:focus-visible, .avatar-panel:focus-visible, .more:focus-visible, .item-tile:focus-visible, .card-main:focus-visible,
-.game-tile.focused, .avatar-panel.focused, .more.focused, .item-tile.focused, .card-main.focused { outline-color: var(--select); transform: scale(1.03); z-index: 2; }
+.game-tile.focused, .avatar-panel.focused, .more.focused, .item-tile.focused, .card-main.focused { outline-color: var(--select); z-index: 2; }
 .cover { position: absolute; inset: 0; }
 .cover-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; }
 .cover.has-image::before, .cover.has-image::after, .cover.has-image .cover-title { display: none; }
@@ -357,7 +315,7 @@ code { background: rgba(0,0,0,.35); padding: 5px 9px; font-family: Consolas, mon
 .detail { display: flex; gap: 40px; width: min(1100px, 86vw); max-height: 88vh; align-items: flex-start; }
 .detail-side { width: 40%; flex: none; }
 .detail-cover { position: relative; width: 100%; aspect-ratio: 1 / 1; overflow: hidden; box-shadow: 0 18px 50px rgba(0, 0, 0, .45); }
-/* Likes and dislikes under the cover, as on the Xbox app: thumbs and a bar. */
+/* Likes and dislikes under the cover: thumbs and a bar. */
 .votes { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
 .vote { display: inline-flex; align-items: center; gap: 7px; background: none; border: 2px solid transparent; color: var(--muted); padding: 6px 8px; cursor: pointer; font-size: 16px; font-weight: 600; }
 .vote svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; }
@@ -465,24 +423,8 @@ code { background: rgba(0,0,0,.35); padding: 5px 9px; font-family: Consolas, mon
   box-shadow: 0 10px 30px rgba(0, 0, 0, .45); animation: rise .25s ease-out;
 }
 
-/* Hints ---------------------------------------------------------------------------- */
-.hints { position: fixed; bottom: 0; left: 0; right: 0; height: 74px; display: flex; align-items: center; gap: 28px; padding: 0 6.5vw; color: #d7e2ea; font-size: 17px; }
-.btn { display: inline-grid; place-items: center; min-width: 28px; height: 28px; padding: 0 6px; border-radius: 14px; font-size: 13px; font-weight: 800; margin-right: 8px; color: #fff; }
-.btn-a { background: #3bb33b; }
-.btn-b { background: #d9302c; }
-.btn-y { background: #e2b100; color: #1a1a1a; }
-.btn-x { background: transparent; border: 3px solid #1a8fdc; color: #1a8fdc; width: 46px; height: 46px; border-radius: 50%; font-size: 24px; font-weight: 400; }
-.btn-bumper { background: rgba(255,255,255,.18); border-radius: 6px; margin-right: 4px; }
-.hint-item { display: flex; align-items: center; }
-.settings-hint { margin-left: auto; display: flex; align-items: center; background: none; border: 0; cursor: pointer; font-size: 26px; font-weight: 300; color: #fff; }
-.settings-hint:focus-visible { outline: none; text-decoration: underline; }
-/* Which hints show: the start and sign-in screens have no tabs. */
-body.on-start [data-hint="shell"], body.on-account [data-hint="shell"], body.on-start [data-hint="back"] { display: none; }
-body:not(.on-avatar) [data-hint="avatar"] { display: none; }
 
 @media (max-width: 1150px) {
-  .tab-link { font-size: 34px; }
-  .tabs { gap: 26px; }
   .avatar-editor { grid-template-columns: 150px 1fr; }
 }
 
@@ -528,8 +470,7 @@ button.with-icon svg { width: 21px; height: 21px; fill: none; stroke: currentCol
 /* The game inside the launcher: its window (a child window placed by
    main.js) covers everything; the page underneath shows nothing. */
 body.in-game { background: #000; }
-body.in-game .backdrop, body.in-game .screen, body.in-game #shell, body.in-game .overlay, body.in-game .loading-screen,
-body.in-game .settings-hint { display: none !important; }
+body.in-game .screen, body.in-game #shell, body.in-game .overlay, body.in-game .loading-screen { display: none !important; }
 /* Roblox closed right after starting: the reason instead of the spinner. */
 .loading-screen.failed .loading-spinner { display: none; }
 .loading-screen.failed .loading-status { max-width: 520px; line-height: 1.45; margin-top: 30px; }
@@ -646,9 +587,7 @@ input.volume:focus-visible { border-color: #fff; }
 input.volume:hover::-webkit-slider-thumb { transform: scale(1.1); }
 
 /* Settings > Theme: a gallery of cards, each with a small picture of the
-   theme drawn from its own colors (themes.css). The website looks are in
-   theme-web.css; their "rbx2017" wordmark stands in for the logo there. */
-.wordmark { display: none; }
+   theme drawn from its own colors (themes.css). */
 .theme-gallery { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
 .theme-group { margin-top: 10px; color: var(--muted); font-size: 15px; }
 .theme-group:first-child { margin-top: 0; }
@@ -665,8 +604,8 @@ input.volume:hover::-webkit-slider-thumb { transform: scale(1.1); }
 .theme-remove { align-self: flex-start; margin: 4px 0 0 2px; }
 .theme-import-row { margin-top: 16px; }
 
-/* The picture: a header with tabs (or the console's big tabs), a side
-   column for themes with one, and three game cards with a Play button. */
+/* The picture: a header with tabs, a side column for themes with one, and
+   three game cards with a Play button. */
 .theme-preview {
   position: relative; display: grid; width: 100%; height: auto; aspect-ratio: 16 / 10; overflow: hidden;
   grid-template-columns: 0 minmax(0, 1fr); grid-template-rows: 15% minmax(0, 1fr);
@@ -690,25 +629,9 @@ input.volume:hover::-webkit-slider-thumb { transform: scale(1.1); }
 .pv-card:nth-child(3)::before { background: linear-gradient(160deg, #7b4fd6, #3a2a7a); }
 .pv-card:nth-child(4)::before { background: linear-gradient(160deg, #e0902a, #8a3d1c); }
 .pv-btn { grid-row: 3; grid-column: 1; background: var(--play, var(--good)); border-radius: var(--r-btn, 0); }
-/* The console look: no header bar, big thin tabs, square tiles, a white frame. */
-.theme-preview[data-family="console"] { background: radial-gradient(ellipse at 60% 30%, #1d3a4f, #0d1820 70%); }
-.theme-preview[data-family="console"] .pv-head { background: none; align-items: flex-end; gap: 6%; padding-bottom: 1%; }
-.theme-preview[data-family="console"] .pv-mark { width: 16%; height: 30%; background: #fff; box-shadow: 0 0 0 1px #e2231a; }
-.theme-preview[data-family="console"] .pv-tab { width: 13%; height: 30%; background: var(--tab); opacity: 1; }
-.theme-preview[data-family="console"] .pv-tab.on { background: #fff; }
-.theme-preview[data-family="console"] .pv-page { grid-template-rows: 7% 62% 12%; gap: 5%; }
-.theme-preview[data-family="console"] .pv-title { width: 40%; background: #fff; }
-.theme-preview[data-family="console"] .pv-card { background: var(--tile); border-radius: 0; box-shadow: none; }
-.theme-preview[data-family="console"] .pv-card::before { height: 100%; }
-.theme-preview[data-family="console"] .pv-card:nth-child(2) { outline: 2px solid #fff; }
-.theme-preview[data-family="console"] .pv-btn { display: none; }
 
-/* Parts only the website looks show (theme-web.css turns them on). */
-.tab-icon, .home-hello, .more-text, .tile-info, .detail-stats, .friends-more, .play-icon { display: none; }
-.detail-main { display: contents; }
-/* The console look keeps the description above the buttons. */
-.detail-name { order: 1; } .detail-meta { order: 2; } .detail-desc { order: 3; } .detail-more { order: 4; }
-.detail-actions, .detail-year-warn { order: 5; } .detail-note { order: 6; } .detail-as { order: 7; } .detail-section, .detail-stats { order: 8; }
+/* Tab icons show only when the tabs are a column on the left (theme-web.css). */
+.tab-icon { display: none; }
 .play-button > span { pointer-events: none; }
 
 /* Chat (chat.js) ------------------------------------------------------------------- */

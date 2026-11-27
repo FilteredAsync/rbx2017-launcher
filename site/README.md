@@ -52,11 +52,13 @@ is no edge cache locally.
 3. Deploy. Check the `*.pages.dev` address it gives you.
 4. In the project's Custom domains, add `www.rbx2017.com`. Cloudflare adds
    the DNS record itself.
-5. Once `https://www.rbx2017.com` works, add the redirect on the VPS (as
-   root):
+5. Once `https://www.rbx2017.com` works, add the redirects on the VPS (as
+   root). They must be permanent (301), or Google keeps the bare address as
+   the main one. The icon one lets search results for the bare address
+   show the icon:
 
    ```
-   sed -i 's|^\(rbx2017.com.*{\)$|\1\n\tredir / https://www.rbx2017.com/ 302|' /etc/caddy/Caddyfile
+   sed -i 's|^\(rbx2017.com.*{\)$|\1\n\tredir / https://www.rbx2017.com/ 301\n\tredir /favicon.ico https://www.rbx2017.com/favicon.ico 301|' /etc/caddy/Caddyfile
    caddy validate --config /etc/caddy/Caddyfile && systemctl reload caddy
    ```
 

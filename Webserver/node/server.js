@@ -175,6 +175,9 @@ async function handle(req, res) {
   };
 
   res.on('finish', () => accessLog(ctx, res.statusCode, ctx.method === 'HEAD' ? 0 : (ctx.bytes || 0), started));
+  // Nothing here belongs in search results (the bare domain's /manage and the
+  // engine's pages): the website at www is what search engines should show.
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow');
 
   try {
     // The Android app (m.<domain>) gets its own pages first (lib/mobile.js).

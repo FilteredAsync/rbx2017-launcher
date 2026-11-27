@@ -15,10 +15,11 @@
 //   mobile.pageRoutes         its pages, tried first for the m. host
 //   mobile.isMobile(ctx)      the request came to m.<domain>
 //   mobile.baseUrl(ctx)       "https://m.<domain>/" (join scripts)
+//   mobile.directBase(ctx)    "<scheme>://m.<domain>/" on the request's own scheme
+//                             (the PC client set up for these names)
 //   await mobile.placeLauncher(ctx)
 //   mobile.notHerePage(ctx)   any other page the app opens
 
-const dns = require('dns').promises;
 const net = require('net');
 const core = require('./core');
 const accounts = require('./accounts');
@@ -45,22 +46,6 @@ const APP_SETTINGS = {
   AppRatingsEnabled: false,
 };
 
-// The game server's public name -> its IPv4 address, for join scripts. This
-// PC's own resolver first; if it fails (a home router can remember "no such
-// name" for half an hour after a DNS record is added), public resolvers.
-const publicDns = new dns.Resolver();
-publicDns.setServers(['1.1.1.1', '8.8.8.8']);
-async function ipv4Of(name) {
-  try {
-    return (await dns.lookup(name, { family: 4 })).address;
-  } catch (error) { /* asked again below */ }
-  try {
-    const list = await publicDns.resolve4(name);
-    if (list.length) return list[0];
-  } catch (error) { /* no answer */ }
-  return null;
-}
-
 // A route handler's answer meaning "not mine, try the next route" (server.js).
 const NEXT = Symbol('next route');
 
@@ -79,6 +64,16 @@ module.exports = function mobileApi({ send, sendUtf8, sendJson, launcher, sessio
   const baseUrl = (ctx) => {
     const match = MOBILE_HOST.exec(hostOf(ctx));
     return `https://m.${match ? match[1] : hostOf(ctx)}/`;
+  };
+  // The same base on the scheme the request came in on: the PC game client
+  // set up for these names (tools/patch-0300-client.py --domain) may use
+  // plain HTTP (the VPS serves both; its Caddy says which in
+  // X-Forwarded-Proto), and its join script must keep that scheme.
+  const directBase = (ctx) => {
+    const match = MOBILE_HOST.exec(hostOf(ctx));
+    const forwarded = ctx.publicHost ? String(ctx.req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase() : '';
+    const scheme = forwarded === 'http' || forwarded === 'https' ? forwarded : (ctx.req.socket.encrypted ? 'https' : 'http');
+    return `${scheme}://m.${match ? match[1] : hostOf(ctx)}/`;
   };
   const json = (value) => (ctx) => sendJson(ctx, 200, value);
   // https://m.<domain>/ from any of the app's names (api., chat., m. ...): the
@@ -167,8 +162,8 @@ module.exports = function mobileApi({ send, sendUtf8, sendJson, launcher, sessio
   // --- joining a game -----------------------------------------------------------------------
 
   // Game/PlaceLauncher.ashx from the app's game engine. The player is the
-  // signed-in account (its cookie), else a guest. Unlike the PC launcher
-  // there is no local relay: the engine connects straight to the game
+  // signed-in account (its cookie), else a guest. There is no local relay
+  // (as for the PC launcher's 2017 games): the engine connects straight to the game
   // server's public address (the VPS forwards the game ports).
   async function placeLauncher(ctx) {
     const q = ctx.queryLower;
@@ -185,7 +180,7 @@ module.exports = function mobileApi({ send, sendUtf8, sendJson, launcher, sessio
     if (!match) return reply({ jobId: game.id, status: 4, message: 'The game server has no address.' });
     let ip = match[1];
     if (net.isIP(ip) === 0) {
-      ip = await ipv4Of(match[1]);
+      ip = await publicnet.ipv4Of(match[1]);
       if (!ip) return reply({ jobId: game.id, status: 4, message: `Could not look up ${match[1]}.` });
     }
     const base = baseUrl(ctx);
@@ -281,6 +276,7 @@ main{padding:12px;max-width:720px;margin:0 auto}h1{font-size:20px;font-weight:60
     upgrade: chatApi.upgrade,
     isMobile,
     baseUrl,
+    directBase,
     placeLauncher,
     notHerePage,
     routes: [

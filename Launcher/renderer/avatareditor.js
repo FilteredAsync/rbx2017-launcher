@@ -339,7 +339,6 @@
         const image = shots ? await blobToBase64(shots.full) : '';
         const data = await api.saveOutfit({ name: name.trim() || suggested, image });
         outfitList = data.outfits || [];
-        if (window.sfx) window.sfx.play('success');
         setCatStatus(`Saved "${data.outfit ? data.outfit.name : name}".`, 'good');
       } catch (error) {
         setCatStatus(message(error), 'error');

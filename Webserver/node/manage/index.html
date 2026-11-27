@@ -12,6 +12,7 @@
   <script src="/manage/assets.js" defer></script>
   <script src="/manage/people.js" defer></script>
   <script src="/manage/system.js" defer></script>
+  <script src="/manage/perf.js" defer></script>
 </head>
 <body class="locked">
 
@@ -42,6 +43,7 @@
         <a href="#reports" data-nav="reports">Reports <span class="count" id="nav-reports"></span></a>
         <a href="#players" data-nav="players">Players</a>
         <a href="#news" data-nav="news">Announcements</a>
+        <a href="#performance" data-nav="performance">Performance</a>
         <a href="#server" data-nav="server">Server <span class="dot" id="nav-server"></span></a>
       </nav>
       <div class="side-foot">
@@ -273,6 +275,23 @@
           </div>
         </form>
         <div class="news" id="news-list"></div>
+      </section>
+
+      <!-- Performance -->
+      <section data-view="performance" hidden>
+        <header class="view-head">
+          <div>
+            <h1>Performance</h1>
+            <p class="sub" id="perf-sub"></p>
+          </div>
+          <div class="head-actions">
+            <div class="seg small" id="perf-range">
+              <button type="button" data-range="15">15 min</button>
+              <button type="button" data-range="60">1 hour</button>
+            </div>
+          </div>
+        </header>
+        <div class="perf-grid" id="perf-grid"></div>
       </section>
 
       <!-- Server -->

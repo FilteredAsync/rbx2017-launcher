@@ -17,6 +17,8 @@
 //   POST /api/manage/asset-search/<id>/search   search it (again) now
 //   GET  /api/manage/asset-search/<id>/<n>      a found file, for its preview
 //   POST /api/manage/asset-search/<id>/<n>/approve | reject
+//   GET  /api/manage/stats?since=<t>            the Performance view: CPU, RAM, GPU, temperatures,
+//                                               players, games, RCC, network (lib/hoststats.js)
 //
 //   const manage = require('./manageapi')({ send, sendJson, sendFile, jsonBody });
 //   manage.routes: [pattern, handler] pairs for the route table
@@ -28,6 +30,7 @@ const admin = require('./admin');
 const places = require('./places');
 const engines = require('./engines');
 const assetsearch = require('./assetsearch');
+const hoststats = require('./hoststats');
 
 const PAGE_DIR = path.join(__dirname, '..', 'manage');
 const PAGE_TYPES = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8' };
@@ -202,6 +205,7 @@ function current() {
   const byEngine = {};
   for (const engine of engines.list()) byEngine[engine.id] = { id: engine.id, label: engine.label, installed: engine.installed, servers: 0, players: 0, games: 0 };
   const gamesSeen = new Set();
+  const gamesUp = new Set();
   for (const server of servers) {
     // The year the server runs (a player may have picked another than the game's).
     const engine = engines.known(server.engine) || places.engineOf(library[String(server.placeId)]);
@@ -211,12 +215,14 @@ function current() {
     // A game with servers of two years counts under both.
     const key = `${engine}:${server.placeId}`;
     if (!gamesSeen.has(key)) { gamesSeen.add(key); slot.games++; }
+    if (['running', 'starting', 'restarting'].includes(server.state)) gamesUp.add(String(server.placeId));
   }
   const list = Object.values(byEngine);
   return {
     up,
     players: list.reduce((sum, slot) => sum + slot.players, 0),
     servers: list.reduce((sum, slot) => sum + slot.servers, 0),
+    games: gamesUp.size,       // games with a server running or starting
     engines: list,
   };
 }
@@ -278,6 +284,7 @@ function problems() {
 
 module.exports = function manageApi({ send, sendJson, sendFile, jsonBody }) {
   startSampling();
+  hoststats.start(current);
   assetsearch.start();
 
   function page(ctx, match) {
@@ -304,6 +311,11 @@ module.exports = function manageApi({ send, sendJson, sendFile, jsonBody }) {
         convertReports: reportCounts(),
         assetSearch: assetsearch.summary(),
       });
+    }
+
+    if (area === 'stats' && parts.length === 1) {
+      if (ctx.method !== 'GET') return sendJson(ctx, 405, { error: 'use GET' });
+      return sendJson(ctx, 200, hoststats.read(ctx.queryLower.since));
     }
 
     if (area === 'games' && /^\d{1,15}$/.test(id || '') && parts.length === 3) {
@@ -364,7 +376,7 @@ module.exports = function manageApi({ send, sendJson, sendFile, jsonBody }) {
   return {
     routes: [
       [/^manage(?:\/([a-z0-9-]+\.(?:js|css|html)))?\/?$/i, page],
-      [/^api\/manage\/((?:overview|games|asset-search)(?:\/[a-z0-9-]+){0,3})\/?$/i, api],
+      [/^api\/manage\/((?:overview|games|asset-search|stats)(?:\/[a-z0-9-]+){0,3})\/?$/i, api],
     ],
   };
 };

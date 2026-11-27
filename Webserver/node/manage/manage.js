@@ -7,8 +7,8 @@
 //
 // This file holds what every view shares: requests, dialogs, the router, the
 // data the views read and polling. The views are in dash.js, games.js,
-// assets.js, people.js (players and reports) and system.js (announcements and
-// the server); each registers itself in `views`.
+// assets.js, people.js (players and reports), system.js (announcements and
+// the server) and perf.js (performance graphs); each registers itself in `views`.
 
 const $ = (id) => document.getElementById(id);
 
@@ -310,7 +310,7 @@ function renderNav() {
 
 // --- router -----------------------------------------------------------------------------------
 
-// #dashboard, #games, #games/<id>[/<tab>], #assets[/<tab>], #reports, #players[/<name>], #news, #server
+// #dashboard, #games, #games/<id>[/<tab>], #assets[/<tab>], #reports, #players[/<name>], #news, #performance, #server
 const ALIASES = { announcements: 'news', accounts: 'players' };   // older links
 async function route() {
   const [asked, ...args] = location.hash.replace(/^#/, '').split('/').map(decodeURIComponent);

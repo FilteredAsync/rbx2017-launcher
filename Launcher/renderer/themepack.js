@@ -27,6 +27,9 @@
     varValue: 2000,
   };
   const TARGETS = ['launcher', 'site'];
+  // Bases the launcher no longer has (the Xbox looks): packs
+  // built on them are refused there.
+  const RETIRED = { launcher: ['xbox', 'xbox2016'] };
   const ASSET_NAME = /^[A-Za-z0-9_][A-Za-z0-9_. -]{0,63}$/;
   const VAR_NAME = /^--[A-Za-z0-9_-]{1,60}$/;
   const DATA_URI = /^data:(image\/(?:png|jpeg|gif|webp|svg\+xml|avif)|font\/(?:woff2|woff|ttf|otf)|application\/(?:font-woff2?|x-font-ttf|x-font-otf|font-sfnt|vnd\.ms-opentype|octet-stream));base64,([A-Za-z0-9+/=\s]+)$/;
@@ -120,6 +123,7 @@
     const target = TARGETS.includes(options.target) ? options.target : 'launcher';
     const targets = Array.isArray(pack.targets) ? pack.targets.filter((t) => TARGETS.includes(t)) : TARGETS.slice();
     if (!targets.includes(target)) fail(`That theme is only for the ${targets.join(' and ') || 'other'} side.`);
+    if ((RETIRED[target] || []).includes(pack.base)) fail('That theme is built on the Xbox look, which the launcher no longer has.');
 
     const assets = {};
     let assetBytes = 0;

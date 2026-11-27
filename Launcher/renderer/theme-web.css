@@ -1,7 +1,8 @@
 /* Website looks (Settings > Theme): the launcher laid out like the Roblox
    site of a year: a header bar with the "rbx2017" wordmark, tabs in it or in
    a column on the left, a plain page and white cards. Every rule is scoped to
-   <html data-family="web">, so the Xbox look in style.css is untouched.
+   <html data-family="web"> (every theme is a website look; style.css is the
+   layout underneath).
 
    Everything is drawn from the custom properties below (the 2017 look); each
    theme in themes.css sets its own, and so can an imported theme pack
@@ -108,8 +109,6 @@
 html[data-family="web"] { background: var(--page-img) center / cover fixed, var(--page); }
 
 /* Page, header and tabs ------------------------------------------------------------ */
-[data-family="web"] .backdrop, [data-family="web"] .hints, [data-family="web"] .console-only { display: none; }
-[data-family="web"] .top .logo, [data-family="web"] .start-logo, [data-family="web"] .account-logo { display: none; }
 [data-family="web"] .wordmark { display: block; font-family: var(--font-head); font-size: 24px; font-weight: 300; line-height: 1; letter-spacing: -.5px; white-space: nowrap; }
 [data-family="web"] .wordmark b { font-weight: 700; }
 [data-family="web"] .screen { inset: 0; }
@@ -165,10 +164,7 @@ html[data-family="web"] { background: var(--page-img) center / cover fixed, var(
 /* Start and sign-in ---------------------------------------------------------------- */
 [data-family="web"] #screen-start { background: var(--hdr-img), var(--hdr); color: var(--hdr-text); }
 [data-family="web"] .start-mark { font-size: 104px; letter-spacing: -3px; animation: logo-in .6s cubic-bezier(.2, .9, .3, 1.2); }
-[data-family="web"] .start-press { margin-top: 44px; padding: 12px 34px; background: var(--play); color: var(--play-text); border-radius: var(--r-btn); font-size: 20px; font-weight: var(--w-strong); letter-spacing: 0; box-shadow: 0 2px 8px rgba(0, 0, 0, .2); animation: none; }
-[data-family="web"] .start-press:hover { background: var(--play-hover); }
-[data-family="web"] .start-press:focus-visible { text-shadow: none; outline: 2px solid var(--hdr-text); outline-offset: 3px; }
-[data-family="web"] .start-press .btn { display: none; }
+[data-family="web"] .start-status { color: var(--hdr-text); opacity: .85; }
 [data-family="web"] .start-foot { color: var(--hdr-text); opacity: .85; }
 
 [data-family="web"] .account-box { width: min(400px, 92vw); gap: 12px; padding: 22px 24px 18px; background: var(--card); border: 1px solid var(--card-line); border-radius: var(--r); box-shadow: var(--card-shadow); backdrop-filter: none; animation: none; }
@@ -230,7 +226,7 @@ html[data-family="web"] { background: var(--page-img) center / cover fixed, var(
 [data-family="web"] .news-dismiss { background: var(--btn); border: 1px solid var(--btn-line); border-radius: var(--r-btn); color: var(--btn-text); }
 [data-family="web"] .news-dismiss:hover { background: var(--btn); border-color: var(--btn-hover-line); }
 
-/* Selection: a thin ring instead of the console's white frame and zoom. */
+/* Selection (keyboard or controller): a thin ring. */
 [data-family="web"] .nav-target:focus-visible, [data-family="web"] .game-tile:focus-visible, [data-family="web"] .avatar-panel:focus-visible,
 [data-family="web"] .more:focus-visible, [data-family="web"] .item-tile:focus-visible, [data-family="web"] .card-main:focus-visible,
 [data-family="web"] .game-tile.focused, [data-family="web"] .avatar-panel.focused, [data-family="web"] .more.focused,
@@ -512,3 +508,20 @@ html[data-family="web"] { background: var(--page-img) center / cover fixed, var(
   [data-family="web"][data-nav="side"] .tab-link .tab-badge { position: absolute; margin: -18px 0 0 22px; }
   [data-family="web"] .clock { display: none; }
 }
+
+/* Settings > Sound > Menu music: the server's or your own, what plays, your files. */
+[data-family="web"] .music-choice { display: inline-flex; margin: 2px 0 12px; }
+[data-family="web"] .music-pick { position: relative; padding: 7px 16px; background: var(--btn); color: var(--btn-text); border: 1px solid var(--btn-line); font-size: 15px; cursor: pointer; }
+[data-family="web"] .music-pick + .music-pick { margin-left: -1px; }
+[data-family="web"] .music-pick:first-child { border-radius: var(--r-btn) 0 0 var(--r-btn); }
+[data-family="web"] .music-pick:last-child { border-radius: 0 var(--r-btn) var(--r-btn) 0; }
+[data-family="web"] .music-pick:hover { border-color: var(--btn-hover-line); z-index: 1; }
+[data-family="web"] .music-pick[aria-checked="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); z-index: 2; }
+[data-family="web"] .music-pick:focus-visible { outline: 2px solid var(--select); outline-offset: 1px; z-index: 3; }
+[data-family="web"] .music-now { min-height: 20px; color: var(--text); font-size: 15px; overflow-wrap: anywhere; }
+[data-family="web"] .music-list { max-width: 640px; margin: 10px 0 0; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+[data-family="web"] .music-file { display: flex; align-items: center; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+[data-family="web"] .music-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-family="web"] .music-size { color: var(--muted); font-size: 13px; white-space: nowrap; }
+[data-family="web"] .music-file.on .music-name { font-weight: var(--w-strong); }
+[data-family="web"] .music-file.on .music-name::before { content: "\25B6"; margin-right: 8px; color: var(--accent); font-size: 11px; vertical-align: 1px; }

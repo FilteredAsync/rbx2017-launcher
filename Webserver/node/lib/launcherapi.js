@@ -446,6 +446,11 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
     if (engines.get(engine).directJoin) out.joinMode = 'direct';
     // Self-hosted years: the launcher starts the client with our join script (lib/oldyears.js).
     if (engines.selfHosted(engine)) out.joinMode = 'oldscript';
+    // This server's placelauncher puts the game's own address in the join
+    // script on &connect=direct, so a client that connects there itself needs
+    // no game relay (lib/engines.js connectsDirectly). Older servers leave
+    // this out and launchers relay as before.
+    if (engines.get(engine).connectsDirectly) out.connect = 'direct';
     return out;
   }
 

@@ -1,8 +1,8 @@
 'use strict';
 
-// The launcher window, laid out like the 2016-2017 Xbox One app:
-//   start screen ("press A") -> sign in / sign up / play as a guest -> tabs
-//   Home · Avatar · Games · Players · Settings
+// The launcher window, in the look of the Roblox website of a year:
+//   start (signing in) -> sign in / sign up / play as a guest -> tabs
+//   Home · Avatar · Games · People · Groups · Chat · Settings
 // Accounts live on the web server (the same ones Roblox Studio uses); the
 // main process keeps the session (account.js). Guests join as "Guest_1234"
 // with the guest look, like 2016's guests.
@@ -31,7 +31,6 @@ function setStatus(id, text, kind) {
   const node = $(id);
   if (!node) return;
   // A new error, not the same one again from a refresh.
-  if (kind === 'error' && text && (node.textContent !== text || !node.classList.contains('error'))) sfx.play('error');
   node.textContent = text || '';
   node.className = `${node.classList.contains('account-note') ? 'account-note' : 'status'}${kind ? ` ${kind}` : ''}`;
 }
@@ -74,26 +73,6 @@ function el(tag, className, text) {
 function serverAddress() {
   return (state && state.clientConfig && state.clientConfig.centralUrl) || $('play-server').value.trim() || '';
 }
-
-// The ROBLOX logo (the 2015-2017 one, as on the Xbox One app) is Roblox's
-// art, so it is not in the git repository or the public download: a launcher
-// without it asks its server for it (account.js keeps a copy in config/),
-// and shows the word if neither has it.
-document.querySelectorAll('.logo-img').forEach((logo) => {
-  const file = logo.getAttribute('src');
-  let triedServer = false;
-  const fallback = () => {
-    if (!triedServer) {
-      triedServer = true;
-      logo.src = `launcher-net://server/download/${file}`;
-      return;
-    }
-    const text = el('div', `${logo.className.replace('logo-img', '')} logo-text`.trim(), 'ROBLOX');
-    logo.replaceWith(text);
-  };
-  logo.addEventListener('error', fallback);
-  if (logo.complete && logo.naturalWidth === 0) fallback();
-});
 
 // --- cover art --------------------------------------------------------------------
 
@@ -180,7 +159,6 @@ function placeholder(text, big, onClick) {
 // --- screens ---------------------------------------------------------------------------
 
 function showScreen(name) {
-  if (screen && screen !== name) sfx.play('screen');
   screen = name;
   $('screen-start').classList.toggle('hidden', name !== 'start');
   $('screen-account').classList.toggle('hidden', name !== 'account');
@@ -188,7 +166,6 @@ function showScreen(name) {
   document.body.classList.toggle('on-start', name === 'start');
   document.body.classList.toggle('on-account', name === 'account');
   document.body.classList.toggle('on-avatar', name === 'shell' && view === 'avatar');
-  if (name === 'start') focusEl($('start-press'));
   if (name === 'shell') {
     setTimeout(() => { popNews(); whatsNewAfterUpdate(); }, 400);
     setTimeout(offerTailscaleRemoval, 3000);
@@ -199,7 +176,7 @@ function showScreen(name) {
   }
 }
 
-// Leaving the start screen: straight in when already signed in.
+// After the start screen: straight in when already signed in, else sign in.
 let entering = false;
 async function enter() {
   if (entering) return;
@@ -214,19 +191,20 @@ async function enter() {
       focusEl($('files-download'));
       return;
     }
-    $('start-press').querySelector('span').textContent = 'Signing in…';
+    $('start-status').textContent = 'Signing in…';
     const current = await api.currentAccount().catch(() => null);
     if (current && current.account) {
       await signedIn(current);
       return;
     }
     showScreen('account');
+  } catch (error) {
+    showScreen('account');
   } finally {
-    $('start-press').querySelector('span').textContent = 'Press to start';
+    $('start-status').textContent = '';
     entering = false;
   }
 }
-$('start-press').addEventListener('click', enter);
 
 function enterShell() {
   showScreen('shell');
@@ -334,7 +312,6 @@ function updateIdentity() {
   const name = me ? me.account.name : 'Guest';
   $('chip-name').textContent = name;
   $('chip-sub').textContent = me ? (me.offline ? 'offline' : (me.account.admin ? 'admin' : '')) : 'guest';
-  $('home-username').textContent = name; // the Xbox theme shows it in capitals
   $('home-hello-name').textContent = name;
   $('avatar-caption').textContent = me ? 'Edit avatar' : 'Guest look';
   $('account-line').textContent = me ? `Signed in as ${me.account.name}` : (guest ? 'Playing as a guest' : 'Not signed in');
@@ -498,7 +475,7 @@ function updateChatBadge(counts) {
 }
 
 const chatView = window.ChatView.create({
-  api, el, message, personPicture, openProfile, sfx: window.sfx, getMe: () => me, onCounts: updateChatBadge,
+  api, el, message, personPicture, openProfile, getMe: () => me, onCounts: updateChatBadge,
   onTrades: () => tradesView.activate(),
 });
 
@@ -562,7 +539,7 @@ api.onTalkNews((counts) => { if (me && counts) chatView.setCounts(counts); });
 
 // The Groups tab (groups.js).
 const groupsView = window.GroupsView.create({
-  api, el, message, personPicture, openProfile, getMe: () => me, sfx: window.sfx,
+  api, el, message, personPicture, openProfile, getMe: () => me,
   onRobux: (balance) => { if (robux) showRobux(Object.assign({}, robux, { balance })); else refreshRobux(); },
 });
 
@@ -591,7 +568,6 @@ function applyCapabilities() {
 }
 
 function showView(name, focusContent) {
-  if (screen === 'shell' && view !== name) sfx.play(name === 'settings' ? 'menu' : 'screen');
   view = name;
   document.querySelectorAll('.tab-link').forEach((link) => link.classList.toggle('active', link.dataset.view === name));
   document.querySelectorAll('.view').forEach((section) => section.classList.toggle('active', section.id === `view-${name}`));
@@ -654,10 +630,9 @@ function navPool() {
   if (!$('news-overlay').classList.contains('hidden')) return focusables('#news-overlay');
   if (!$('profile-overlay').classList.contains('hidden')) return focusables('#profile-overlay');
   if (!$('overlay').classList.contains('hidden')) return focusables('#overlay');
-  if (screen === 'start') return [$('start-press')];
+  if (screen === 'start') return [];
   if (screen === 'account') return focusables('#screen-account');
-  // The website theme hides the footer (and its Settings button).
-  return [...focusables('#tabs'), ...focusables('#robux-wrap'), $('user-chip'), ...focusables(`#view-${view}`), $('settings-hint')]
+  return [...focusables('#tabs'), ...focusables('#robux-wrap'), $('user-chip'), ...focusables(`#view-${view}`)]
     .filter((node) => node.offsetParent !== null);
 }
 
@@ -667,7 +642,7 @@ function move(dx, dy) {
   const pool = navPool();
   const current = document.activeElement && pool.includes(document.activeElement) ? document.activeElement : null;
   if (!current) { focusEl(pool.find((node) => node.classList.contains('tab-link') && node.classList.contains('active')) || pool[0]); return; }
-  // Left/right in the tab bar switches tabs right away, like a console.
+  // Left/right in the tab bar switches tabs right away.
   if (current.classList.contains('tab-link') && dx) {
     const index = VIEWS.indexOf(current.dataset.view);
     const next = VIEWS[(index + dx + VIEWS.length) % VIEWS.length];
@@ -693,14 +668,8 @@ function move(dx, dy) {
   }
   if (best) {
     focusEl(best);
-    sfx.play('move');
   }
 }
-
-// Every button press clicks (unless something more specific plays for it).
-document.addEventListener('click', (event) => {
-  if (event.target.closest('button, summary, .nav-target')) sfx.press();
-}, true);
 
 function goBack() {
   if (loading) return;
@@ -708,7 +677,7 @@ function goBack() {
   if (!$('news-overlay').classList.contains('hidden')) { closeWhatsNew(); return; }
   if (!$('profile-overlay').classList.contains('hidden')) { closeProfile(); return; }
   if (!$('overlay').classList.contains('hidden')) { closeDetail(); return; }
-  if (screen === 'account') { showScreen('start'); return; }
+  if (screen === 'account') { if (me || guest) showScreen('shell'); return; }
   if (screen !== 'shell') return;
   const active = document.activeElement;
   if (active && active.closest('.view')) {
@@ -723,7 +692,6 @@ function goBack() {
 
 function select() {
   const node = document.activeElement;
-  if (screen === 'start') { enter(); return; }
   if (!node || node === document.body || node.tagName === 'INPUT') return;
   node.click();
 }
@@ -744,7 +712,6 @@ function openSettings() {
 
 document.querySelectorAll('.tab-link').forEach((link) => link.addEventListener('click', () => showView(link.dataset.view)));
 document.querySelectorAll('[data-goto]').forEach((node) => node.addEventListener('click', () => showView(node.dataset.goto, true)));
-$('settings-hint').addEventListener('click', openSettings);
 document.addEventListener('mouseover', (event) => {
   const tile = event.target.closest && event.target.closest('.game-tile.nav-target, .avatar-panel, .more, .card-main');
   if (tile) focusEl(tile);
@@ -759,7 +726,6 @@ document.addEventListener('keydown', (event) => {
     return;
   }
   if (event.key === 'Escape') { event.preventDefault(); goBack(); return; }
-  if (screen === 'start' && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); enter(); return; }
   if (event.key === 'PageUp') { switchTab(-1); return; }
   if (event.key === 'PageDown') { switchTab(1); return; }
   const dirs = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
@@ -773,8 +739,9 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'm' || event.key === 'M') toggleMusic();
 });
 
-// Controller (Xbox layout): stick/d-pad move, A select, B back, X settings,
-// Y music, LB/RB switch tabs, LT/RT (or the right stick) turn the avatar.
+// A controller works too (standard layout): stick or d-pad move, A select,
+// B back, X settings, Y mutes the music, LB/RB switch tabs, LT/RT (or the
+// right stick) turn the avatar.
 const pad = { pressed: {}, nextRepeat: 0, held: false };
 function pollGamepad(time) {
   const gamepad = [...(navigator.getGamepads ? navigator.getGamepads() : [])].find(Boolean);
@@ -813,9 +780,14 @@ function pollGamepad(time) {
 }
 requestAnimationFrame(pollGamepad);
 
-// --- music and background ------------------------------------------------------------
+// --- menu music ------------------------------------------------------------------------
+// The server's music (downloaded by the main process into config/), or the
+// player's own files (Settings > Sound > Menu music), which the main process
+// keeps in its app data: those play on shuffle, one after another.
 
 const music = $('music');
+let ownTrack = null; // the own file playing: { id, name, size }
+let musicListShown = '';
 
 // Music volume 0-100 (0 is off). Launchers before 1.10 stored only on/off.
 function musicVolume() {
@@ -831,24 +803,141 @@ function setMusicVolume(value) {
 }
 const musicWanted = () => musicVolume() > 0;
 
+// { source: "server" | "own", files } from the main process (state.menuMusic).
+function menuMusic() {
+  const info = state && state.menuMusic;
+  return info && Array.isArray(info.files) ? info : { source: 'server', files: [] };
+}
+
+// Any own file but the one that just played (when there are more).
+function nextOwnTrack(files, previous) {
+  const choices = previous && files.length > 1 ? files.filter((file) => file.id !== previous.id) : files;
+  return choices[Math.floor(Math.random() * choices.length)] || null;
+}
+
 function updateMusic() {
-  const available = Boolean(state && state.hasMusic);
   const clientRunning = Boolean(state && state.play.active);
-  window.backgroundPaused = clientRunning; // no animation while the game runs
   const volume = musicVolume();
   music.volume = volume / 100;
   showVolume('music', volume);
-  $('music-hint').textContent = available ? 'M or Y mutes the music.' : 'No menu music yet: it comes from your server.';
-  if (!available) return;
-  // A new stamp means the file changed (downloaded again from the server).
-  const stamp = String(state.musicStamp || 0);
-  if (music.dataset.stamp !== stamp) {
-    music.dataset.stamp = stamp;
-    music.src = `launcher-media://menu-music/?v=${stamp}`;
+  const mine = menuMusic();
+  const own = mine.source === 'own' && mine.files.length > 0;
+  let src = null;
+  if (own) {
+    if (!ownTrack || !mine.files.some((file) => file.id === ownTrack.id)) ownTrack = nextOwnTrack(mine.files, null);
+    src = `launcher-media://own-music/${encodeURIComponent(ownTrack.id)}`;
+    music.loop = mine.files.length === 1;
+  } else {
+    ownTrack = null;
+    // A new stamp means the file changed (downloaded again from the server).
+    if (state && state.hasMusic) src = `launcher-media://menu-music/?v=${state.musicStamp || 0}`;
+    music.loop = true;
+  }
+  $('music-hint').textContent = src ? 'M mutes the music (Y on a controller).' : 'No menu music yet: it comes from your server.';
+  renderMusicPanel(mine, own, Boolean(src));
+  if (!src) {
+    music.pause();
+    return;
+  }
+  if (music.dataset.src !== src) {
+    music.dataset.src = src;
+    music.src = src;
   }
   if (musicWanted() && !clientRunning) music.play().catch(() => {});
   else music.pause();
 }
+
+// Your own music: the next file when one ends (a single file just loops).
+music.addEventListener('ended', () => {
+  const mine = menuMusic();
+  if (mine.source !== 'own' || mine.files.length < 2) return;
+  ownTrack = nextOwnTrack(mine.files, ownTrack);
+  updateMusic();
+});
+
+// Settings > Sound > Menu music: the choice, what plays, your files.
+function renderMusicPanel(mine, own, available) {
+  document.querySelectorAll('.music-pick').forEach((pick) => pick.setAttribute('aria-checked', String(pick.dataset.music === (own ? 'own' : 'server'))));
+  let now = '';
+  if (!musicWanted()) now = 'The music is off.';
+  else if (own && ownTrack) now = `Playing ${ownTrack.name}`;
+  else if (available) now = "Playing the server's music";
+  $('music-now').textContent = now;
+  $('music-add').textContent = mine.files.length ? 'Add more…' : 'Add music…';
+  // Drawn again only when it changed (refreshState runs every few seconds).
+  const shown = JSON.stringify([own, mine.files.map((file) => file.id), ownTrack && ownTrack.id]);
+  if (shown === musicListShown) return;
+  musicListShown = shown;
+  const list = $('music-list');
+  const focusedId = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.musicRemove : null;
+  list.textContent = '';
+  list.classList.toggle('hidden', !own);
+  if (!own) return;
+  for (const file of mine.files) {
+    const row = el('li', `music-file${ownTrack && ownTrack.id === file.id ? ' on' : ''}`);
+    const name = el('span', 'music-name', file.name);
+    name.title = file.name;
+    row.append(name, el('span', 'music-size', megabytes(file.size)));
+    const remove = el('button', 'ghost small', 'Remove');
+    remove.dataset.musicRemove = file.id;
+    remove.addEventListener('click', () => removeMusic(file));
+    row.append(remove);
+    list.append(row);
+  }
+  if (focusedId) {
+    const again = list.querySelector(`[data-music-remove="${CSS.escape(focusedId)}"]`);
+    if (again) again.focus();
+  }
+}
+
+function applyMusicInfo(info) {
+  if (state && info && Array.isArray(info.files)) state.menuMusic = info;
+  updateMusic();
+}
+
+const SKIP_WORDS = { type: 'not MP3, OGG, WAV or M4A', empty: 'empty', big: 'over 50 MB', full: 'you have 50 files' };
+async function addMusic() {
+  setStatus('music-status', '');
+  try {
+    const result = await api.addMusic();
+    if (!result || result.canceled) return;
+    applyMusicInfo(result.music);
+    const skipped = result.skipped || [];
+    if (skipped.length) {
+      setStatus('music-status', `Skipped ${skipped.map((entry) => `${entry.name} (${SKIP_WORDS[entry.reason] || entry.reason})`).join(', ')}.`, 'error');
+    } else {
+      setStatus('music-status', result.added === 1 ? 'Added.' : `Added ${result.added} files.`, 'good');
+    }
+  } catch (error) {
+    setStatus('music-status', message(error), 'error');
+  }
+}
+
+async function removeMusic(file) {
+  try {
+    applyMusicInfo(await api.removeMusic(file.id));
+    setStatus('music-status', `Removed ${file.name}.`);
+  } catch (error) {
+    setStatus('music-status', message(error), 'error');
+  }
+}
+
+async function chooseMusic(source) {
+  setStatus('music-status', '');
+  // "My own" with nothing added yet: pick files first.
+  if (source === 'own' && menuMusic().files.length === 0) {
+    await addMusic();
+    return;
+  }
+  try {
+    applyMusicInfo(await api.setMusicSource(source));
+  } catch (error) {
+    setStatus('music-status', message(error), 'error');
+  }
+}
+
+document.querySelectorAll('.music-pick').forEach((pick) => pick.addEventListener('click', () => chooseMusic(pick.dataset.music)));
+$('music-add').addEventListener('click', addMusic);
 
 // M / Y: mute, or back to the last volume.
 function toggleMusic() {
@@ -863,15 +952,6 @@ function showVolume(which, value) {
 }
 
 $('volume-music').addEventListener('input', (event) => setMusicVolume(event.target.value));
-let soundPreview = null;
-$('volume-sounds').addEventListener('input', (event) => {
-  sfx.volume = Number(event.target.value);
-  showVolume('sounds', sfx.volume);
-  // Hear the new level (once the slider settles).
-  clearTimeout(soundPreview);
-  soundPreview = setTimeout(() => sfx.play('move'), 120);
-});
-showVolume('sounds', sfx.volume);
 
 // Left/right on a focused slider (keys, d-pad or stick) changes it.
 function nudgeSlider(slider, direction) {
@@ -879,19 +959,6 @@ function nudgeSlider(slider, direction) {
   slider.value = String(Math.max(Number(slider.min), Math.min(Number(slider.max), Number(slider.value) + step * direction)));
   slider.dispatchEvent(new Event('input', { bubbles: true }));
 }
-
-const BACKGROUNDS = [['classic', 'Classic'], ['neon', 'Neon grid'], ['sunset', 'Sunset']];
-function updateBackgroundButton() {
-  const entry = BACKGROUNDS.find(([key]) => key === window.backgroundMode) || BACKGROUNDS[0];
-  $('toggle-background').textContent = `Background: ${entry[1]}`;
-}
-
-$('toggle-background').addEventListener('click', () => {
-  const index = BACKGROUNDS.findIndex(([key]) => key === window.backgroundMode);
-  window.backgroundMode = BACKGROUNDS[(index + 1) % BACKGROUNDS.length][0];
-  storage('background', window.backgroundMode);
-  updateBackgroundButton();
-});
 
 // --- theme (Settings > Theme) -----------------------------------------------------------
 // theme.js put the saved theme on <html> before the page drew. Built-in themes
@@ -902,8 +969,7 @@ let customThemes = []; // checked packs, oldest first
 
 const THEME_GROUPS = [
   ['Website', (theme) => /^web/.test(theme.id)],
-  ['Xbox', (theme) => theme.family === 'console'],
-  ['More', (theme) => !/^web/.test(theme.id) && theme.family !== 'console'],
+  ['More', (theme) => !/^web/.test(theme.id)],
 ];
 
 function themeKey() {
@@ -917,7 +983,7 @@ function themePreview(theme, compiled, picture) {
   const box = el('span', 'theme-preview');
   box.setAttribute('aria-hidden', 'true');
   box.dataset.theme = theme.id;
-  box.dataset.family = theme.family;
+  box.dataset.family = 'web';
   box.dataset.nav = theme.nav;
   if (picture) {
     const img = el('img', 'pv-picture');
@@ -1160,7 +1226,6 @@ function renderHome() {
 // --- game details ----------------------------------------------------------------------
 
 function openDetail(game) {
-  if ($('overlay').classList.contains('hidden')) sfx.play('overlay');
   detailGame = onlineMatch(game) || game;
   const listed = lastGames.includes(detailGame);
   const servers = listed && Array.isArray(detailGame.servers) ? detailGame.servers : [];
@@ -1338,7 +1403,6 @@ async function copyShareLink(game, serverId) {
   if (!game || !game.placeId || !serverAddress()) return;
   try {
     await api.copy(shareLink(game, serverId));
-    sfx.play('success');
     showToast(serverId ? 'Link copied. Friends who open it join this server.' : `Link copied. Friends who open it play ${game.name}.`, 5000);
   } catch (error) {
     showToast(message(error), 6000);
@@ -1478,7 +1542,6 @@ function showPickedYear(year) {
 function pickYear(year) {
   if (!detailGame || playYear() === year) return;
   pickedYear = { placeId: String(detailGame.placeId), year };
-  sfx.play('move');
   showPickedYear(year);
   renderServerList(lastServerList.servers, lastServerList.canJoin);
 }
@@ -1550,7 +1613,6 @@ $('private-create').addEventListener('submit', async (event) => {
   try {
     const result = await api.createPrivateServer({ placeId: game.placeId, name: $('private-name').value.trim() || `${me.account.name}'s server` });
     closePrivateForms();
-    sfx.play('success');
     setStatus('private-status', `Made ${result.server.name}. Friends can join; anyone else needs code ${result.server.code}.`, 'good');
   } catch (error) {
     setStatus('private-status', message(error), 'error');
@@ -1611,7 +1673,6 @@ let loading = null; // { game, cancelled, started }
 
 function setLoadingStatus(text, kind) {
   const status = $('loading-status');
-  if (kind === 'error' && !status.classList.contains('error')) sfx.play('error');
   status.textContent = text;
   status.className = `loading-status${kind ? ` ${kind}` : ''}`;
 }
@@ -2031,7 +2092,6 @@ async function friendAction(verb, person, statusId = 'friends-status') {
   try {
     const result = await api.friendAction(verb, { name: person.name });
     friendData = result;
-    if (verb === 'accept' || result.became === 'friends') sfx.play('success');
     setStatus(statusId, FRIEND_TEXTS[verb](result), 'good');
     ok = true;
   } catch (error) {
@@ -2405,7 +2465,6 @@ async function openProfile(person, keepStatus) {
   profilePerson = person;
   if (!keepStatus) setStatus('profile-status', 'Loading…');
   if ($('profile-overlay').classList.contains('hidden')) {
-    sfx.play('overlay');
     personPicture($('profile-pic'), person.userId, 420);
     renderProfile(Object.assign({ bio: '', friendStatus: null }, person, { self: Boolean(me && me.account.userId === person.userId) }));
     $('profile-overlay').classList.remove('hidden');
@@ -2868,7 +2927,6 @@ async function showWhatsNew(version) {
   $('whats-new-title').textContent = version ? `What's new in ${version}` : 'Update log';
   $('whats-new-list').replaceChildren(...entries.map(changelogEntry));
   $('whats-new-list').scrollTop = 0;
-  sfx.play('overlay');
   $('news-overlay').classList.remove('hidden');
   focusEl($('whats-new-close'));
   return true;
@@ -2901,7 +2959,6 @@ async function offerTailscaleRemoval() {
   if (!result.offer || tailscaleOffered) return;
   tailscaleOffered = true;
   setStatus('ts-status', '');
-  sfx.play('overlay');
   $('tailscale-overlay').classList.remove('hidden');
   focusEl($('ts-remove'));
 }
@@ -3004,7 +3061,6 @@ $('update-pill').addEventListener('click', async () => {
 
 let toastTimer = null;
 function showToast(text, ms = 9000) {
-  sfx.play('popup');
   const node = $('toast');
   node.textContent = text;
   node.classList.remove('hidden');
@@ -3126,10 +3182,10 @@ api.onServerMoved(async (info) => {
 api.onLog(({ area, line, time }) => appendLog(area, line, time));
 api.onStatusChanged(() => refreshState());
 
-updateBackgroundButton();
 updateIdentity();
 refreshState().then(() => {
   showScreen('start');
+  enter();
 });
 setInterval(refreshState, 5000);
 setInterval(() => {

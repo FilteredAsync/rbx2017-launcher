@@ -11,13 +11,15 @@ const legacy = require('./legacy');
 const { app, BrowserWindow, ipcMain, shell, clipboard, dialog, protocol, screen, globalShortcut, Notification } = require('electron');
 const { spawn, spawnSync } = require('child_process');
 const dns = require('dns').promises;
+const crypto = require('crypto');
 const fs = require('fs');
 const net = require('net');
 const os = require('os');
 const path = require('path');
 
-// Menu music is the player's own file (config/menu-music.mp3), served to the
-// window as launcher-media://menu-music; it is not part of the app.
+// Menu music is the server's (config/menu-music.mp3, served to the window as
+// launcher-media://menu-music) or the player's own files (app data\music,
+// launcher-media://own-music/<id>); neither is part of the app.
 // launcher-net:// brings the window pictures, meshes and item data from the
 // web server and the client's own content files (account.js), the menu's
 // sound effects too (stream: audio loads fail at random without it).
@@ -357,6 +359,120 @@ async function downloadMenuMusic(centralUrl) {
   fs.renameSync(`${file}.tmp`, file);
   fs.writeFileSync(infoFile, JSON.stringify({ server: url, etag: response.headers.get('etag') || null }, null, 2));
   return true;
+}
+
+// --- the player's own menu music (Settings > Sound > Menu music) -----------------------
+// Files the player picks are copied into the launcher's app data (music\), so
+// launcher updates and the server's music never touch them. music.json there:
+// { source: "server" | "own", files: [{ id, name, size }] }. The window plays
+// them on shuffle; the server's music stays the default.
+const OWN_MUSIC_TYPES = { '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.wav': 'audio/wav', '.m4a': 'audio/mp4' };
+const OWN_MUSIC_FILES = 50;
+const OWN_MUSIC_ID = /^[0-9a-f]{16}\.(?:mp3|ogg|wav|m4a)$/;
+
+function ownMusicDir() {
+  return path.join(app.getPath('userData'), 'music');
+}
+
+function ownMusic() {
+  let data = {};
+  try {
+    data = JSON.parse(fs.readFileSync(path.join(ownMusicDir(), 'music.json'), 'utf8')) || {};
+  } catch (error) {
+    data = {};
+  }
+  const files = (Array.isArray(data.files) ? data.files : [])
+    .filter((file) => file && OWN_MUSIC_ID.test(String(file.id)) && fs.existsSync(path.join(ownMusicDir(), file.id)))
+    .map((file) => ({ id: file.id, name: String(file.name || file.id).slice(0, 120), size: Number(file.size) || 0 }));
+  return { source: data.source === 'own' && files.length > 0 ? 'own' : 'server', files };
+}
+
+function saveOwnMusic(info) {
+  fs.mkdirSync(ownMusicDir(), { recursive: true });
+  const file = path.join(ownMusicDir(), 'music.json');
+  fs.writeFileSync(`${file}.tmp`, JSON.stringify({ source: info.source, files: info.files }, null, 2));
+  fs.renameSync(`${file}.tmp`, file);
+  return ownMusic();
+}
+
+function registerMusicIpc() {
+  ipcMain.handle('music:add', async () => {
+    const pick = await dialog.showOpenDialog(win, {
+      title: 'Add menu music',
+      filters: [{ name: 'Music', extensions: ['mp3', 'ogg', 'wav', 'm4a'] }],
+      properties: ['openFile', 'multiSelections'],
+    });
+    if (pick.canceled || pick.filePaths.length === 0) return { canceled: true };
+    const info = ownMusic();
+    const skipped = [];
+    let added = 0;
+    for (const source of pick.filePaths) {
+      const name = path.basename(source);
+      const ext = path.extname(source).toLowerCase();
+      let size = -1;
+      try { size = fs.statSync(source).size; } catch (error) { /* gone */ }
+      if (!OWN_MUSIC_TYPES[ext]) skipped.push({ name, reason: 'type' });
+      else if (size <= 0) skipped.push({ name, reason: 'empty' });
+      else if (size > MUSIC_MAX_BYTES) skipped.push({ name, reason: 'big' });
+      else if (info.files.length >= OWN_MUSIC_FILES) skipped.push({ name, reason: 'full' });
+      else {
+        const id = `${crypto.randomBytes(8).toString('hex')}${ext}`;
+        fs.mkdirSync(ownMusicDir(), { recursive: true });
+        await fs.promises.copyFile(source, path.join(ownMusicDir(), id));
+        info.files.push({ id, name, size });
+        added++;
+      }
+    }
+    if (added) info.source = 'own';
+    logger('launcher')(`Menu music: ${added} file(s) added${skipped.length ? `, ${skipped.length} skipped` : ''}.`);
+    return { music: saveOwnMusic(info), added, skipped };
+  });
+  ipcMain.handle('music:remove', (event, id) => {
+    if (!OWN_MUSIC_ID.test(String(id))) throw new Error('Unknown music file.');
+    const info = ownMusic();
+    info.files = info.files.filter((file) => file.id !== id);
+    try { fs.unlinkSync(path.join(ownMusicDir(), id)); } catch (error) { /* already gone */ }
+    if (info.files.length === 0) info.source = 'server';
+    return saveOwnMusic(info);
+  });
+  ipcMain.handle('music:source', (event, source) => {
+    const info = ownMusic();
+    info.source = source === 'own' && info.files.length > 0 ? 'own' : 'server';
+    return saveOwnMusic(info);
+  });
+}
+
+// A music file for the window's <audio>, with byte ranges (seeking, and m4a
+// files whose index is at the end). Reads only the part asked for.
+function mediaHeader(request, name) {
+  const headers = request.headers || {};
+  if (typeof headers.get === 'function') return headers.get(name);
+  const key = Object.keys(headers).find((entry) => entry.toLowerCase() === name);
+  return key ? headers[key] : null;
+}
+
+function mediaResponse(request, file, type) {
+  let size;
+  try { size = fs.statSync(file).size; } catch (error) { return new Response('not found', { status: 404 }); }
+  const range = /^bytes=(\d*)-(\d*)$/.exec(String(mediaHeader(request, 'range') || '').trim());
+  let start = 0;
+  let end = size - 1;
+  if (range && (range[1] || range[2])) {
+    if (range[1]) {
+      start = Number(range[1]);
+      if (range[2]) end = Math.min(Number(range[2]), size - 1);
+    } else {
+      start = Math.max(0, size - Number(range[2]));
+    }
+    if (start >= size || start > end) return new Response('', { status: 416, headers: { 'Content-Range': `bytes */${size}` } });
+  }
+  const bytes = Buffer.alloc(end - start + 1);
+  const fd = fs.openSync(file, 'r');
+  try { fs.readSync(fd, bytes, 0, bytes.length, start); } finally { fs.closeSync(fd); }
+  const headers = { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Content-Length': String(bytes.length) };
+  if (!range || !(range[1] || range[2])) return new Response(bytes, { headers });
+  headers['Content-Range'] = `bytes ${start}-${end}/${size}`;
+  return new Response(bytes, { status: 206, headers });
 }
 
 function syncMenuMusic(centralUrl) {
@@ -1060,6 +1176,7 @@ function registerIpc() {
       hasLocalHostKey: Boolean(hosting.localHostKey()),
       hasMusic: musicStamp() !== null,
       musicStamp: musicStamp(),
+      menuMusic: ownMusic(),
       ...capabilities(),
       fixedServer: Boolean(fixedServer()),
       needsFiles: !capabilities().canPlay && !capabilities().canHost,
@@ -1069,6 +1186,7 @@ function registerIpc() {
   });
 
   registerThemeIpc();
+  registerMusicIpc();
 
   // Tailscale is no longer needed once the server answers on a public
   // address (the VPS relay): offer to remove it, once, on player installs.
@@ -1549,11 +1667,14 @@ app.whenReady().then(() => {
   }
   protocol.handle('launcher-net', (request) => account.handleNet(request));
   protocol.handle('launcher-media', (request) => {
-    const music = path.join(ROOT, 'config', 'menu-music.mp3');
-    if (new URL(request.url).hostname !== 'menu-music' || !fs.existsSync(music)) {
-      return new Response('not found', { status: 404 });
+    const url = new URL(request.url);
+    if (url.hostname === 'own-music') {
+      const id = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
+      if (!OWN_MUSIC_ID.test(id)) return new Response('not found', { status: 404 });
+      return mediaResponse(request, path.join(ownMusicDir(), id), OWN_MUSIC_TYPES[path.extname(id)]);
     }
-    return new Response(fs.readFileSync(music), { headers: { 'Content-Type': 'audio/mpeg' } });
+    if (url.hostname !== 'menu-music') return new Response('not found', { status: 404 });
+    return mediaResponse(request, musicFile(), 'audio/mpeg');
   });
   applyFixedServer();
   registerLinkScheme();

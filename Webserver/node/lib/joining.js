@@ -1,14 +1,19 @@
 'use strict';
 
 // Joining a multiplayer game, shared by play.js (playGame.bat) and the
-// launcher. The client only talks to http://localhost./, so unless the web
-// server runs on this PC, a local proxy on port 80 forwards its requests to
-// the central web server. Its game traffic goes through a local UDP relay
-// (lib/relay.js), because this 2017 client can only reach a game server on
-// 127.0.0.1.
+// launcher. A client that only talks to http://localhost./ needs, unless the
+// web server runs on this PC, a local proxy on port 80 that forwards its
+// requests to the central web server. The 2017 client folder may also hold a
+// second client set up for the server's public names (directClient below),
+// which talks to them itself and needs no proxy. The game connection goes
+// straight to the game server when the server offers that (connect: 'direct'
+// in the join answer) and the year's client connects where its join script
+// says (lib/engines.js connectsDirectly, the 2017 one); otherwise through a
+// local UDP relay on 127.0.0.1 (lib/relay.js).
 
 const { spawn } = require('child_process');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const core = require('./core');
 const engines = require('./engines');
@@ -22,6 +27,28 @@ const CLIENT_EXE = core.rootPath('Client', 'RobloxPlayerBeta.exe');
 // lib/engines.js): Client/ for 2017, Client<year>/ for the others.
 function clientExe(engine) {
   return core.rootPath(engines.clientFolder(engine), engines.clientExeName(engine));
+}
+
+// Windows 7 and 8: their WinInet may not get through TLS with the VPS's
+// certificate, so the client there uses the same names over plain HTTP (the
+// VPS serves both; tools/vps/setup-vps.sh --android).
+const OLD_TLS = process.platform === 'win32' && /^6\.[12]\./.test(os.release());
+
+// The second client next to the 2017 one, set up for the server's public names
+// by tools/patch-0300-client.py --domain: RobloxPlayerBetaDirect.exe (which
+// reads AppSettingD.xml), with ClientDirect.txt holding the base address to
+// start it with (e.g. https://m.rbx2017.com/; http on Windows 7 and 8).
+// Returns { exe, base }, or null to start RobloxPlayerBeta.exe through the
+// proxy. Launchers before 1.21.1 always start RobloxPlayerBeta.exe, so the same
+// game files work with them.
+function directClient(exe) {
+  const folder = path.dirname(exe);
+  const direct = path.join(folder, 'RobloxPlayerBetaDirect.exe');
+  const text = core.readText(path.join(folder, 'ClientDirect.txt'));
+  if (text === null || !core.isFile(direct)) return null;
+  const base = text.trim();
+  if (!/^https?:\/\/m\.[a-z0-9-]+(?:\.[a-z0-9-]+)+\/$/i.test(base)) return null;
+  return { exe: direct, base: OLD_TLS ? base.replace(/^https:/i, 'http:') : base };
 }
 
 // A client that closes this soon after starting did not get into the game
@@ -194,37 +221,53 @@ async function joinGame({ centralUrl, username, ticket = null, name = null, game
   if (!ticket && !validUsername(username)) throw new Error('the username needs 3-20 letters, digits or _');
   const userId = ticket ? null : core.localUserId(username);
 
-  // Shared with Studio (both need port 80); closed when neither runs.
+  // Shared with Studio (both need port 80); closed when neither runs. A client
+  // set up for the public names goes there itself.
+  // (Not the self-hosted years: their join script runs on www.localhost.)
+  const direct = game && (game.joinMode === 'direct' || game.joinMode === 'oldscript') ? null : directClient(exe);
+  const home = direct ? direct.base : 'http://localhost./';
   let localProxy = null;
-  if (!proxy.centralIsLocalPort80(centralUrl)) {
+  if (direct) {
+    log(`The client talks to ${direct.base} itself.`);
+  } else if (!proxy.centralIsLocalPort80(centralUrl)) {
     localProxy = await proxy.acquireProxy(centralUrl, log);
     log(`Forwarding the client's web requests to ${centralUrl}.`);
   }
-  let gameRelay;
-  // A client that always connects to one port (the 2018 one) gets the relay there.
+  // The game connection: straight to the game server when the server offers
+  // it and this year's client connects there itself; else through a local
+  // relay. A client that always connects to one port (the 2018 one) gets the
+  // relay there.
   const year = engines.known(game && game.engine);
-  const connectPort = year ? engines.ENGINES[year].clientConnectPort || 0 : 0;
-  try {
-    gameRelay = await relay.startRelay(game.address, log, connectPort ? { port: connectPort } : {});
-  } catch (error) {
-    if (localProxy) localProxy.release();
-    if (error.code === 'EADDRINUSE') throw new Error(`${error.message}. Close other Roblox games and game servers on this PC, then try again.`);
-    throw new Error(`could not reach the game address ${game.address}: ${error.message}`);
+  const engine = year ? engines.ENGINES[year] : null;
+  const connectDirect = game.connect === 'direct' && game.joinMode !== 'direct' && Boolean(engine && engine.connectsDirectly);
+  const connectPort = engine ? engine.clientConnectPort || 0 : 0;
+  let gameRelay = null;
+  if (connectDirect) {
+    log(`The client connects to the game server (${game.address}) itself.`);
+  } else {
+    try {
+      gameRelay = await relay.startRelay(game.address, log, connectPort ? { port: connectPort } : {});
+    } catch (error) {
+      if (localProxy) localProxy.release();
+      if (error.code === 'EADDRINUSE') throw new Error(`${error.message}. Close other Roblox games and game servers on this PC, then try again.`);
+      throw new Error(`could not reach the game address ${game.address}: ${error.message}`);
+    }
+    log(`Relaying the game connection to ${gameRelay.target}.`);
   }
-  log(`Relaying the game connection to ${gameRelay.target}.`);
   const closeAll = () => {
-    gameRelay.close();
+    if (gameRelay) gameRelay.close();
     if (localProxy) localProxy.release();
   };
 
   const who = ticket ? `ticket=${ticket}` : `username=${encodeURIComponent(username)}&id=${userId}`;
-  let joinUrl = `http://localhost./game/placelauncher.ashx/?gameId=${encodeURIComponent(game.id)}&${who}&relayport=${gameRelay.port}`;
+  const connect = connectDirect ? 'connect=direct' : `relayport=${gameRelay.port}`;
+  let joinUrl = `${home}game/placelauncher.ashx/?gameId=${encodeURIComponent(game.id)}&${who}&${connect}`;
   // Clients before 2016 (lib/engines.js directJoin) run their -j address as
   // the join script itself instead of following placelauncher's answer, so
   // they get the join script address it names.
   if (game.joinMode === 'direct') {
     try {
-      const answer = await (await fetch(`${centralUrl}${joinUrl.slice('http://localhost.'.length)}`, { signal: AbortSignal.timeout(15000) })).json();
+      const answer = await (await fetch(`${centralUrl}${joinUrl.slice(home.length - 1)}`, { signal: AbortSignal.timeout(15000) })).json();
       if (!answer || !answer.joinScriptUrl) throw new Error(answer && answer.message ? answer.message : 'no join script address');
       joinUrl = answer.joinScriptUrl;
     } catch (error) {
@@ -232,7 +275,7 @@ async function joinGame({ centralUrl, username, ticket = null, name = null, game
       throw new Error(`could not get the join script: ${error.message}`);
     }
   }
-  let args = ['--play', '-a', 'http://localhost./Login/Negotiate.ashx/', '-t', 'Test', '-j', joinUrl];
+  let args = ['--play', '-a', `${home}Login/Negotiate.ashx/`, '-t', 'Test', '-j', joinUrl];
   // Self-hosted years (2009, 2011, 2013; lib/engines.js): our own join script
   // (lib/oldyears.js), which connects to "localhost", the relay. 2013 runs it
   // as its -j script; 2009 loads it with -script.
@@ -258,7 +301,7 @@ async function joinGame({ centralUrl, username, ticket = null, name = null, game
   let stopped = false;
   let child;
   try {
-    child = spawn(exe, args, {
+    child = spawn(direct ? direct.exe : exe, args, {
       cwd: path.dirname(exe),
       stdio: 'ignore',
       env: isolatedEnv(),

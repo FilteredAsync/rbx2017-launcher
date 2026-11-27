@@ -8,14 +8,18 @@
 // Requests from the VPS carry the player's address in X-Forwarded-For and
 // the public name they used in X-Rbx-Public-Host. Game addresses this server
 // hands them ("host:port" of its own game servers) then use that name, so
-// their launcher's game relay sends UDP to the VPS, which forwards it here.
+// their game client (or its launcher's game relay) sends UDP to the VPS,
+// which forwards it here.
 //
 //   requestInfo(req) -> { remote, publicHost }   (publicHost null: not relayed)
 //   rewriteAddresses(ctx, value) -> value with own game addresses made public
+//   publicAddress(ctx, "host:port") -> the same, for one address
+//   await ipv4Of(name) -> a public name's IPv4 address, or null
 //   tunnelAddress() -> this PC's WireGuard address, or null
 //   fromLoopback(ctx) -> a program on this PC (RCC, the always-on server),
 //                    by the connection itself, so never a relayed request
 
+const dns = require('dns').promises;
 const net = require('net');
 const os = require('os');
 const core = require('./core');
@@ -84,4 +88,20 @@ function fromLoopback(ctx) {
   return peer === '::1' || /^127\.\d+\.\d+\.\d+$/.test(peer);
 }
 
-module.exports = { requestInfo, rewriteAddresses, publicAddress, tunnelAddress, fromRelay, fromLoopback };
+// The game server's public name -> its IPv4 address, for join scripts. This
+// PC's own resolver first; if it fails (a home router can remember "no such
+// name" for half an hour after a DNS record is added), public resolvers.
+const publicDns = new dns.Resolver();
+publicDns.setServers(['1.1.1.1', '8.8.8.8']);
+async function ipv4Of(name) {
+  try {
+    return (await dns.lookup(name, { family: 4 })).address;
+  } catch (error) { /* asked again below */ }
+  try {
+    const list = await publicDns.resolve4(name);
+    if (list.length) return list[0];
+  } catch (error) { /* no answer */ }
+  return null;
+}
+
+module.exports = { requestInfo, rewriteAddresses, publicAddress, tunnelAddress, fromRelay, fromLoopback, ipv4Of };

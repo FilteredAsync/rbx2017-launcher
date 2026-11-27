@@ -530,7 +530,11 @@ async function startGameServerJob(placeId, port, domain, maxPlayers, gameId, log
 // game:HttpGet).
 function gameServerHooks(placeId, domain, scriptTimeout, build) {
   const timeout = scriptTimeout > 0 ? `pcall(function() game:GetService("ScriptContext"):SetTimeout(${scriptTimeout}) end)\r\n` : '';
-  return `${NETWORK_SETTINGS}${timeout}${FRIEND_SERVICE}${gamePassCall(domain)}${badgeCall(domain)}${avatarTypeCall(placeId)}`
+  // Outbound HTTP for games is off for now: a place could otherwise reach this
+  // PC's own services over 127.0.0.1. gameserver.lua does the same for the 2017
+  // engine; here it is best effort (this runs once RCC takes players).
+  const noHttp = 'pcall(function() game:GetService("HttpService").HttpEnabled = false end)\r\n';
+  return `${noHttp}${NETWORK_SETTINGS}${timeout}${FRIEND_SERVICE}${gamePassCall(domain)}${badgeCall(domain)}${avatarTypeCall(placeId)}`
     + `${serverVersionCall(build)}${PLAYERGUI_HOOK}\r\n${adminConsoleCall(placeId)}\r\n`;
 }
 
