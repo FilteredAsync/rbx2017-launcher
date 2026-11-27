@@ -8,8 +8,8 @@
 //
 // It passes the name the program used as X-Forwarded-Host (Studio's links
 // and cookies must stay on localhost.), and for Team Create it points Studio
-// at a local UDP relay to the server's Team Create game port (the 2017
-// engine only connects to game servers on 127.0.0.1; see relay.js).
+// at a local UDP relay to the server's Team Create game port (as the 2017
+// client before 0.300 needed; Studio is untested without it, see relay.js).
 // The game client's and Studio's assets are kept on this PC (proxycache.js),
 // so games load faster after the first visit.
 //

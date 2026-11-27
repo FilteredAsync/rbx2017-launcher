@@ -5,9 +5,11 @@
 // web server runs on this PC, a local proxy on port 80 that forwards its
 // requests to the central web server. The 2017 client folder may also hold a
 // second client set up for the server's public names (directClient below),
-// which talks to them itself and needs no proxy. Either way its game traffic
-// goes through a local UDP relay (lib/relay.js), because this 2017 client can
-// only reach a game server on 127.0.0.1.
+// which talks to them itself and needs no proxy. The game connection goes
+// straight to the game server when the server offers that (connect: 'direct'
+// in the join answer) and the year's client connects where its join script
+// says (lib/engines.js connectsDirectly, the 2017 one); otherwise through a
+// local UDP relay on 127.0.0.1 (lib/relay.js).
 
 const { spawn } = require('child_process');
 const fs = require('fs');
@@ -230,25 +232,35 @@ async function joinGame({ centralUrl, username, ticket = null, name = null, game
     localProxy = await proxy.acquireProxy(centralUrl, log);
     log(`Forwarding the client's web requests to ${centralUrl}.`);
   }
-  let gameRelay;
-  // A client that always connects to one port (the 2018 one) gets the relay there.
+  // The game connection: straight to the game server when the server offers
+  // it and this year's client connects there itself; else through a local
+  // relay. A client that always connects to one port (the 2018 one) gets the
+  // relay there.
   const year = engines.known(game && game.engine);
-  const connectPort = year ? engines.ENGINES[year].clientConnectPort || 0 : 0;
-  try {
-    gameRelay = await relay.startRelay(game.address, log, connectPort ? { port: connectPort } : {});
-  } catch (error) {
-    if (localProxy) localProxy.release();
-    if (error.code === 'EADDRINUSE') throw new Error(`${error.message}. Close other Roblox games and game servers on this PC, then try again.`);
-    throw new Error(`could not reach the game address ${game.address}: ${error.message}`);
+  const engine = year ? engines.ENGINES[year] : null;
+  const connectDirect = game.connect === 'direct' && game.joinMode !== 'direct' && Boolean(engine && engine.connectsDirectly);
+  const connectPort = engine ? engine.clientConnectPort || 0 : 0;
+  let gameRelay = null;
+  if (connectDirect) {
+    log(`The client connects to the game server (${game.address}) itself.`);
+  } else {
+    try {
+      gameRelay = await relay.startRelay(game.address, log, connectPort ? { port: connectPort } : {});
+    } catch (error) {
+      if (localProxy) localProxy.release();
+      if (error.code === 'EADDRINUSE') throw new Error(`${error.message}. Close other Roblox games and game servers on this PC, then try again.`);
+      throw new Error(`could not reach the game address ${game.address}: ${error.message}`);
+    }
+    log(`Relaying the game connection to ${gameRelay.target}.`);
   }
-  log(`Relaying the game connection to ${gameRelay.target}.`);
   const closeAll = () => {
-    gameRelay.close();
+    if (gameRelay) gameRelay.close();
     if (localProxy) localProxy.release();
   };
 
   const who = ticket ? `ticket=${ticket}` : `username=${encodeURIComponent(username)}&id=${userId}`;
-  let joinUrl = `${home}game/placelauncher.ashx/?gameId=${encodeURIComponent(game.id)}&${who}&relayport=${gameRelay.port}`;
+  const connect = connectDirect ? 'connect=direct' : `relayport=${gameRelay.port}`;
+  let joinUrl = `${home}game/placelauncher.ashx/?gameId=${encodeURIComponent(game.id)}&${who}&${connect}`;
   // Clients before 2016 (lib/engines.js directJoin) run their -j address as
   // the join script itself instead of following placelauncher's answer, so
   // they get the join script address it names.

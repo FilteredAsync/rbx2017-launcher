@@ -1,13 +1,17 @@
 'use strict';
 
-// Local UDP relay for the game connection (used by play.js).
+// Local UDP relay for the game connection (lib/joining.js, Studio's Team
+// Create in lib/proxy.js).
 //
-// This 2017 client binds its game socket to 127.0.0.1, so it can only reach
-// a game server on 127.0.0.1. Games on other PCs (Tailscale, playit, LAN)
-// time out with "Failed to connect ... Connection attempt failed": the
-// packets can never leave the loopback socket. The relay listens on
-// 127.0.0.1, the join script points the client there, and it forwards every
-// packet to the real game server and the replies back.
+// The 2017 client before 0.300 bound its game socket to 127.0.0.1, so it
+// could only reach a game server on 127.0.0.1: games on other PCs timed out
+// with "Failed to connect ... Connection attempt failed". The 0.300 client
+// connects where its join script says (lib/engines.js connectsDirectly), so
+// the launcher relays only other years' games (the 2018 client always
+// connects to localhost, clientConnectPort), servers that don't offer a
+// direct connection, and playGame.bat. The relay listens on 127.0.0.1, the
+// join script points the client there, and it forwards every packet to the
+// real game server and the replies back.
 
 const dgram = require('dgram');
 const dns = require('dns');

@@ -440,6 +440,11 @@ module.exports = function launcherApi({ send, sendJson, jsonBody, assetBytes }) 
     const out = { id: game.id, name: game.name, placeId: String(game.placeId), address, privateId: game.privateId || null, engine };
     // Pre-2016 clients take the join script's own address (lib/joining.js).
     if (engines.get(engine).directJoin) out.joinMode = 'direct';
+    // This server's placelauncher puts the game's own address in the join
+    // script on &connect=direct, so a client that connects there itself needs
+    // no game relay (lib/engines.js connectsDirectly). Older servers leave
+    // this out and launchers relay as before.
+    if (engines.get(engine).connectsDirectly) out.connect = 'direct';
     return out;
   }
 

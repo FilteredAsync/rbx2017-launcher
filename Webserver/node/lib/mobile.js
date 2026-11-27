@@ -20,7 +20,6 @@
 //   await mobile.placeLauncher(ctx)
 //   mobile.notHerePage(ctx)   any other page the app opens
 
-const dns = require('dns').promises;
 const net = require('net');
 const core = require('./core');
 const accounts = require('./accounts');
@@ -46,22 +45,6 @@ const APP_SETTINGS = {
   EnableBreakpadUploadCrashDump: true,
   AppRatingsEnabled: false,
 };
-
-// The game server's public name -> its IPv4 address, for join scripts. This
-// PC's own resolver first; if it fails (a home router can remember "no such
-// name" for half an hour after a DNS record is added), public resolvers.
-const publicDns = new dns.Resolver();
-publicDns.setServers(['1.1.1.1', '8.8.8.8']);
-async function ipv4Of(name) {
-  try {
-    return (await dns.lookup(name, { family: 4 })).address;
-  } catch (error) { /* asked again below */ }
-  try {
-    const list = await publicDns.resolve4(name);
-    if (list.length) return list[0];
-  } catch (error) { /* no answer */ }
-  return null;
-}
 
 // A route handler's answer meaning "not mine, try the next route" (server.js).
 const NEXT = Symbol('next route');
@@ -179,8 +162,8 @@ module.exports = function mobileApi({ send, sendUtf8, sendJson, launcher, sessio
   // --- joining a game -----------------------------------------------------------------------
 
   // Game/PlaceLauncher.ashx from the app's game engine. The player is the
-  // signed-in account (its cookie), else a guest. Unlike the PC launcher
-  // there is no local relay: the engine connects straight to the game
+  // signed-in account (its cookie), else a guest. There is no local relay
+  // (as for the PC launcher's 2017 games): the engine connects straight to the game
   // server's public address (the VPS forwards the game ports).
   async function placeLauncher(ctx) {
     const q = ctx.queryLower;
@@ -197,7 +180,7 @@ module.exports = function mobileApi({ send, sendUtf8, sendJson, launcher, sessio
     if (!match) return reply({ jobId: game.id, status: 4, message: 'The game server has no address.' });
     let ip = match[1];
     if (net.isIP(ip) === 0) {
-      ip = await ipv4Of(match[1]);
+      ip = await publicnet.ipv4Of(match[1]);
       if (!ip) return reply({ jobId: game.id, status: 4, message: `Could not look up ${match[1]}.` });
     }
     const base = baseUrl(ctx);

@@ -569,10 +569,11 @@ async function placeLauncher(ctx) {
   if (studio.cloudEditLaunch(ctx)) return;
   // The Android app's game engine (lib/mobile.js). The PC game client set up
   // for the public names (tools/patch-0300-client.py --domain) comes there
-  // too, but with its launcher's relayport: it joins the PC way, through that
-  // relay, with its addresses on the name and scheme it used.
+  // too, but with its launcher's relayport or connect=direct: it joins the PC
+  // way, with its addresses on the name and scheme it used.
   const direct = mobile.isMobile(ctx);
-  if (direct && ctx.queryLower.relayport === undefined) return mobile.placeLauncher(ctx);
+  const connectDirect = ctx.queryLower.connect === 'direct';
+  if (direct && ctx.queryLower.relayport === undefined && !connectDirect) return mobile.placeLauncher(ctx);
   const base = direct ? mobile.directBase(ctx) : 'http://localhost./';
   const q = ctx.query;
   let state = gameServerState();
@@ -594,12 +595,24 @@ async function placeLauncher(ctx) {
     }
     state = { jobId: game.id, placeId: game.placeId, address: target.ip, port: target.port };
   }
-  // playGame.bat relays the game's UDP traffic through 127.0.0.1, because
-  // this 2017 client binds its game socket to loopback and can only reach a
-  // server there (lib/relay.js). relayport is that relay's local port.
+  // Where the client connects. relayport: its launcher's game relay on
+  // 127.0.0.1 (lib/relay.js), which forwards to the game. The 2017 client
+  // before 0.300 only reached 127.0.0.1, the 2018 one always connects to
+  // localhost (lib/engines.js clientConnectPort), and launchers before 1.22.0
+  // relay every game. connect=direct: the game server itself (lib/engines.js
+  // connectsDirectly), for players through the VPS its public name, which
+  // forwards the game ports.
   const relayPort = Number(ctx.queryLower.relayport);
   if (Number.isInteger(relayPort) && relayPort > 0 && relayPort < 65536) {
     state = Object.assign({}, state, { address: '127.0.0.1', port: relayPort });
+  } else if (connectDirect) {
+    const match = /^\[?([^\]\s]+?)\]?:(\d{1,5})$/.exec(publicnet.publicAddress(ctx, `${state.address}:${state.port}`));
+    const ip = match && (net.isIP(match[1]) !== 0 ? match[1] : await publicnet.ipv4Of(match[1]));
+    if (!ip) {
+      return send(ctx, 200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+        core.phpJson({ jobId: state.jobId || '', status: 4, joinScriptUrl: null, authenticationUrl: null, authenticationTicket: null, message: `Could not look up the game server address${match ? ` ${match[1]}` : ''}.` }));
+    }
+    state = Object.assign({}, state, { address: ip, port: Number(match[2]) });
   }
   const placeId = ctypeDigit(q.placeid) ? q.placeid : String(state.placeId);
   // Who joins: the launcher's join ticket (lib/launcherapi.js) decides the

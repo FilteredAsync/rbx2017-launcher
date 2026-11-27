@@ -85,12 +85,13 @@ the same network host games with RCCService; players anywhere join them.
     "assetCacheMB" in config\client.json sets its size (default 2048, the
     least used go first; 0 turns it off). The launcher shows and clears it
     under Settings > Network.
-    The 2017 client binds its game socket to 127.0.0.1, so it can only reach
-    a game server on 127.0.0.1. playGame.bat therefore also runs a small UDP
-    relay on 127.0.0.1 ("Relaying the game connection to ...") that forwards
-    the game traffic to the host's real address (playit, Tailscale or LAN).
-    Joining without playGame.bat (e.g. launchClient.bat) only works for a
-    game on the same PC.
+    playGame.bat also runs a small UDP relay on 127.0.0.1 ("Relaying the
+    game connection to ...") that forwards the game traffic to the host's
+    real address (playit, Tailscale or LAN). The 2017 client before 0.300
+    could only reach a game server on 127.0.0.1; the 0.300 one connects where
+    its join script says, so the launcher (1.22.0 on) skips the relay for
+    2017 games on servers that offer it. Joining without playGame.bat or the
+    launcher (e.g. launchClient.bat) only works for a game on the same PC.
 
   Notes
     - Anyone who knows the web server address can join and use /asset, which
