@@ -1,9 +1,10 @@
 """Make the stock 0.300.0.138971 game client (RobloxPlayerBeta.exe, the same build
 as Server/RCCService.exe) work with this server, like the 0.299 client in Client/.
 
-    python tools/patch-0300-client.py <RobloxPlayerBeta.exe> [--domain rbx2017.com] [--scheme https]
+    python tools/patch-0300-client.py <RobloxPlayerBeta.exe>
     python tools/patch-studio-key.py <RobloxPlayerBeta.exe>      (the server's script key)
     python tools/patch-2017-isolation.py <RobloxPlayerBeta.exe>  (own registry key)
+    python tools/patch-0300-client.py <RobloxPlayerBeta.exe> --domain rbx2017.com [--scheme https]
 
 This script does the changes only this build needs:
   - its 13 "roblox.com" strings become "localhost." (same length), the names the
@@ -13,27 +14,35 @@ This script does the changes only this build needs:
     join script's address with localhost:53640, so every join went to whatever
     game server had port 53640. je -> jmp keeps the join script's address.
 
---domain points the client straight at that server's public names instead of
-the launcher's localhost. proxy. <scheme>://m.<domain>/ becomes its base
-(BaseUrl in the AppSettings.xml next to the exe; the launcher uses http on
-Windows 7 and 8), and the engine's own names
-under <domain> (api., assetgame., clientsettings.api., ephemeralcounters.api.)
-are the ones the VPS already serves for the Android app
-(tools/vps/setup-vps.sh --android). Six of the strings get the domain, in place:
-the base address, assetgame., the API address format and three lists of the
-client's own sites. Each must fit its string's slot (the string and its
-padding up to the next 4-byte boundary), so where the domain is longer than
-"roblox.com" a list entry loses its leading dot or trailing slash, and the API
-format the slash before "?". The rest (help texts, the analytics address, the
-place file schema, the started-event name) stay localhost. ClientDomain.txt
-next to the exe holds the base address: the launcher (lib/joining.js) then
-starts this client with those names and no local web proxy. The game's UDP
-traffic still goes through the launcher's relay (lib/relay.js).
+--domain (run it last, after the other patches: it copies the finished exe)
+adds a second client next to this one, set up for that server's public names
+instead of the launcher's localhost. proxy. RobloxPlayerBeta.exe and
+AppSettings.xml stay as they are, so launchers before 1.21.1 keep starting
+the localhost. client through their proxy; the same game files work with both.
+  - RobloxPlayerBetaDirect.exe: a copy with six strings pointing at the domain,
+    in place: its own base address (http://m.<domain>, as Roblox's was http),
+    assetgame., the API address format and three lists of its own sites (the
+    plain list entry is the one its join trust check reads, so this client
+    no longer trusts localhost.). Each must fit its string's slot (the string
+    and its padding up to the next 4-byte boundary), so where the domain is
+    longer than "roblox.com" an entry loses its leading dot or trailing slash,
+    and the API format the slash before "?". It reads AppSettingD.xml instead
+    of AppSettings.xml: the name must keep its length (a longer one overruns
+    the client's buffer and it quits at start).
+  - AppSettingD.xml: AppSettings.xml with BaseUrl http://m.<domain>/ (byte for
+    byte otherwise: the client's reader needs its CRLF line ends).
+  - ClientDirect.txt: <scheme>://m.<domain>/, the base address the launcher
+    (lib/joining.js, 1.21.1 on) starts RobloxPlayerBetaDirect.exe with, with no
+    local web proxy (http on Windows 7 and 8). Its names under <domain> (m.,
+    api., assetgame., clientsettings.api., ephemeralcounters.api.) are the ones
+    the VPS already serves for the Android app (tools/vps/setup-vps.sh
+    --android). The game's UDP still goes through the launcher's relay.
 
 The matching shaders and content come from the same build's client folder: the
 0.300 renderer draws no 3D world with the 0.299 shader packs. RCC disconnects
 this build right after joining unless patch-rcc-signature.ps1 has run (see
-lib/hosting.js). Runs again safely: patched parts are skipped.
+lib/hosting.js). Runs again safely: patched parts are skipped, and the second
+client is made again from RobloxPlayerBeta.exe each time.
 """
 import os
 import re
@@ -43,18 +52,22 @@ import pefile
 
 REDIRECT_VA, REDIRECT_OLD, REDIRECT_NEW = 0xBF12D7, bytes([0x74, 0x16]), bytes([0xEB, 0x16])
 
-# The client's own names (localhost. after the swap) that --domain rewrites, and
-# the forms to try for a domain, longest first; each gets the first that fits.
+DIRECT_EXE = 'RobloxPlayerBetaDirect.exe'
+DIRECT_MARKER = 'ClientDirect.txt'
+SETTINGS, DIRECT_SETTINGS = 'AppSettings.xml', 'AppSettingD.xml'
+SETTINGS_PATH = (b'\\' + SETTINGS.encode('ascii'), b'\\' + DIRECT_SETTINGS.encode('ascii'))
+
+# The client's own names (localhost. after the swap) that --domain rewrites in
+# the second client, and the forms to try for a domain, longest first; each
+# gets the first that fits.
 DOMAIN_STRINGS = [
-    # Its own base address stays http, as Roblox's was (http://www.roblox.com):
-    # the VPS answers both, and Windows 7 may not get through TLS.
-    (b'http://www.localhost.', lambda d, s: [f'http://m.{d}']),
-    (b'assetgame.localhost.', lambda d, s: [f'assetgame.{d}']),
-    (b'localhost.', lambda d, s: [d]),
-    (b'.localhost.', lambda d, s: [f'.{d}', d]),
-    (b'localhost./', lambda d, s: [f'{d}/', d]),
+    (b'http://www.localhost.', lambda d: [f'http://m.{d}']),
+    (b'assetgame.localhost.', lambda d: [f'assetgame.{d}']),
+    (b'localhost.', lambda d: [d]),
+    (b'.localhost.', lambda d: [f'.{d}', d]),
+    (b'localhost./', lambda d: [f'{d}/', d]),
     (b'%s://%sapi.localhost./%s/?apiKey=%s',
-     lambda d, s: [f'%s://%sapi.{d}/%s/?apiKey=%s', f'%s://%sapi.{d}/%s?apiKey=%s']),
+     lambda d: [f'%s://%sapi.{d}/%s/?apiKey=%s', f'%s://%sapi.{d}/%s?apiKey=%s']),
 ]
 
 
@@ -76,40 +89,52 @@ def slot(data, start, length):
     return end - start if not any(data[start + length:end]) else length + 1
 
 
-def point_at_domain(data, domain, scheme, notes):
+def only(data, text, what):
+    spots = c_strings(data, text)
+    if len(spots) != 1:
+        sys.exit(f'"{text.decode()}" ({what}) is in the file {len(spots)} times, expected once:'
+                 ' RobloxPlayerBeta.exe must be the localhost. client')
+    return spots[0]
+
+
+def point_at_domain(data, domain, notes):
     for old, forms in DOMAIN_STRINGS:
-        candidates = [form.encode('ascii') for form in forms(domain, scheme)]
-        spots = c_strings(data, old)
-        if not spots:
-            if any(c_strings(data, candidate) for candidate in candidates):
-                notes.append(f'{old.decode()}: already {domain}')
-                continue
-            sys.exit(f'no "{old.decode()}" string to point at {domain}')
-        if len(spots) != 1:
-            sys.exit(f'"{old.decode()}" is in the file {len(spots)} times, expected once')
-        start = spots[0]
+        candidates = [form.encode('ascii') for form in forms(domain)]
+        start = only(data, old, 'a name to point at the domain')
         room = slot(data, start, len(old))
         new = next((candidate for candidate in candidates if len(candidate) < room), None)
         if new is None:
             sys.exit(f'{domain} is too long for "{old.decode()}" ({room - 1} characters at most)')
         data[start:start + room] = new + b'\0' * (room - len(new))
         notes.append(f'{old.decode()} -> {new.decode()}')
+    old, new = SETTINGS_PATH
+    start = only(data, old, 'the settings file')
+    data[start:start + len(old)] = new
+    notes.append(f'reads {DIRECT_SETTINGS}')
 
 
-def set_base_url(folder, base):
-    """BaseUrl in the client's AppSettings.xml, and ClientDomain.txt for the launcher."""
-    settings = os.path.join(folder, 'AppSettings.xml')
+def write_direct(folder, data, domain, scheme, notes):
+    with open(os.path.join(folder, DIRECT_EXE), 'wb') as handle:
+        handle.write(data)
+    settings = os.path.join(folder, SETTINGS)
     if not os.path.isfile(settings):
         sys.exit(f'{settings} is missing: the client needs it next to the exe')
     text = open(settings, 'rb').read()
-    updated, count = re.subn(rb'<BaseUrl>[^<]*</BaseUrl>', b'<BaseUrl>' + base.encode('ascii') + b'</BaseUrl>', text)
+    direct, count = re.subn(rb'<BaseUrl>[^<]*</BaseUrl>', f'<BaseUrl>http://m.{domain}/</BaseUrl>'.encode('ascii'), text)
     if count != 1:
         sys.exit(f'{settings} has {count} <BaseUrl> elements, expected one')
-    if updated != text:
-        with open(settings, 'wb') as handle:
-            handle.write(updated)
-    with open(os.path.join(folder, 'ClientDomain.txt'), 'wb') as handle:
+    with open(os.path.join(folder, DIRECT_SETTINGS), 'wb') as handle:
+        handle.write(direct)
+    base = f'{scheme}://m.{domain}/'
+    with open(os.path.join(folder, DIRECT_MARKER), 'wb') as handle:
         handle.write(f'{base}\n'.encode('ascii'))
+    # The first version of --domain changed RobloxPlayerBeta.exe in place and
+    # left this file; launcher 1.21.0 would start the localhost. client with it.
+    stale = os.path.join(folder, 'ClientDomain.txt')
+    if os.path.isfile(stale):
+        os.remove(stale)
+        notes.append('removed ClientDomain.txt')
+    notes.append(f'{DIRECT_EXE}, {DIRECT_SETTINGS} (http://m.{domain}/) and {DIRECT_MARKER} ({base})')
 
 
 def main():
@@ -164,15 +189,13 @@ def main():
     else:
         sys.exit(f'{exe}: unexpected bytes {here.hex()} at {REDIRECT_VA:#x}')
 
-    if domain is not None:
-        point_at_domain(data, domain, scheme, notes)
-
     with open(exe, 'wb') as handle:
         handle.write(data)
+
     if domain is not None:
-        base = f'{scheme}://m.{domain}/'
-        set_base_url(os.path.dirname(os.path.abspath(exe)), base)
-        notes.append(f'BaseUrl and ClientDomain.txt: {base}')
+        direct = bytearray(data)
+        point_at_domain(direct, domain, notes)
+        write_direct(os.path.dirname(os.path.abspath(exe)), direct, domain, scheme, notes)
     print(f'{os.path.basename(exe)}: ' + '; '.join(notes))
 
 
