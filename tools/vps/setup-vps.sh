@@ -12,7 +12,7 @@
 #                                        on Cloudflare, "DNS only", or UDP and the
 #                                        certificate fail)
 #   bash setup-vps.sh --site URL         send browsers opening the bare address
-#                                        (https://NAME/ only) to the website, such
+#                                        (https://NAME/ and /favicon.ico) to the website, such
 #                                        as https://www.rbx2017.com (site/README.md)
 #   bash setup-vps.sh --android          also serve the Android app's names
 #                                        (tools/build-android-apk.py): m, api,
@@ -167,7 +167,7 @@ fi
 echo "== Caddy (HTTPS for $SITES${ANDROID_SITES:+, and the Android names})"
 [ -f /etc/caddy/Caddyfile ] && [ ! -f /etc/caddy/Caddyfile.before-rbx ] && cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.before-rbx
 SITE_REDIRECT=""
-[ -n "$SITE" ] && SITE_REDIRECT=$'\t# The bare address in a browser opens the website (site/). Permanent,\n\t# so search engines take www as the main address.\n\tredir / '"$SITE"$' 301\n'
+[ -n "$SITE" ] && SITE_REDIRECT=$'\t# The bare address in a browser opens the website (site/). Permanent,\n\t# so search engines take www as the main address. The icon goes along\n\t# so search results for the bare address show it.\n\tredir / '"$SITE"$' 301\n\tredir /favicon.ico '"${SITE%/}"$'/favicon.ico 301\n'
 ANDROID_BLOCK=""
 [ -n "$ANDROID_SITES" ] && ANDROID_BLOCK=$'
 # The Android app.
