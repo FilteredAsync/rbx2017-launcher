@@ -1,14 +1,17 @@
 'use strict';
 
 // Joining a multiplayer game, shared by play.js (playGame.bat) and the
-// launcher. The client only talks to http://localhost./, so unless the web
-// server runs on this PC, a local proxy on port 80 forwards its requests to
-// the central web server. Its game traffic goes through a local UDP relay
-// (lib/relay.js), because this 2017 client can only reach a game server on
-// 127.0.0.1.
+// launcher. A client that only talks to http://localhost./ needs, unless the
+// web server runs on this PC, a local proxy on port 80 that forwards its
+// requests to the central web server. A 2017 client set up for the server's
+// public names (tools/patch-0300-client.py --domain; ClientDomain.txt next to
+// it) talks to them itself and needs no proxy. Either way its game traffic
+// goes through a local UDP relay (lib/relay.js), because this 2017 client can
+// only reach a game server on 127.0.0.1.
 
 const { spawn } = require('child_process');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const core = require('./core');
 const engines = require('./engines');
@@ -22,6 +25,34 @@ const CLIENT_EXE = core.rootPath('Client', 'RobloxPlayerBeta.exe');
 // lib/engines.js): Client/ for 2017, Client<year>/ for the others.
 function clientExe(engine) {
   return core.rootPath(engines.clientFolder(engine), 'RobloxPlayerBeta.exe');
+}
+
+// Windows 7 and 8: their WinInet may not get through TLS with the VPS's
+// certificate, so the client there uses the same names over plain HTTP (the
+// VPS serves both; tools/vps/setup-vps.sh --android).
+const OLD_TLS = process.platform === 'win32' && /^6\.[12]\./.test(os.release());
+
+// The base address of a client set up for the server's public names
+// (ClientDomain.txt next to it, e.g. https://m.rbx2017.com/; http on Windows
+// 7 and 8), or null for a client that talks to localhost. through the proxy.
+function clientDomainBase(exe) {
+  const text = core.readText(path.join(path.dirname(exe), 'ClientDomain.txt'));
+  if (text === null) return null;
+  const base = text.trim();
+  if (!/^https?:\/\/m\.[a-z0-9-]+(?:\.[a-z0-9-]+)+\/$/i.test(base)) return null;
+  return OLD_TLS ? base.replace(/^https:/i, 'http:') : base;
+}
+
+// The client reads its base address from AppSettings.xml when it starts: keep
+// it the one this PC uses. A folder it can't write to keeps the old one; the
+// join script sets the base again once the game starts.
+function syncBaseUrl(exe, base) {
+  const file = path.join(path.dirname(exe), 'AppSettings.xml');
+  const text = core.readText(file);
+  if (text === null) return;
+  const updated = text.replace(/<BaseUrl>[^<]*<\/BaseUrl>/, `<BaseUrl>${base}</BaseUrl>`);
+  if (updated === text) return;
+  try { fs.writeFileSync(file, updated); } catch (error) { /* read-only folder */ }
 }
 
 // A client that closes this soon after starting did not get into the game
@@ -194,9 +225,15 @@ async function joinGame({ centralUrl, username, ticket = null, name = null, game
   if (!ticket && !validUsername(username)) throw new Error('the username needs 3-20 letters, digits or _');
   const userId = ticket ? null : core.localUserId(username);
 
-  // Shared with Studio (both need port 80); closed when neither runs.
+  // Shared with Studio (both need port 80); closed when neither runs. A client
+  // set up for the public names goes there itself.
+  const directBase = clientDomainBase(exe);
+  if (directBase) syncBaseUrl(exe, directBase);
+  const home = directBase || 'http://localhost./';
   let localProxy = null;
-  if (!proxy.centralIsLocalPort80(centralUrl)) {
+  if (directBase) {
+    log(`The client talks to ${directBase} itself.`);
+  } else if (!proxy.centralIsLocalPort80(centralUrl)) {
     localProxy = await proxy.acquireProxy(centralUrl, log);
     log(`Forwarding the client's web requests to ${centralUrl}.`);
   }
@@ -218,13 +255,13 @@ async function joinGame({ centralUrl, username, ticket = null, name = null, game
   };
 
   const who = ticket ? `ticket=${ticket}` : `username=${encodeURIComponent(username)}&id=${userId}`;
-  let joinUrl = `http://localhost./game/placelauncher.ashx/?gameId=${encodeURIComponent(game.id)}&${who}&relayport=${gameRelay.port}`;
+  let joinUrl = `${home}game/placelauncher.ashx/?gameId=${encodeURIComponent(game.id)}&${who}&relayport=${gameRelay.port}`;
   // Clients before 2016 (lib/engines.js directJoin) run their -j address as
   // the join script itself instead of following placelauncher's answer, so
   // they get the join script address it names.
   if (game.joinMode === 'direct') {
     try {
-      const answer = await (await fetch(`${centralUrl}${joinUrl.slice('http://localhost.'.length)}`, { signal: AbortSignal.timeout(15000) })).json();
+      const answer = await (await fetch(`${centralUrl}${joinUrl.slice(home.length - 1)}`, { signal: AbortSignal.timeout(15000) })).json();
       if (!answer || !answer.joinScriptUrl) throw new Error(answer && answer.message ? answer.message : 'no join script address');
       joinUrl = answer.joinScriptUrl;
     } catch (error) {
@@ -243,7 +280,7 @@ async function joinGame({ centralUrl, username, ticket = null, name = null, game
   let stopped = false;
   let child;
   try {
-    child = spawn(exe, ['--play', '-a', 'http://localhost./Login/Negotiate.ashx/', '-t', 'Test', '-j', joinUrl], {
+    child = spawn(exe, ['--play', '-a', `${home}Login/Negotiate.ashx/`, '-t', 'Test', '-j', joinUrl], {
       cwd: path.dirname(exe),
       stdio: 'ignore',
       env: isolatedEnv(),

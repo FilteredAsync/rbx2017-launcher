@@ -567,8 +567,13 @@ async function characterAppearance(ctx) {
 async function placeLauncher(ctx) {
   // Studio joining a Team Create server (lib/studio.js).
   if (studio.cloudEditLaunch(ctx)) return;
-  // The Android app's game engine (lib/mobile.js).
-  if (mobile.isMobile(ctx)) return mobile.placeLauncher(ctx);
+  // The Android app's game engine (lib/mobile.js). The PC game client set up
+  // for the public names (tools/patch-0300-client.py --domain) comes there
+  // too, but with its launcher's relayport: it joins the PC way, through that
+  // relay, with its addresses on the name and scheme it used.
+  const direct = mobile.isMobile(ctx);
+  if (direct && ctx.queryLower.relayport === undefined) return mobile.placeLauncher(ctx);
+  const base = direct ? mobile.directBase(ctx) : 'http://localhost./';
   const q = ctx.query;
   let state = gameServerState();
   const gameId = ctx.queryLower.gameid;
@@ -611,8 +616,8 @@ async function placeLauncher(ctx) {
     userId = String(who.userId);
     username = who.name;
   }
-  const appearance = `http://localhost./v1.1/avatar-fetch/?placeId=${rawurlencode(placeId)}&userId=${rawurlencode(userId)}`;
-  const joinUrl = 'http://localhost./game/join.php'
+  const appearance = `${base}v1.1/avatar-fetch/?placeId=${rawurlencode(placeId)}&userId=${rawurlencode(userId)}`;
+  const joinUrl = `${base}game/join.php`
     + `?placeid=${rawurlencode(placeId)}`
     + `&ip=${rawurlencode(state.address)}`
     + `&port=${rawurlencode(String(state.port))}`
@@ -624,7 +629,7 @@ async function placeLauncher(ctx) {
     jobId: state.jobId,
     status: 2,
     joinScriptUrl: joinUrl,
-    authenticationUrl: 'http://localhost./Login/Negotiate.ashx/',
+    authenticationUrl: `${base}Login/Negotiate.ashx/`,
     authenticationTicket: 'Test',
     message: null,
   }));
@@ -653,9 +658,10 @@ function join(ctx) {
     id = String(guest.userId);
     user = guest.name;
   }
-  // The Android app's engine reaches this server by its public name, not
-  // through the PC launcher's localhost. proxy.
-  const mobileBase = mobile.isMobile(ctx) ? mobile.baseUrl(ctx) : null;
+  // The Android app's engine, and the PC client set up for the public names,
+  // reach this server by its public name, not through the PC launcher's
+  // localhost. proxy; the base keeps the scheme the request came in on.
+  const mobileBase = mobile.isMobile(ctx) ? mobile.directBase(ctx) : null;
   const app = `${mobileBase || 'http://localhost./'}v1.1/avatar-fetch/?placeId=${placeid}&userId=${id}`;
   avatar.rememberLocalUser(id, String(user));
   if (net.isIP(ip) === 0) ip = '127.0.0.1';

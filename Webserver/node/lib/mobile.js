@@ -15,6 +15,8 @@
 //   mobile.pageRoutes         its pages, tried first for the m. host
 //   mobile.isMobile(ctx)      the request came to m.<domain>
 //   mobile.baseUrl(ctx)       "https://m.<domain>/" (join scripts)
+//   mobile.directBase(ctx)    "<scheme>://m.<domain>/" on the request's own scheme
+//                             (the PC client set up for these names)
 //   await mobile.placeLauncher(ctx)
 //   mobile.notHerePage(ctx)   any other page the app opens
 
@@ -79,6 +81,16 @@ module.exports = function mobileApi({ send, sendUtf8, sendJson, launcher, sessio
   const baseUrl = (ctx) => {
     const match = MOBILE_HOST.exec(hostOf(ctx));
     return `https://m.${match ? match[1] : hostOf(ctx)}/`;
+  };
+  // The same base on the scheme the request came in on: the PC game client
+  // set up for these names (tools/patch-0300-client.py --domain) may use
+  // plain HTTP (the VPS serves both; its Caddy says which in
+  // X-Forwarded-Proto), and its join script must keep that scheme.
+  const directBase = (ctx) => {
+    const match = MOBILE_HOST.exec(hostOf(ctx));
+    const forwarded = ctx.publicHost ? String(ctx.req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase() : '';
+    const scheme = forwarded === 'http' || forwarded === 'https' ? forwarded : (ctx.req.socket.encrypted ? 'https' : 'http');
+    return `${scheme}://m.${match ? match[1] : hostOf(ctx)}/`;
   };
   const json = (value) => (ctx) => sendJson(ctx, 200, value);
   // https://m.<domain>/ from any of the app's names (api., chat., m. ...): the
@@ -281,6 +293,7 @@ main{padding:12px;max-width:720px;margin:0 auto}h1{font-size:20px;font-weight:60
     upgrade: chatApi.upgrade,
     isMobile,
     baseUrl,
+    directBase,
     placeLauncher,
     notHerePage,
     routes: [

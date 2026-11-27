@@ -1,5 +1,13 @@
 [
   {
+    "version": "1.21.0",
+    "date": "2026-11-26",
+    "title": "Direct connection",
+    "items": [
+      "2017 games connect to rbx2017.com directly now, instead of through port 80 on your PC. This starts with the next game files update in Settings > Setup."
+    ]
+  },
+  {
     "version": "1.20.0",
     "date": "2026-11-26",
     "title": "New look",
