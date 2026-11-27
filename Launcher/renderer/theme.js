@@ -3,33 +3,32 @@
 // The launcher's look (Settings > Theme). Loaded in <head>, so the saved theme
 // is on <html> before anything draws:
 //   data-theme   the theme's id (themes.css has its colors and touches)
-//   data-family  "web" (website looks, theme-web.css) or "console" (Xbox, style.css)
+//   data-family  always "web": every look is a website look (theme-web.css)
 //   data-nav     "top" (tabs in the header) or "side" (a column on the left)
 // An imported theme pack (themepack.js) runs on top of its base theme: its
 // colors go on <html> as custom properties and its CSS in an adopted sheet.
 // The active pack is cached in localStorage so it, too, is there before paint.
 (function () {
   const BUILTIN = [
-    { id: 'web2014', name: '2014', year: 2014, family: 'web', nav: 'top' },
-    { id: 'web2015', name: '2015', year: 2015, family: 'web', nav: 'top' },
-    { id: 'web2016', name: '2016', year: 2016, family: 'web', nav: 'top' },
-    { id: 'web2017', name: '2017', year: 2017, family: 'web', nav: 'side' },
-    { id: 'web2017-dark', name: '2017 dark', year: 2017, family: 'web', nav: 'side', dark: true },
-    { id: 'web2018', name: '2018', year: 2018, family: 'web', nav: 'side' },
-    { id: 'web2018-dark', name: '2018 dark', year: 2018, family: 'web', nav: 'side', dark: true },
-    { id: 'web2019', name: '2019', year: 2019, family: 'web', nav: 'side' },
-    { id: 'web2019-dark', name: '2019 dark', year: 2019, family: 'web', nav: 'side', dark: true },
-    { id: 'xbox2016', name: 'Xbox One', year: 2016, family: 'console', nav: 'top', dark: true },
-    { id: 'xbox', name: 'Xbox', year: 2017, family: 'console', nav: 'top', dark: true },
-    { id: 'studio-light', name: 'Studio', year: 2017, family: 'web', nav: 'side' },
-    { id: 'studio-dark', name: 'Studio dark', year: 2018, family: 'web', nav: 'side', dark: true },
-    { id: 'bc', name: 'Builders Club', family: 'web', nav: 'top', dark: true },
-    { id: 'midnight', name: 'Midnight', family: 'web', nav: 'side', dark: true },
-    { id: 'light', name: 'Light', family: 'web', nav: 'top' },
-    { id: 'contrast', name: 'High contrast', family: 'web', nav: 'top', dark: true },
+    { id: 'web2014', name: '2014', year: 2014, nav: 'top' },
+    { id: 'web2015', name: '2015', year: 2015, nav: 'top' },
+    { id: 'web2016', name: '2016', year: 2016, nav: 'top' },
+    { id: 'web2017', name: '2017', year: 2017, nav: 'side' },
+    { id: 'web2017-dark', name: '2017 dark', year: 2017, nav: 'side', dark: true },
+    { id: 'web2018', name: '2018', year: 2018, nav: 'side' },
+    { id: 'web2018-dark', name: '2018 dark', year: 2018, nav: 'side', dark: true },
+    { id: 'web2019', name: '2019', year: 2019, nav: 'side' },
+    { id: 'web2019-dark', name: '2019 dark', year: 2019, nav: 'side', dark: true },
+    { id: 'studio-light', name: 'Studio', year: 2017, nav: 'side' },
+    { id: 'studio-dark', name: 'Studio dark', year: 2018, nav: 'side', dark: true },
+    { id: 'bc', name: 'Builders Club', nav: 'top', dark: true },
+    { id: 'midnight', name: 'Midnight', nav: 'side', dark: true },
+    { id: 'light', name: 'Light', nav: 'top' },
+    { id: 'contrast', name: 'High contrast', nav: 'top', dark: true },
   ];
   const DEFAULT = 'web2017';
-  // Values saved by launchers before 1.20.
+  // Values saved by older launchers: "site" (before 1.20). The Xbox looks
+  // ("xbox", "xbox2016") are gone; they and anything unknown get the default.
   const OLD = { site: 'web2017' };
   const CUSTOM = 'custom:';
 
@@ -51,14 +50,16 @@
   }
 
   // id: a built-in id, or a pack: { id, base, dark, vars, css } (css with
-  // its pictures already in place, from ThemePack.compile).
+  // its pictures already in place, from ThemePack.compile). A pack whose
+  // base is no longer here (an Xbox one) isn't used: the default instead.
   function apply(choice) {
     const root = document.documentElement;
-    const pack = choice && typeof choice === 'object' ? choice : null;
+    let pack = choice && typeof choice === 'object' ? choice : null;
+    if (pack && !find(pack.base)) pack = null;
     const theme = find(pack ? pack.base : choice) || find(DEFAULT);
     clearCustom(root);
     root.dataset.theme = theme.id;
-    root.dataset.family = theme.family;
+    root.dataset.family = 'web';
     root.dataset.nav = theme.nav;
     if (!pack) return theme;
     root.dataset.custom = pack.id;
@@ -83,7 +84,7 @@
     if (value && value.indexOf(CUSTOM) === 0) {
       try {
         const pack = JSON.parse(read('themePack') || 'null');
-        if (pack && CUSTOM + pack.id === value) return pack;
+        if (pack && CUSTOM + pack.id === value && find(pack.base)) return pack;
       } catch (error) { /* a broken cache: the default */ }
       return DEFAULT;
     }

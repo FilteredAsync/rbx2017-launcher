@@ -16,9 +16,6 @@ const fs = require('fs');
 const path = require('path');
 
 const SERVER_PATHS = /^(?:asset\/?|asset-thumbnail\/image|bundle-thumbnail\/image|group-thumbnail\/image|avatar-thumbnail\/image|headshot-thumbnail\/image|api\/launcher\/item\/\d{1,19}|api\/launcher\/outfit-image\/\d{1,15}\/[0-9a-f]{12}|api\/thumbnails\/\d{1,15})$/i;
-// The ROBLOX logo comes from the server (the public download has none) and
-// is kept in config/ so it shows offline too.
-const LOGO_PATH = /^download\/(roblox-logo(?:-tagline)?\.png)$/i;
 const CLIENT_TYPES = { '.mesh': 'application/octet-stream', '.png': 'image/png', '.jpg': 'image/jpeg', '.ttf': 'font/ttf', '.otf': 'font/otf', '.mp3': 'audio/mpeg' };
 const CACHE_LIMIT = 160 * 1024 * 1024;
 // Pictures of avatars change when players save; everything else is fixed by ID.
@@ -212,30 +209,6 @@ module.exports = function accountModule({ ROOT, lib }) {
     return new Response(text || 'not found', { status: 404, headers: { 'Content-Type': 'text/plain', 'Access-Control-Allow-Origin': '*' } });
   }
 
-  const logoTries = new Map();
-  async function serveLogo(name) {
-    const file = path.join(ROOT, 'config', name);
-    // Asked from the server once per run; the saved copy otherwise.
-    if (!logoTries.has(name)) {
-      logoTries.set(name, (async () => {
-        try {
-          const response = await fetch(`${serverUrl()}/download/${name}`, { signal: AbortSignal.timeout(15000) });
-          if (!response.ok) return;
-          const bytes = Buffer.from(await response.arrayBuffer());
-          if (bytes.length < 8 || bytes.length > 4 * 1024 * 1024 || bytes.readUInt32BE(0) !== 0x89504e47) return;
-          fs.mkdirSync(path.dirname(file), { recursive: true });
-          fs.writeFileSync(file, bytes);
-        } catch (error) { /* offline: keep the saved copy */ }
-      })());
-    }
-    await logoTries.get(name);
-    try {
-      return reply({ status: 200, type: 'image/png', bytes: fs.readFileSync(file) });
-    } catch (error) {
-      return notFound('no logo');
-    }
-  }
-
   async function handleNet(request) {
     if (request.method !== 'GET') return notFound('GET only');
     const url = new URL(request.url);
@@ -251,8 +224,6 @@ module.exports = function accountModule({ ROOT, lib }) {
         return notFound();
       }
     }
-    const logo = url.hostname === 'server' ? LOGO_PATH.exec(relative) : null;
-    if (logo) return serveLogo(logo[1].toLowerCase());
     if (url.hostname !== 'server' || !SERVER_PATHS.test(relative)) return notFound();
     let base;
     try { base = serverUrl(); } catch (error) { return notFound('no server set'); }

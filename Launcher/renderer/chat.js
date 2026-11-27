@@ -7,7 +7,7 @@
 // only the unread counts, every 20 s (and the main process's 30 s beat, which
 // also shows notifications).
 //
-//   const chat = ChatView.create({ api, el, message, personPicture, openProfile, sfx, getMe, onCounts })
+//   const chat = ChatView.create({ api, el, message, personPicture, openProfile, getMe, onCounts })
 //   chat.activate()  chat.deactivate()  chat.reset()  chat.openWith(person)  chat.writeTo(person)
 //   chat.setCounts(counts)  chat.refreshCounts()
 
@@ -19,7 +19,7 @@
   const TYPING_EVERY_MS = 3000;
   const RUN_MS = 5 * 60 * 1000; // lines closer than this from one sender share a name
 
-  function create({ api, el, message, personPicture, openProfile, sfx, getMe, onCounts, onTrades }) {
+  function create({ api, el, message, personPicture, openProfile, getMe, onCounts, onTrades }) {
     let active = false;
     let mode = 'chat';
     let unsupported = false;
@@ -352,7 +352,6 @@
           shown.push(...fresh);
           open.lastSeq = fresh[fresh.length - 1].seq;
           renderMessages(false);
-          if (fresh.some((m) => !m.mine)) sfx.play('select');
         }
         const before = JSON.stringify([open.convo && open.convo.canSend, open.convo && open.convo.members.map((m) => m.userId + m.presence), open.convo && open.convo.title]);
         open.convo = data.conversation;

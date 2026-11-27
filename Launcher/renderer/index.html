@@ -10,20 +10,16 @@
   <script src="theme.js"></script>
 </head>
 <body class="on-start">
-  <div class="backdrop" aria-hidden="true"><canvas id="bg-canvas"></canvas></div>
-
-  <!-- START: press A, like the console app -->
+  <!-- START: shown while the launcher signs in -->
   <section class="screen" id="screen-start">
-    <img class="start-logo logo-img" src="roblox-logo-tagline.png" alt="ROBLOX" draggable="false">
     <div class="wordmark start-mark"><b>rbx</b>2017</div>
-    <button class="start-press" id="start-press"><b class="btn btn-a">A</b><span>Press to start</span></button>
+    <div class="start-status" id="start-status" role="status"></div>
     <div class="start-foot" id="start-foot"></div>
   </section>
 
   <!-- SIGN IN / SIGN UP -->
   <section class="screen hidden" id="screen-account">
     <div class="account-box">
-      <img class="account-logo logo-img" src="roblox-logo.png" alt="ROBLOX" draggable="false">
       <div class="wordmark account-mark"><b>rbx</b>2017</div>
       <div class="account-switch" id="account-switch">
         <button class="switch-tab active" data-mode="signin">Sign in</button>
@@ -49,7 +45,6 @@
   <!-- MAIN -->
   <div class="hidden" id="shell">
     <header class="top">
-      <img class="logo logo-img" src="roblox-logo.png" alt="ROBLOX" draggable="false">
       <div class="wordmark top-mark"><b>rbx</b>2017</div>
       <div class="top-right">
         <button class="update-pill hidden" id="update-pill" title="A new launcher version"></button>
@@ -94,7 +89,6 @@
       </div>
       <div class="home-grid">
         <div class="col col-me">
-          <div class="col-title" id="home-username">Guest</div>
           <div class="home-hello" id="home-hello">Hello, <b id="home-hello-name">Guest</b>!</div>
           <button class="avatar-panel nav-target" id="avatar-panel" data-goto="avatar">
             <img id="avatar-img" class="hidden" alt="">
@@ -445,12 +439,21 @@
                 <input type="range" class="volume" id="volume-music" min="0" max="100" step="5">
                 <span class="volume-value" id="volume-music-value"></span>
               </label>
-              <label class="volume-row">
-                <span class="volume-name">Sounds</span>
-                <input type="range" class="volume" id="volume-sounds" min="0" max="100" step="5">
-                <span class="volume-value" id="volume-sounds-value"></span>
-              </label>
               <p class="hint" id="music-hint"></p>
+            </div>
+            <div class="panel" id="music-panel">
+              <div class="label">Menu music</div>
+              <div class="music-choice" id="music-choice" role="radiogroup" aria-label="Menu music">
+                <button class="music-pick" data-music="server" role="radio" aria-checked="true">Server's music</button>
+                <button class="music-pick" data-music="own" role="radio" aria-checked="false">My own</button>
+              </div>
+              <div class="music-now" id="music-now"></div>
+              <ul class="music-list hidden" id="music-list"></ul>
+              <div class="row tight">
+                <button class="ghost" id="music-add">Add music…</button>
+                <span class="status" id="music-status"></span>
+              </div>
+              <p class="hint">MP3, OGG, WAV or M4A, up to 50 MB each. Yours play on shuffle.</p>
             </div>
           </div>
 
@@ -463,12 +466,6 @@
                 <span class="status" id="theme-status"></span>
               </div>
               <p class="hint">Ctrl+Shift+T puts the default look back.</p>
-            </div>
-            <div class="panel console-only">
-              <div class="label">Background</div>
-              <div class="row tight">
-                <button class="ghost" id="toggle-background">Background: Classic</button>
-              </div>
             </div>
           </div>
 
@@ -753,25 +750,14 @@
     </div>
   </div>
 
-  <footer class="hints" id="hints">
-    <span class="hint-item"><b class="btn btn-a">A</b> Select</span>
-    <span class="hint-item" data-hint="back"><b class="btn btn-b">B</b> Back</span>
-    <span class="hint-item" data-hint="shell"><b class="btn btn-y">Y</b> Music</span>
-    <span class="hint-item" data-hint="shell"><b class="btn btn-bumper">LB</b><b class="btn btn-bumper">RB</b> Tabs</span>
-    <span class="hint-item" data-hint="avatar"><b class="btn btn-bumper">LT</b><b class="btn btn-bumper">RT</b> Turn</span>
-    <button class="settings-hint" id="settings-hint" data-hint="shell"><b class="btn btn-x">X</b> Settings</button>
-  </footer>
-
   <div class="toast hidden" id="toast"></div>
-  <audio id="music" loop preload="auto"></audio>
+  <audio id="music" preload="auto"></audio>
   <script src="vendor/three.min.js"></script>
   <script src="avatar3d.js"></script>
-  <script src="background.js"></script>
   <script src="avatareditor.js"></script>
   <script src="chat.js"></script>
   <script src="groups.js"></script>
   <script src="trades.js"></script>
-  <script src="sfx.js"></script>
   <script src="themepack.js"></script>
   <script src="app.js"></script>
 </body>

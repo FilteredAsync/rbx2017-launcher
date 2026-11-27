@@ -5,7 +5,7 @@
 // admins). Making a group costs R$ 100. Server: /api/launcher/groups
 // (lib/groupapi.js, servers from 2026-11-21 on).
 //
-//   const groupsView = GroupsView.create({ api, el, message, personPicture, openProfile, getMe, onRobux, sfx })
+//   const groupsView = GroupsView.create({ api, el, message, personPicture, openProfile, getMe, onRobux })
 //   groupsView.activate()   groupsView.reset()   groupsView.open(groupId)
 
 (function () {
@@ -13,7 +13,7 @@
   const NET = 'launcher-net://server/';
   const SECTIONS = [['about', 'About'], ['members', 'Members'], ['wall', 'Wall'], ['manage', 'Manage']];
 
-  function create({ api, el, message, personPicture, openProfile, getMe, onRobux, sfx }) {
+  function create({ api, el, message, personPicture, openProfile, getMe, onRobux }) {
     let mine = [];
     let results = null; // a search's groups, or null
     let current = null; // the open group's page
